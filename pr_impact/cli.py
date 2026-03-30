@@ -21,7 +21,7 @@ def _invert_graph(forward: dict[str, list[str]]) -> dict[str, list[str]]:
 
 
 @click.group()
-def main():
+def main() -> None:
     pass
 
 
@@ -31,8 +31,12 @@ def main():
 @click.option("--head", required=True, help="Head commit SHA")
 @click.option("--output", default=None, help="Write Markdown report to this file")
 @click.option("--json", "json_output", default=None, help="Write JSON sidecar to this file")
-@click.option("--max-depth", default=3, show_default=True, help="Maximum BFS depth for blast radius")
-def analyse(repo: str, base: str, head: str, output: str | None, json_output: str | None, max_depth: int):
+@click.option(
+    "--max-depth", default=3, show_default=True, help="Maximum BFS depth for blast radius"
+)
+def analyse(
+    repo: str, base: str, head: str, output: str | None, json_output: str | None, max_depth: int
+) -> None:
     """Analyse the impact of a code change between two commit SHAs."""
     with Progress(
         SpinnerColumn(),
@@ -40,7 +44,6 @@ def analyse(repo: str, base: str, head: str, output: str | None, json_output: st
         console=Console(stderr=True),
         transient=True,
     ) as progress:
-
         # Step 1: get changed files
         task = progress.add_task("Extracting changed files...", total=None)
         try:
@@ -98,7 +101,7 @@ def analyse(repo: str, base: str, head: str, output: str | None, json_output: st
         progress.remove_task(task)
 
     # --- Summary output to stderr ---
-    stderr.print(f"\n[bold]PrImpact analysis complete[/bold]")
+    stderr.print("\n[bold]PrImpact analysis complete[/bold]")
     stderr.print(f"  Changed files  : {len(changed_files)}")
     stderr.print(f"  Blast radius   : {len(blast_radius)} downstream file(s)")
     stderr.print(f"  Interface Δ    : {len(interface_changes)} changed/removed symbol(s)")

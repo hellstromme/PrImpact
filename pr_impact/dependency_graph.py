@@ -12,7 +12,9 @@ from .models import BlastRadiusEntry
 _PY_IMPORT = re.compile(r"^import\s+([\w.]+)", re.MULTILINE)
 _PY_FROM = re.compile(r"^from\s+(\.{0,3}[\w.]*)\s+import", re.MULTILINE)
 
-_JS_IMPORT_FROM = re.compile(r"""(?:import\s+.*?\s+from|export\s+\{[^}]*\}\s+from)\s+['"]([^'"]+)['"]""")
+_JS_IMPORT_FROM = re.compile(
+    r"""(?:import\s+.*?\s+from|export\s+\{[^}]*\}\s+from)\s+['"]([^'"]+)['"]"""
+)
 _JS_REQUIRE = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 _JS_PLAIN_IMPORT = re.compile(r"""^import\s+['"]([^'"]+)['"]""", re.MULTILINE)
 
@@ -110,7 +112,9 @@ def _resolve_js_import(specifier: str, source_file: str, all_files: set[str]) ->
     return None
 
 
-def _extract_imports(content: str, source_file: str, language: str, all_files: set[str]) -> list[str]:
+def _extract_imports(
+    content: str, source_file: str, language: str, all_files: set[str]
+) -> list[str]:
     resolved: list[str] = []
 
     if language == "python":
@@ -201,12 +205,14 @@ def get_blast_radius(
             # populated properly in cli.py if needed)
             "",
         )
-        entries.append(BlastRadiusEntry(
-            path=path,
-            distance=dist,
-            imported_symbols=imported_symbols,
-            churn_score=None,
-        ))
+        entries.append(
+            BlastRadiusEntry(
+                path=path,
+                distance=dist,
+                imported_symbols=imported_symbols,
+                churn_score=None,
+            )
+        )
 
     entries.sort(key=lambda e: (e.distance, e.path))
     return entries
@@ -225,9 +231,7 @@ def get_imported_symbols(file_path: str, imported_from: str) -> list[str]:
     symbols: list[str] = []
 
     # Python: from X import a, b, c
-    py_from = re.compile(
-        r"^from\s+[\w.]+\s+import\s+(.+)$", re.MULTILINE
-    )
+    py_from = re.compile(r"^from\s+[\w.]+\s+import\s+(.+)$", re.MULTILINE)
     for m in py_from.finditer(content):
         raw = m.group(1).strip().rstrip("\\")
         # Handle parenthesised multi-line imports roughly

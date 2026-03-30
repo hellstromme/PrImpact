@@ -23,9 +23,10 @@ def _resolve_language(path: str) -> str:
     return "unknown"
 
 
-def _blob_content(blob) -> str:
+def _blob_content(blob: git.Blob) -> str:
     try:
-        return blob.data_stream.read().decode("utf-8", errors="replace")
+        data: bytes = blob.data_stream.read()
+        return data.decode("utf-8", errors="replace")
     except Exception:
         return ""
 
@@ -39,7 +40,9 @@ def get_changed_files(repo_path: str, base_sha: str, head_sha: str) -> list[Chan
     results: list[ChangedFile] = []
 
     for diff_item in diffs:
-        path = diff_item.b_path or diff_item.a_path
+        path: str = diff_item.b_path or diff_item.a_path or ""
+        if not path:
+            continue
         language = _resolve_language(path)
         if language == "unknown":
             continue
@@ -48,17 +51,21 @@ def get_changed_files(repo_path: str, base_sha: str, head_sha: str) -> list[Chan
             raw_diff = diff_item.diff
             if isinstance(raw_diff, bytes):
                 raw_diff = raw_diff.decode("utf-8", errors="replace")
+            if raw_diff is None:
+                raw_diff = ""
 
             content_before = _blob_content(diff_item.a_blob) if diff_item.a_blob else ""
             content_after = _blob_content(diff_item.b_blob) if diff_item.b_blob else ""
 
-            results.append(ChangedFile(
-                path=path,
-                language=language,
-                diff=raw_diff,
-                content_before=content_before,
-                content_after=content_after,
-            ))
+            results.append(
+                ChangedFile(
+                    path=path,
+                    language=language,
+                    diff=raw_diff,
+                    content_before=content_before,
+                    content_after=content_after,
+                )
+            )
         except Exception as e:
             print(f"Warning: skipping {path}: {e}", file=sys.stderr)
 
@@ -76,19 +83,19 @@ def get_git_churn(repo_path: str, path: str, days: int = 90) -> float:
             "--",
             path,
         )
-        lines = [l for l in log_output.splitlines() if l.strip()]
+        lines = [ln for ln in log_output.splitlines() if ln.strip()]
         return float(len(lines))
     except Exception:
         return 0.0
 
 
-def get_pr_metadata(repo_path: str, base_sha: str, head_sha: str) -> dict:
+def get_pr_metadata(repo_path: str, base_sha: str, head_sha: str) -> dict[str, list[str]]:
     try:
         repo = git.Repo(repo_path)
         commits = list(repo.iter_commits(f"{base_sha}..{head_sha}"))
         return {
-            "commits": [c.message.strip() for c in commits],
-            "authors": list({c.author.name for c in commits}),
+            "commits": [str(c.message).strip() for c in commits],
+            "authors": list({str(c.author.name) for c in commits}),
         }
     except Exception:
         return {}

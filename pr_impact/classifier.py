@@ -94,17 +94,13 @@ def _is_exported_ts(name: str, content: str) -> bool:
 
 def _extract_import_lines(content: str, language: str) -> set[str]:
     if language == "python":
-        return set(
-            line.strip()
-            for line in content.splitlines()
-            if _PY_IMPORT_LINE.match(line.strip())
-        )
+        return {
+            line.strip() for line in content.splitlines() if _PY_IMPORT_LINE.match(line.strip())
+        }
     else:
-        return set(
-            line.strip()
-            for line in content.splitlines()
-            if _JS_IMPORT_LINE.match(line.strip())
-        )
+        return {
+            line.strip() for line in content.splitlines() if _JS_IMPORT_LINE.match(line.strip())
+        }
 
 
 def _names_touched_in_diff(diff: str) -> set[str]:
@@ -125,24 +121,28 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
         return symbols
 
     if not file.content_before:
-        symbols.append(ChangedSymbol(
-            name=file.path,
-            kind="file",
-            change_type="new_file",
-            signature_before=None,
-            signature_after=None,
-        ))
+        symbols.append(
+            ChangedSymbol(
+                name=file.path,
+                kind="file",
+                change_type="new_file",
+                signature_before=None,
+                signature_after=None,
+            )
+        )
         file.changed_symbols = symbols
         return symbols
 
     if not file.content_after:
-        symbols.append(ChangedSymbol(
-            name=file.path,
-            kind="file",
-            change_type="deleted_file",
-            signature_before=None,
-            signature_after=None,
-        ))
+        symbols.append(
+            ChangedSymbol(
+                name=file.path,
+                kind="file",
+                change_type="deleted_file",
+                signature_before=None,
+                signature_after=None,
+            )
+        )
         file.changed_symbols = symbols
         return symbols
 
@@ -150,11 +150,15 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
     if file.language == "python":
         defs_before = _extract_python_defs(file.content_before)
         defs_after = _extract_python_defs(file.content_after)
-        is_exported = lambda name: _is_exported_python(name, file.content_after)
+
+        def is_exported(name: str) -> bool:
+            return _is_exported_python(name, file.content_after)
     else:
         defs_before = _extract_ts_defs(file.content_before)
         defs_after = _extract_ts_defs(file.content_after)
-        is_exported = lambda name: _is_exported_ts(name, file.content_after)
+
+        def is_exported(name: str) -> bool:
+            return _is_exported_ts(name, file.content_after)
 
     touched = _names_touched_in_diff(file.diff)
     all_names = set(defs_before) | set(defs_after)
@@ -177,38 +181,44 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
 
         kind = "function"
         if name in defs_before or name in defs_after:
-            sig = (sig_before or sig_after or "")
+            sig = sig_before or sig_after or ""
             if sig.lstrip().startswith("class"):
                 kind = "class"
 
-        symbols.append(ChangedSymbol(
-            name=name,
-            kind=kind,
-            change_type=change_type,
-            signature_before=sig_before,
-            signature_after=sig_after,
-        ))
+        symbols.append(
+            ChangedSymbol(
+                name=name,
+                kind=kind,
+                change_type=change_type,
+                signature_before=sig_before,
+                signature_after=sig_after,
+            )
+        )
 
     # --- Dependency changes ---
     imports_before = _extract_import_lines(file.content_before, file.language)
     imports_after = _extract_import_lines(file.content_after, file.language)
 
     for line in imports_after - imports_before:
-        symbols.append(ChangedSymbol(
-            name=line[:80],
-            kind="import",
-            change_type="dependency_added",
-            signature_before=None,
-            signature_after=line,
-        ))
+        symbols.append(
+            ChangedSymbol(
+                name=line[:80],
+                kind="import",
+                change_type="dependency_added",
+                signature_before=None,
+                signature_after=line,
+            )
+        )
     for line in imports_before - imports_after:
-        symbols.append(ChangedSymbol(
-            name=line[:80],
-            kind="import",
-            change_type="dependency_removed",
-            signature_before=line,
-            signature_after=None,
-        ))
+        symbols.append(
+            ChangedSymbol(
+                name=line[:80],
+                kind="import",
+                change_type="dependency_removed",
+                signature_before=line,
+                signature_after=None,
+            )
+        )
 
     file.changed_symbols = symbols
     return symbols
@@ -225,12 +235,14 @@ def get_interface_changes(
         callers = reverse_graph.get(file.path, [])
         for sym in file.changed_symbols:
             if sym.change_type in interface_change_types:
-                results.append(InterfaceChange(
-                    file=file.path,
-                    symbol=sym.name,
-                    before=sym.signature_before or "",
-                    after=sym.signature_after or "",
-                    callers=callers,
-                ))
+                results.append(
+                    InterfaceChange(
+                        file=file.path,
+                        symbol=sym.name,
+                        before=sym.signature_before or "",
+                        after=sym.signature_after or "",
+                        callers=callers,
+                    )
+                )
 
     return results
