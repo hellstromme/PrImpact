@@ -181,7 +181,8 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
 
         kind = "function"
         sig = sig_before or sig_after or ""
-        if sig.lstrip().startswith("class"):
+        # Match "class Foo" at the start OR after "export "/"abstract " prefixes (TS/JS)
+        if re.search(r"(?:^|\s)class\s", sig):
             kind = "class"
 
         symbols.append(

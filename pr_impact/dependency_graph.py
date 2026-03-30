@@ -68,11 +68,11 @@ def _resolve_python_module(module: str, source_file: str, all_files: set[str]) -
             return candidate2
         return None
 
-    # Absolute import: convert dots to path separators
-    as_path = module.replace(".", os.sep) + ".py"
+    # Absolute import: convert dots to path separators (always forward slashes)
+    as_path = module.replace(".", "/") + ".py"
     if as_path in all_files:
         return as_path
-    as_init = os.path.join(module.replace(".", os.sep), "__init__.py")
+    as_init = module.replace(".", "/") + "/__init__.py"
     if as_init in all_files:
         return as_init
     return None

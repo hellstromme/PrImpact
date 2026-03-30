@@ -26,7 +26,13 @@ dev = [
     "pyright>=1.1",
     "pre-commit>=3.7",
     "detect-secrets>=1.5",
+    "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+filterwarnings = ["ignore::pytest.PytestCollectionWarning"]
 
 [tool.ruff]
 target-version = "py311"
