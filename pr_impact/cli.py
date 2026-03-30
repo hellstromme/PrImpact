@@ -12,7 +12,7 @@ from .ai_layer import run_ai_analysis
 from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import get_changed_files, get_git_churn, get_pr_metadata
-from .models import ImpactReport
+from .models import AIAnalysis, ImpactReport
 from .reporter import render_json, render_markdown, render_terminal
 
 stderr = Console(stderr=True)
@@ -156,8 +156,6 @@ def analyse(
             ai_analysis = run_ai_analysis(changed_files, blast_radius, repo)
         except Exception as e:
             stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")
-            from .models import AIAnalysis
-
             ai_analysis = AIAnalysis()
 
         progress.remove_task(task)
