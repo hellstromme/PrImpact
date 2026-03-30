@@ -331,3 +331,96 @@ def test_render_json_decisions_serialised():
     )
     result = json.loads(render_json(report))
     assert result["ai_analysis"]["decisions"][0]["description"] == "d"
+
+
+# ---------------------------------------------------------------------------
+# render_markdown: anomaly description and location content
+# ---------------------------------------------------------------------------
+
+
+def test_anomaly_description_shown_in_markdown():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            anomalies=[Anomaly(description="Direct DB call in handler", location="api.py:42", severity="high")]
+        )
+    )
+    md = render_markdown(report)
+    assert "Direct DB call in handler" in md
+    assert "api.py:42" in md
+
+
+def test_anomaly_section_header_present():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            anomalies=[Anomaly(description="x", location="y", severity="low")]
+        )
+    )
+    assert "## Anomalies" in render_markdown(report)
+
+
+# ---------------------------------------------------------------------------
+# render_markdown: test gaps location content
+# ---------------------------------------------------------------------------
+
+
+def test_test_gap_location_shown_in_markdown():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            test_gaps=[TestGap(behaviour="logout with expired token", location="auth.py:logout")]
+        )
+    )
+    md = render_markdown(report)
+    assert "logout with expired token" in md
+    assert "auth.py:logout" in md
+
+
+# ---------------------------------------------------------------------------
+# render_json: anomalies, assumptions, test_gaps round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_render_json_anomalies_serialised():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            anomalies=[Anomaly(description="bad", location="x.py:1", severity="medium")]
+        )
+    )
+    result = json.loads(render_json(report))
+    anomaly = result["ai_analysis"]["anomalies"][0]
+    assert anomaly["description"] == "bad"
+    assert anomaly["location"] == "x.py:1"
+    assert anomaly["severity"] == "medium"
+
+
+def test_render_json_assumptions_serialised():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            assumptions=[Assumption(description="not None", location="a.py:foo", risk="crash")]
+        )
+    )
+    result = json.loads(render_json(report))
+    assumption = result["ai_analysis"]["assumptions"][0]
+    assert assumption["description"] == "not None"
+    assert assumption["location"] == "a.py:foo"
+    assert assumption["risk"] == "crash"
+
+
+def test_render_json_test_gaps_serialised():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            test_gaps=[TestGap(behaviour="error path not tested", location="b.py:bar")]
+        )
+    )
+    result = json.loads(render_json(report))
+    gap = result["ai_analysis"]["test_gaps"][0]
+    assert gap["behaviour"] == "error path not tested"
+    assert gap["location"] == "b.py:bar"
+
+
+def test_render_json_empty_ai_analysis_sections():
+    result = json.loads(render_json(make_report(ai_analysis=AIAnalysis())))
+    ai = result["ai_analysis"]
+    assert ai["decisions"] == []
+    assert ai["assumptions"] == []
+    assert ai["anomalies"] == []
+    assert ai["test_gaps"] == []

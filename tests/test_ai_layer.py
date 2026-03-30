@@ -240,3 +240,167 @@ def test_javascript_uses_same_pattern_as_typescript():
 def test_empty_content_returns_empty_string():
     assert _extract_signatures("", "python") == ""
     assert _extract_signatures("", "typescript") == ""
+
+
+# ---------------------------------------------------------------------------
+# _build_blast_radius_signatures
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch
+
+from pr_impact.ai_layer import _build_blast_radius_signatures, _find_neighbouring_signatures, run_ai_analysis
+from pr_impact.models import BlastRadiusEntry
+import pytest
+
+
+def test_blast_radius_sigs_unreadable_file_returns_none(tmp_path):
+    entry = BlastRadiusEntry(path="ghost.py", distance=1, imported_symbols=[], churn_score=None)
+    result = _build_blast_radius_signatures([entry], str(tmp_path))
+    assert result == "(none)"
+
+
+def test_blast_radius_sigs_extracts_from_readable_file(tmp_path):
+    (tmp_path / "mod.py").write_text("def foo(): pass\n")
+    entry = BlastRadiusEntry(path="mod.py", distance=1, imported_symbols=[], churn_score=None)
+    result = _build_blast_radius_signatures([entry], str(tmp_path))
+    assert "mod.py" in result
+    assert "def foo" in result
+
+
+def test_blast_radius_sigs_skips_entries_beyond_max_distance(tmp_path):
+    (tmp_path / "far.py").write_text("def distant(): pass\n")
+    entry = BlastRadiusEntry(path="far.py", distance=3, imported_symbols=[], churn_score=None)
+    result = _build_blast_radius_signatures([entry], str(tmp_path), max_distance=2)
+    assert "far.py" not in result
+
+
+def test_blast_radius_sigs_empty_list_returns_none():
+    assert _build_blast_radius_signatures([], "/any/path") == "(none)"
+
+
+# ---------------------------------------------------------------------------
+# _find_neighbouring_signatures
+# ---------------------------------------------------------------------------
+
+
+def test_neighbouring_sigs_invalid_repo_path_returns_none():
+    f = make_file(path="mod.py")
+    result = _find_neighbouring_signatures([f], "/no/such/path")
+    assert result == "(none)"
+
+
+def test_neighbouring_sigs_no_neighbours_returns_none(tmp_path):
+    # Only the changed file itself in the dir — no neighbours to find
+    (tmp_path / "mod.py").write_text("def foo(): pass\n")
+    f = make_file(path="mod.py")
+    result = _find_neighbouring_signatures([f], str(tmp_path))
+    assert result == "(none)"
+
+
+def test_neighbouring_sigs_finds_sibling_file(tmp_path):
+    (tmp_path / "mod.py").write_text("def foo(): pass\n")
+    (tmp_path / "sibling.py").write_text("def bar(): pass\n")
+    f = make_file(path="mod.py")
+    result = _find_neighbouring_signatures([f], str(tmp_path))
+    assert "sibling.py" in result
+    assert "def bar" in result
+
+
+def test_neighbouring_sigs_ignores_unknown_language_files(tmp_path):
+    (tmp_path / "mod.py").write_text("def foo(): pass\n")
+    (tmp_path / "README.md").write_text("# hello\n")
+    f = make_file(path="mod.py")
+    result = _find_neighbouring_signatures([f], str(tmp_path))
+    assert "README.md" not in result
+
+
+# ---------------------------------------------------------------------------
+# run_ai_analysis — full pipeline and error paths
+# ---------------------------------------------------------------------------
+
+
+def test_run_ai_analysis_raises_without_api_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+        run_ai_analysis([], [], str(tmp_path))
+
+
+def test_run_ai_analysis_returns_populated_analysis(monkeypatch, tmp_path):
+    import json as _json
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = _json.dumps({
+        "summary": "All good",
+        "decisions": [{"description": "d", "rationale": "r", "risk": "rk"}],
+        "assumptions": [{"description": "a", "location": "loc", "risk": "rk"}],
+    })
+    r2 = _json.dumps({"anomalies": [{"description": "x", "location": "y", "severity": "high"}]})
+    r3 = _json.dumps({"test_gaps": [{"behaviour": "b", "location": "l"}]})
+    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, r2, r3]):
+        result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert result.summary == "All good"
+    assert len(result.decisions) == 1
+    assert result.decisions[0].description == "d"
+    assert len(result.assumptions) == 1
+    assert len(result.anomalies) == 1
+    assert result.anomalies[0].severity == "high"
+    assert len(result.test_gaps) == 1
+    assert result.test_gaps[0].behaviour == "b"
+
+
+def test_run_ai_analysis_partial_result_on_call_failure(monkeypatch, tmp_path):
+    import json as _json
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = _json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, RuntimeError("timeout"), '{"test_gaps": []}']):
+        result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert result.summary == "ok"
+    assert result.anomalies == []
+
+
+def test_run_ai_analysis_missing_response_fields_use_defaults(monkeypatch, tmp_path):
+    import json as _json
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    # Responses omit most optional keys
+    r1 = _json.dumps({"summary": "s"})
+    r2 = _json.dumps({})
+    r3 = _json.dumps({})
+    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, r2, r3]):
+        result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert result.summary == "s"
+    assert result.decisions == []
+    assert result.assumptions == []
+    assert result.anomalies == []
+    assert result.test_gaps == []
+
+
+def test_run_ai_analysis_non_dict_items_in_lists_are_skipped(monkeypatch, tmp_path):
+    import json as _json
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = _json.dumps({
+        "summary": "",
+        "decisions": ["not a dict", {"description": "d", "rationale": "r", "risk": "rk"}],
+        "assumptions": [],
+    })
+    r2 = _json.dumps({"anomalies": [42, {"description": "x", "location": "y", "severity": "low"}]})
+    r3 = _json.dumps({"test_gaps": [None, {"behaviour": "b", "location": "l"}]})
+    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, r2, r3]):
+        result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert len(result.decisions) == 1
+    assert len(result.anomalies) == 1
+    assert len(result.test_gaps) == 1
+
+
+def test_run_ai_analysis_missing_nested_fields_default_to_empty_string(monkeypatch, tmp_path):
+    import json as _json
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = _json.dumps({"summary": "", "decisions": [{}], "assumptions": [{}]})
+    r2 = _json.dumps({"anomalies": [{}]})
+    r3 = _json.dumps({"test_gaps": [{}]})
+    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, r2, r3]):
+        result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert result.decisions[0].description == ""
+    assert result.decisions[0].rationale == ""
+    assert result.decisions[0].risk == ""
+    assert result.anomalies[0].severity == "low"
+    assert result.test_gaps[0].behaviour == ""
+    assert result.test_gaps[0].location == ""

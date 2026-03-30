@@ -1,6 +1,6 @@
 """Unit tests for pr_impact/classifier.py."""
 
-from pr_impact.classifier import classify_changed_file, get_interface_changes
+from pr_impact.classifier import _KIND_CLASS, classify_changed_file, get_interface_changes
 from pr_impact.models import ChangedSymbol
 from tests.helpers import make_file
 
@@ -457,3 +457,49 @@ def test_multiple_symbols_across_multiple_files():
     assert len(result) == 2
     files = {r.file for r in result}
     assert files == {"a.py", "b.py"}
+
+
+# ---------------------------------------------------------------------------
+# _KIND_CLASS regex — prefixed keywords
+# ---------------------------------------------------------------------------
+
+
+def test_kind_class_matches_bare_class():
+    assert _KIND_CLASS.search("class Foo")
+
+
+def test_kind_class_matches_export_class():
+    assert _KIND_CLASS.search("export class Foo")
+
+
+def test_kind_class_matches_abstract_class():
+    assert _KIND_CLASS.search("abstract class Bar")
+
+
+def test_kind_class_does_not_match_classname_without_space():
+    # "classname" should NOT be treated as a class declaration
+    assert not _KIND_CLASS.search("classname = 1")
+
+
+def test_export_class_classify_kind_is_class():
+    # Class signature changes in an existing file — before is non-empty to avoid new_file path
+    before = "export class Foo {\n}\n"
+    after = "export class Foo extends Base {\n}\n"
+    diff = "-export class Foo {\n+export class Foo extends Base {\n"
+    f = make_file(path="mod.ts", language="typescript", diff=diff, before=before, after=after)
+    symbols = classify_changed_file(f)
+    class_syms = [s for s in symbols if s.name == "Foo"]
+    assert len(class_syms) == 1
+    assert class_syms[0].kind == "class"
+
+
+def test_abstract_class_classify_kind_is_class():
+    # Change the class signature so "Bar" appears in the diff
+    before = "abstract class Bar {\n  abstract method(): void;\n}\n"
+    after = "abstract class Bar<T> {\n  abstract method(): void;\n}\n"
+    diff = "-abstract class Bar {\n+abstract class Bar<T> {\n"
+    f = make_file(path="mod.ts", language="typescript", diff=diff, before=before, after=after)
+    symbols = classify_changed_file(f)
+    class_syms = [s for s in symbols if s.name == "Bar"]
+    assert len(class_syms) == 1
+    assert class_syms[0].kind == "class"
