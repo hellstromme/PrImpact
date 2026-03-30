@@ -173,17 +173,16 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
         if sig_before is None and sig_after is not None:
             change_type = "interface_added" if is_exported(name) else "internal"
         elif sig_before is not None and sig_after is None:
-            change_type = "interface_removed"
+            change_type = "interface_removed" if is_exported(name) else "internal"
         elif sig_before != sig_after:
-            change_type = "interface_changed"
+            change_type = "interface_changed" if is_exported(name) else "internal"
         else:
             change_type = "internal"
 
         kind = "function"
-        if name in defs_before or name in defs_after:
-            sig = sig_before or sig_after or ""
-            if sig.lstrip().startswith("class"):
-                kind = "class"
+        sig = sig_before or sig_after or ""
+        if sig.lstrip().startswith("class"):
+            kind = "class"
 
         symbols.append(
             ChangedSymbol(

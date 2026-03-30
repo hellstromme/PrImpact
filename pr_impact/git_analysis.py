@@ -31,8 +31,10 @@ def _blob_content(blob: git.Blob) -> str:
         return ""
 
 
-def get_changed_files(repo_path: str, base_sha: str, head_sha: str) -> list[ChangedFile]:
-    repo = git.Repo(repo_path)
+def get_changed_files(
+    repo_path: str, base_sha: str, head_sha: str, repo: git.Repo | None = None
+) -> list[ChangedFile]:
+    repo = repo or git.Repo(repo_path)
     base_commit = repo.commit(base_sha)
     head_commit = repo.commit(head_sha)
 
@@ -74,11 +76,11 @@ def get_changed_files(repo_path: str, base_sha: str, head_sha: str) -> list[Chan
     return results
 
 
-def get_git_churn(repo_path: str, path: str, days: int = 90) -> float:
+def get_git_churn(repo_path: str, path: str, days: int = 90, repo: git.Repo | None = None) -> float:
     try:
-        repo = git.Repo(repo_path)
+        r = repo or git.Repo(repo_path)
         since_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        log_output = repo.git.log(
+        log_output = r.git.log(
             "--oneline",
             "--follow",
             f"--after={since_date}",

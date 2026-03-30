@@ -2,6 +2,7 @@ import sys
 from collections import defaultdict
 
 import click
+import git
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
@@ -44,10 +45,17 @@ def analyse(
         console=Console(stderr=True),
         transient=True,
     ) as progress:
+        # Open repo once; all steps reuse the same object
+        try:
+            repo_obj = git.Repo(repo)
+        except Exception as e:
+            stderr.print(f"[bold red]Error:[/bold red] Could not open git repository: {e}")
+            sys.exit(1)
+
         # Step 1: get changed files
         task = progress.add_task("Extracting changed files...", total=None)
         try:
-            changed_files = get_changed_files(repo, base, head)
+            changed_files = get_changed_files(repo, base, head, repo=repo_obj)
         except Exception as e:
             stderr.print(f"[bold red]Error:[/bold red] Could not read git repository: {e}")
             sys.exit(1)
@@ -94,7 +102,7 @@ def analyse(
         # Step 6: git churn for blast radius entries
         progress.update(task, description="Computing churn scores...")
         for entry in blast_radius:
-            entry.churn_score = get_git_churn(repo, entry.path)
+            entry.churn_score = get_git_churn(repo, entry.path, repo=repo_obj)
 
         # Metadata (best-effort)
         metadata = get_pr_metadata(repo, base, head)

@@ -1,9 +1,9 @@
 import os
 import re
-import subprocess
-import sys
 from collections import deque
 from pathlib import Path
+
+import git
 
 from .models import BlastRadiusEntry
 
@@ -31,16 +31,9 @@ def _list_repo_files(repo_path: str, language_filter: list[str]) -> list[str]:
         wanted_exts |= extensions.get(lang, set())
 
     try:
-        result = subprocess.run(
-            ["git", "ls-files"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        files = result.stdout.splitlines()
-    except Exception as e:
-        print(f"Warning: git ls-files failed: {e}", file=sys.stderr)
+        repo = git.Repo(repo_path)
+        files = repo.git.ls_files().splitlines()
+    except Exception:
         files = []
 
     return [f for f in files if Path(f).suffix in wanted_exts]
