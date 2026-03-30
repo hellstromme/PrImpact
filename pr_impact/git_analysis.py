@@ -54,8 +54,10 @@ def get_changed_files(repo_path: str, base_sha: str, head_sha: str) -> list[Chan
             if raw_diff is None:
                 raw_diff = ""
 
-            content_before = _blob_content(diff_item.a_blob) if diff_item.a_blob else ""
-            content_after = _blob_content(diff_item.b_blob) if diff_item.b_blob else ""
+            a_blob = diff_item.a_blob
+            b_blob = diff_item.b_blob
+            content_before = _blob_content(a_blob) if isinstance(a_blob, git.Blob) else ""
+            content_after = _blob_content(b_blob) if isinstance(b_blob, git.Blob) else ""
 
             results.append(
                 ChangedFile(

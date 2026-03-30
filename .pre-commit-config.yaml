@@ -13,10 +13,10 @@ repos:
         entry: python -m ruff format
         types: [python]
 
-      - id: mypy
-        name: mypy
+      - id: pyright
+        name: pyright
         language: system
-        entry: python -m mypy
+        entry: python -m pyright
         types: [python]
         pass_filenames: false
         args: [pr_impact/]
