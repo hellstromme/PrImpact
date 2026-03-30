@@ -112,7 +112,20 @@ def test_make_github_request_with_token_sets_auth_header():
     assert captured["headers"].get("Authorization") == "Bearer mytoken"
 
 
-def test_make_github_request_http_error_raises_runtime_error():
+def test_make_github_request_404_without_token_suggests_private_repo():
+    err = urllib.error.HTTPError(
+        url="https://api.github.com/x",
+        code=404,
+        msg="Not Found",
+        hdrs=MagicMock(),
+        fp=BytesIO(b'{"message":"Not Found"}'),
+    )
+    with patch("urllib.request.urlopen", side_effect=err):
+        with pytest.raises(RuntimeError, match="private"):
+            _make_github_request("https://api.github.com/x", token=None)
+
+
+def test_make_github_request_404_with_token_shows_raw_error():
     err = urllib.error.HTTPError(
         url="https://api.github.com/x",
         code=404,
@@ -122,7 +135,7 @@ def test_make_github_request_http_error_raises_runtime_error():
     )
     with patch("urllib.request.urlopen", side_effect=err):
         with pytest.raises(RuntimeError, match="404"):
-            _make_github_request("https://api.github.com/x", token=None)
+            _make_github_request("https://api.github.com/x", token="tok")
 
 
 def test_make_github_request_url_error_raises_runtime_error():

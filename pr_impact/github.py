@@ -52,7 +52,12 @@ def _make_github_request(url: str, token: str | None) -> dict | list:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub API error {e.code} for {url}: {body[:200]}") from e
+        if e.code in (401, 403, 404) and not token:
+            raise RuntimeError(
+                f"GitHub API error {e.code} — the repository may be private. "
+                "Set GITHUB_TOKEN (or add github_token to ~/.pr_impact/config.toml) and retry."
+            ) from e
+        raise RuntimeError(f"GitHub API error {e.code}: {body[:200]}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"Network error reaching GitHub API: {e.reason}") from e
 
