@@ -69,18 +69,20 @@ def main() -> None:
 
 @main.command()
 @click.option("--repo", required=True, help="Path to the local git repository")
-@click.option("--base", required=True, help="Base commit SHA")
-@click.option("--head", required=True, help="Head commit SHA")
+@click.option("--head", default="HEAD", show_default=True, help="Head commit SHA")
+@click.option("--base", default=None, help="Base commit SHA (default: <head>~1)")
 @click.option("--output", default=None, help="Write Markdown report to this file")
 @click.option("--json", "json_output", default=None, help="Write JSON sidecar to this file")
 @click.option(
     "--max-depth", default=3, show_default=True, help="Maximum BFS depth for blast radius"
 )
 def analyse(
-    repo: str, base: str, head: str, output: str | None, json_output: str | None, max_depth: int
+    repo: str, base: str | None, head: str, output: str | None, json_output: str | None, max_depth: int
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs."""
     _load_config()
+    if base is None:
+        base = f"{head}~1"
 
     with Progress(
         SpinnerColumn(),
