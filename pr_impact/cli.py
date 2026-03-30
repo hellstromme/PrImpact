@@ -166,6 +166,14 @@ def analyse(
     # GitHub PR resolution (runs before the progress spinner so interactive prompts work)
     if pr_number is not None or (base is None and head is None):
         github_token = _get_github_token()
+        if github_token is None:
+            stderr.print(
+                "[yellow]Warning:[/yellow] No GitHub token found. "
+                "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
+                "or add [bold]github_token = \"%GITHUB_TOKEN%\"[/bold] to "
+                f"[bold]{CONFIG_PATH}[/bold]. "
+                "Unauthenticated requests will fail for private repositories."
+            )
         owner_repo = detect_github_remote(repo_obj)
         if owner_repo is None:
             stderr.print(
