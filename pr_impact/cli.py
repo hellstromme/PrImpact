@@ -1,3 +1,4 @@
+import os
 import sys
 from collections import defaultdict
 
@@ -6,9 +7,12 @@ import git
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from .ai_layer import run_ai_analysis
 from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import get_changed_files, get_git_churn, get_pr_metadata
+from .models import ImpactReport
+from .reporter import render_json, render_markdown
 
 stderr = Console(stderr=True)
 
@@ -39,6 +43,12 @@ def analyse(
     repo: str, base: str, head: str, output: str | None, json_output: str | None, max_depth: int
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        stderr.print(
+            "[bold red]Error:[/bold red] ANTHROPIC_API_KEY environment variable is not set."
+        )
+        sys.exit(1)
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -106,9 +116,20 @@ def analyse(
 
         # Metadata (best-effort)
         metadata = get_pr_metadata(repo, base, head)
+
+        # Step 7: AI analysis
+        progress.update(task, description="Running AI analysis (3 API calls)...")
+        try:
+            ai_analysis = run_ai_analysis(changed_files, blast_radius, repo)
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")
+            from .models import AIAnalysis
+
+            ai_analysis = AIAnalysis()
+
         progress.remove_task(task)
 
-    # --- Summary output to stderr ---
+    # --- Stderr summary ---
     stderr.print("\n[bold]PrImpact analysis complete[/bold]")
     stderr.print(f"  Changed files  : {len(changed_files)}")
     stderr.print(f"  Blast radius   : {len(blast_radius)} downstream file(s)")
@@ -126,4 +147,29 @@ def analyse(
     if metadata.get("authors"):
         stderr.print(f"  Authors        : {', '.join(metadata['authors'])}")
 
-    stderr.print("\n[dim](AI analysis and report rendering not yet implemented — Part 2)[/dim]")
+    # Step 8: render report
+    commits = metadata.get("commits", [])
+    pr_title = commits[0].splitlines()[0] if commits else f"Changes {base[:7]}..{head[:7]}"
+
+    report = ImpactReport(
+        pr_title=pr_title,
+        base_sha=base,
+        head_sha=head,
+        changed_files=changed_files,
+        blast_radius=blast_radius,
+        interface_changes=interface_changes,
+        ai_analysis=ai_analysis,
+    )
+
+    md = render_markdown(report)
+    if output:
+        with open(output, "w", encoding="utf-8") as fh:
+            fh.write(md)
+        stderr.print(f"\nMarkdown report written to [cyan]{output}[/cyan]")
+    else:
+        print(md)
+
+    if json_output:
+        with open(json_output, "w", encoding="utf-8") as fh:
+            fh.write(render_json(report))
+        stderr.print(f"JSON sidecar written to [cyan]{json_output}[/cyan]")
