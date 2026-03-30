@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Workflow
+
+- **Never commit directly to `main`.** Always create a feature branch before starting any work.
+- When work is ready to merge, raise a pull request back to `main` — do not merge directly.
+
 ## Project Status
 
 Design-complete, pre-implementation. All architecture is specified in `docs/`. No Python code has been written yet.
