@@ -242,6 +242,13 @@ This separation matters: prompts will need iteration independently of code logic
 
 **Prompt 1: Summary + Decisions + Assumptions**
 
+Decisions and assumptions are conceptually distinct:
+
+- A **decision** is something the author *chose* — an approach that could have been done differently, where the rationale is visible in the code. The risk field captures what breaks if that rationale turns out to be wrong.
+- An **assumption** is something the author *took for granted* — a precondition about the world that the code depends on but does not verify or enforce. The risk field captures the consequence if that precondition is violated at runtime.
+
+Decisions invite debate about approach. Assumptions invite questions about whether the precondition is actually guaranteed elsewhere in the system.
+
 ```
 You are analysing a code change. Your job is to extract design information that a
 human reviewer needs in order to evaluate whether the change fits their system and roadmap.

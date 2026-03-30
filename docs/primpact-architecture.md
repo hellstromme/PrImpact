@@ -419,6 +419,14 @@ Receives: full diffs of changed files; public signatures of blast radius files.
 
 Instructs the model to return JSON with three fields: `summary` (2–3 sentence plain-English description of what the system does differently), `decisions` (list of inferred design choices with rationale and risk), and `assumptions` (list of preconditions baked into the design with their consequences if violated).
 
+**Conceptual distinction between decisions and assumptions:**
+
+A **decision** is something the author *chose* — an approach that could have been done differently, where the rationale is visible in the code. The risk of a decision is what breaks if that rationale turns out to be wrong. Example: choosing JWT over session cookies is a decision; the risk is that revocation requires a denylist that may not exist.
+
+An **assumption** is something the author *took for granted* — a precondition about the world that the code depends on being true, but does not verify or enforce. The risk of an assumption is the consequence if that precondition is violated at runtime. Example: assuming all callers will pass an `Authorization` header is an assumption baked into a middleware function; the risk is silent 401s for clients that use a different auth mechanism.
+
+The distinction matters for reviewers: decisions invite debate about approach, while assumptions invite questions about whether the precondition is actually guaranteed elsewhere in the system.
+
 #### Prompt 2: Anomaly Detection
 
 Receives: full diffs of changed files; signatures and import structure of neighbouring files.

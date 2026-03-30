@@ -146,7 +146,7 @@ def test_analyse_success_exit_code_zero(runner):
     assert result.exit_code == 0
 
 
-def test_analyse_success_markdown_in_stdout(runner):
+def test_analyse_success_report_header_in_stdout(runner):
     patches = _base_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         result = runner.invoke(
@@ -154,7 +154,7 @@ def test_analyse_success_markdown_in_stdout(runner):
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
             env=_ENV,
         )
-    assert "# PR Impact Report" in result.output
+    assert "PR IMPACT REPORT" in result.output
 
 
 def test_analyse_success_ai_summary_in_output(runner):

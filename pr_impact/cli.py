@@ -12,7 +12,7 @@ from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import get_changed_files, get_git_churn, get_pr_metadata
 from .models import ImpactReport
-from .reporter import render_json, render_markdown
+from .reporter import render_json, render_markdown, render_terminal
 
 stderr = Console(stderr=True)
 
@@ -129,24 +129,6 @@ def analyse(
 
         progress.remove_task(task)
 
-    # --- Stderr summary ---
-    stderr.print("\n[bold]PrImpact analysis complete[/bold]")
-    stderr.print(f"  Changed files  : {len(changed_files)}")
-    stderr.print(f"  Blast radius   : {len(blast_radius)} downstream file(s)")
-    stderr.print(f"  Interface Δ    : {len(interface_changes)} changed/removed symbol(s)")
-
-    interface_types: dict[str, int] = {}
-    for f in changed_files:
-        for sym in f.changed_symbols:
-            interface_types[sym.change_type] = interface_types.get(sym.change_type, 0) + 1
-    if interface_types:
-        stderr.print("  Symbol changes :")
-        for ct, count in sorted(interface_types.items()):
-            stderr.print(f"    {ct}: {count}")
-
-    if metadata.get("authors"):
-        stderr.print(f"  Authors        : {', '.join(metadata['authors'])}")
-
     # Step 8: render report
     commits = metadata.get("commits", [])
     pr_title = commits[0].splitlines()[0] if commits else f"Changes {base[:7]}..{head[:7]}"
@@ -161,15 +143,17 @@ def analyse(
         ai_analysis=ai_analysis,
     )
 
-    md = render_markdown(report)
     if output:
         with open(output, "w", encoding="utf-8") as fh:
-            fh.write(md)
-        stderr.print(f"\nMarkdown report written to [cyan]{output}[/cyan]")
-    else:
-        print(md)
+            fh.write(render_markdown(report))
 
     if json_output:
         with open(json_output, "w", encoding="utf-8") as fh:
             fh.write(render_json(report))
-        stderr.print(f"JSON sidecar written to [cyan]{json_output}[/cyan]")
+
+    stdout_console = Console()
+    render_terminal(report, stdout_console, output, json_output)
+
+
+if __name__ == "__main__":
+    main()
