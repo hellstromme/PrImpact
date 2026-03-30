@@ -3,24 +3,7 @@ from datetime import datetime, timedelta
 
 import git
 
-from .models import ChangedFile
-
-LANGUAGE_MAP = {
-    ".py": "python",
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
-}
-
-
-def _resolve_language(path: str) -> str:
-    for ext, lang in LANGUAGE_MAP.items():
-        if path.endswith(ext):
-            return lang
-    return "unknown"
+from .models import ChangedFile, resolve_language
 
 
 def _blob_content(blob: git.Blob) -> str:
@@ -45,7 +28,7 @@ def get_changed_files(
         path: str = diff_item.b_path or diff_item.a_path or ""
         if not path:
             continue
-        language = _resolve_language(path)
+        language = resolve_language(path)
         if language == "unknown":
             continue
 

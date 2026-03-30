@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 import git
 
 from pr_impact.git_analysis import (
-    _resolve_language,
     get_changed_files,
     get_git_churn,
     get_pr_metadata,
 )
+from pr_impact.models import resolve_language as _resolve_language
 
 REPO_ROOT = str(Path(__file__).resolve().parents[1])
 BASE_SHA = "dd92358"

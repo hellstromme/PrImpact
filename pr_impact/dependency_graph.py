@@ -5,7 +5,7 @@ from pathlib import Path
 
 import git
 
-from .models import BlastRadiusEntry
+from .models import BlastRadiusEntry, resolve_language
 
 # --- Import extraction patterns ---
 
@@ -136,15 +136,6 @@ def _extract_imports(
     return list(set(resolved))
 
 
-def _file_language(path: str) -> str:
-    suffix = Path(path).suffix
-    if suffix == ".py":
-        return "python"
-    if suffix in (".ts", ".tsx"):
-        return "typescript"
-    if suffix in (".js", ".jsx", ".mjs", ".cjs"):
-        return "javascript"
-    return "unknown"
 
 
 def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, list[str]]:
@@ -155,7 +146,7 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
 
     for rel_path in files:
         content = _read_file(repo_path, rel_path)
-        lang = _file_language(rel_path)
+        lang = resolve_language(rel_path)
         imports = _extract_imports(content, rel_path, lang, all_files)
         graph[rel_path] = imports
 

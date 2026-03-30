@@ -1,4 +1,20 @@
 from dataclasses import dataclass, field
+from pathlib import Path
+
+_LANGUAGE_MAP: dict[str, str] = {
+    ".py": "python",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+}
+
+
+def resolve_language(path: str) -> str:
+    """Return the language string for a file path, or 'unknown'."""
+    return _LANGUAGE_MAP.get(Path(path).suffix, "unknown")
 
 
 @dataclass

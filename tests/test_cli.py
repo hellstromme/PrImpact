@@ -82,14 +82,21 @@ def _base_patches():
 # ---------------------------------------------------------------------------
 
 
-def test_analyse_exits_1_when_api_key_missing(runner):
-    # Pass empty string to override any ANTHROPIC_API_KEY already in the process environment
-    result = runner.invoke(
-        main,
-        ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
-        env={"ANTHROPIC_API_KEY": ""},
+def test_analyse_warns_when_api_key_missing(runner):
+    # Without an API key the tool should still run; AI analysis is skipped with a warning
+    patches = _base_patches()
+    # Replace the run_ai_analysis patch with a real ValueError (what ai_layer raises)
+    patches[-1] = patch(
+        "pr_impact.cli.run_ai_analysis",
+        side_effect=ValueError("ANTHROPIC_API_KEY is not set"),
     )
-    assert result.exit_code == 1
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
+            env={"ANTHROPIC_API_KEY": ""},
+        )
+    assert result.exit_code == 0
     assert "ANTHROPIC_API_KEY" in result.output
 
 

@@ -14,6 +14,7 @@ from .models import (
     ChangedFile,
     Decision,
     TestGap,
+    resolve_language,
 )
 from .prompts import (
     PROMPT_ANOMALY_DETECTION,
@@ -40,16 +41,6 @@ _SIG_JS_KEEP = re.compile(
 _TEST_PATTERNS = re.compile(r"(?:test_|_test\.|\.test\.|\.spec\.).*$", re.IGNORECASE)
 _TEST_EXTENSIONS = {".py", ".ts", ".js", ".tsx", ".jsx"}
 
-
-def _file_language(path: str) -> str:
-    suffix = Path(path).suffix
-    if suffix == ".py":
-        return "python"
-    if suffix in (".ts", ".tsx"):
-        return "typescript"
-    if suffix in (".js", ".jsx", ".mjs", ".cjs"):
-        return "javascript"
-    return "unknown"
 
 
 def _extract_signatures(content: str, language: str) -> str:
@@ -98,7 +89,7 @@ def _build_blast_radius_signatures(
         content = _read_file_safe(full_path)
         if not content:
             continue
-        lang = _file_language(entry.path)
+        lang = resolve_language(entry.path)
         sigs = _extract_signatures(content, lang)
         if sigs:
             parts.append(f"### {entry.path} (distance {entry.distance})\n{sigs}")
@@ -154,12 +145,12 @@ def _find_neighbouring_signatures(
             if count >= max_per_dir:
                 break
             rel = os.path.join(dir_rel, entry.name).replace("\\", "/") if dir_rel else entry.name
-            if rel in changed_paths or _file_language(entry.name) == "unknown":
+            if rel in changed_paths or resolve_language(entry.name) == "unknown":
                 continue
             content = _read_file_safe(entry.path)
             if not content:
                 continue
-            file_lang = _file_language(entry.name)
+            file_lang = resolve_language(entry.name)
             sigs = _extract_signatures(content, file_lang)
             if sigs:
                 parts.append(f"### {rel}\n{sigs}")
