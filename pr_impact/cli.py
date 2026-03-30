@@ -200,24 +200,28 @@ def analyse(
                 stderr.print(f"[bold red]Error:[/bold red] Could not fetch open PRs: {e}")
                 sys.exit(1)
             if not open_prs:
-                stderr.print(
-                    "[yellow]Warning:[/yellow] No open PRs found. "
-                    "Use --base and --head to specify SHAs directly."
-                )
-                sys.exit(0)
-            _print_pr_table(open_prs)
-            pr_numbers = {str(p["number"]) for p in open_prs}
-            chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
-            if chosen not in pr_numbers:
-                stderr.print(
-                    f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list."
-                )
-                sys.exit(1)
-            selected = next(p for p in open_prs if str(p["number"]) == chosen)
-            base = selected["base"]["sha"]
-            head = selected["head"]["sha"]
-            selected_num = selected["number"]
-            pr_title = f"#{selected_num}: {selected.get('title') or f'PR {selected_num}'}"
+                stderr.print("[yellow]No open PRs found.[/yellow]")
+                if not click.confirm(
+                    "Analyse the last two commits (HEAD~1 → HEAD) instead?",
+                    default=True,
+                ):
+                    sys.exit(0)
+                base = "HEAD~1"
+                head = "HEAD"
+            else:
+                _print_pr_table(open_prs)
+                pr_numbers = {str(p["number"]) for p in open_prs}
+                chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
+                if chosen not in pr_numbers:
+                    stderr.print(
+                        f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list."
+                    )
+                    sys.exit(1)
+                selected = next(p for p in open_prs if str(p["number"]) == chosen)
+                base = selected["base"]["sha"]
+                head = selected["head"]["sha"]
+                selected_num = selected["number"]
+                pr_title = f"#{selected_num}: {selected.get('title') or f'PR {selected_num}'}"
 
     with Progress(
         SpinnerColumn(),
