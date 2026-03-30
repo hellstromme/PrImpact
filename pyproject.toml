@@ -25,6 +25,7 @@ dev = [
     "ruff>=0.4",
     "pyright>=1.1",
     "pre-commit>=3.7",
+    "detect-secrets>=1.5",
 ]
 
 [tool.ruff]

@@ -9,3 +9,14 @@ build/
 .venv/
 venv/
 *.egg
+
+# Secrets — never commit these
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+secrets.yaml
+secrets.yml
