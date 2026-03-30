@@ -1,6 +1,7 @@
 import os
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 import click
 import git
@@ -15,6 +16,42 @@ from .models import ImpactReport
 from .reporter import render_json, render_markdown, render_terminal
 
 stderr = Console(stderr=True)
+
+CONFIG_PATH = Path.home() / ".pr_impact" / "config.toml"
+
+
+def _load_config() -> None:
+    """Load ~/.pr_impact/config.toml and populate os.environ with any values found."""
+    if not CONFIG_PATH.exists():
+        return
+    try:
+        if sys.version_info >= (3, 11):
+            import tomllib
+        else:
+            try:
+                import tomllib  # type: ignore[no-redef]
+            except ImportError:
+                import tomli as tomllib  # type: ignore[no-redef]
+        with open(CONFIG_PATH, "rb") as fh:
+            config = tomllib.load(fh)
+    except Exception as e:
+        stderr.print(f"[bold red]Error:[/bold red] Could not parse config file {CONFIG_PATH}: {e}")
+        return
+
+    api_key = config.get("anthropic_api_key") or config.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return
+
+    expanded = os.path.expandvars(api_key)
+    if expanded == api_key and ("%" in api_key or "$" in api_key):
+        stderr.print(
+            f"[bold red]Error:[/bold red] Config file references an environment variable "
+            f"that is not set: {api_key}"
+        )
+        return
+    os.environ["ANTHROPIC_API_KEY"] = expanded
 
 
 def _invert_graph(forward: dict[str, list[str]]) -> dict[str, list[str]]:
@@ -43,6 +80,7 @@ def analyse(
     repo: str, base: str, head: str, output: str | None, json_output: str | None, max_depth: int
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs."""
+    _load_config()
     if not os.environ.get("ANTHROPIC_API_KEY"):
         stderr.print(
             "[bold red]Error:[/bold red] ANTHROPIC_API_KEY environment variable is not set."
