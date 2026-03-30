@@ -81,11 +81,6 @@ def analyse(
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs."""
     _load_config()
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        stderr.print(
-            "[bold red]Error:[/bold red] ANTHROPIC_API_KEY environment variable is not set."
-        )
-        sys.exit(1)
 
     with Progress(
         SpinnerColumn(),

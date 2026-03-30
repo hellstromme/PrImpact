@@ -225,7 +225,13 @@ def run_ai_analysis(
     blast_radius: list[BlastRadiusEntry],
     repo_path: str,
 ) -> AIAnalysis:
-    client = anthropic.Anthropic()
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "ANTHROPIC_API_KEY is not set — AI analysis skipped. "
+            "Set the key in the environment or in ~/.pr_impact/config.toml."
+        )
+    client = anthropic.Anthropic(api_key=api_key)
     result = AIAnalysis()
 
     diffs_ctx = _build_diffs_context(changed_files)
