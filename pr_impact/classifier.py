@@ -31,6 +31,8 @@ _JS_IMPORT_LINE = re.compile(r"^(?:import\s+|const\s+\w+\s*=\s*require)", re.MUL
 
 _DIFF_ADDED = re.compile(r"^\+(?!\+\+)(.*)$", re.MULTILINE)
 _DIFF_REMOVED = re.compile(r"^-(?!--)(.*)$", re.MULTILINE)
+# Matches "class " at start of signature or after a prefix keyword like "export "/"abstract "
+_KIND_CLASS = re.compile(r"(?:^|\s)class\s")
 
 
 def _extract_python_defs(content: str) -> dict[str, str]:
@@ -181,8 +183,7 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
 
         kind = "function"
         sig = sig_before or sig_after or ""
-        # Match "class Foo" at the start OR after "export "/"abstract " prefixes (TS/JS)
-        if re.search(r"(?:^|\s)class\s", sig):
+        if _KIND_CLASS.search(sig):
             kind = "class"
 
         symbols.append(

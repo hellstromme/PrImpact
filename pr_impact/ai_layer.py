@@ -21,7 +21,7 @@ from .prompts import (
     PROMPT_TEST_GAP_ANALYSIS,
 )
 
-MODEL = "claude-sonnet-4-5"
+MODEL = "claude-sonnet-4-6"
 MAX_RESPONSE_TOKENS = 4096
 # Rough characters-per-token estimate for budget calculations
 _CHARS_PER_TOKEN = 4

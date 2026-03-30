@@ -35,6 +35,17 @@ def test_absolute_module_not_in_all_files_returns_none():
     assert _resolve_python_module("missing.module", "other.py", set()) is None
 
 
+def test_absolute_module_requires_forward_slash_keys():
+    """all_files keys must use forward slashes; backslash keys never match (documents assumption)."""
+    backslash_files = {"pr_impact\\models.py"}  # Windows-style — should NOT match
+    assert _resolve_python_module("pr_impact.models", "pr_impact/cli.py", backslash_files) is None
+    forward_slash_files = {"pr_impact/models.py"}  # POSIX-style — must match
+    assert (
+        _resolve_python_module("pr_impact.models", "pr_impact/cli.py", forward_slash_files)
+        == "pr_impact/models.py"
+    )
+
+
 def test_absolute_prefers_file_over_init():
     all_files = {"pr_impact/models.py", "pr_impact/models/__init__.py"}
     result = _resolve_python_module("pr_impact.models", "other.py", all_files)

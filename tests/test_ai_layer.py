@@ -5,7 +5,7 @@ No API calls are made. All tested functions are deterministic string processors.
 
 from pr_impact.ai_layer import _build_diffs_context, _extract_signatures, _parse_json_safe
 from pr_impact.models import ChangedFile
-from tests.conftest import make_file
+from tests.helpers import make_file
 
 # _DIFF_CHAR_LIMIT = 8_000 tokens * 4 chars/token = 32_000 chars
 _LIMIT = 32_000

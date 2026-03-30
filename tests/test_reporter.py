@@ -12,7 +12,7 @@ from pr_impact.models import (
     TestGap,
 )
 from pr_impact.reporter import render_json, render_markdown
-from tests.conftest import make_file, make_report
+from tests.helpers import make_file, make_report
 
 # ---------------------------------------------------------------------------
 # render_markdown: header and structure

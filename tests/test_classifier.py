@@ -2,7 +2,7 @@
 
 from pr_impact.classifier import classify_changed_file, get_interface_changes
 from pr_impact.models import ChangedSymbol
-from tests.conftest import make_file
+from tests.helpers import make_file
 
 # ---------------------------------------------------------------------------
 # File-level cases
@@ -246,6 +246,40 @@ def test_ts_exported_class_change_is_interface_changed():
     bar = next(s for s in symbols if s.name == "Bar")
     assert bar.change_type == "interface_changed"
     assert bar.kind == "class"
+
+
+def test_ts_abstract_class_kind_detected():
+    """'abstract class Foo' (no export) must be detected as kind='class'."""
+    before = "abstract class Foo {}\n"
+    after = "abstract class Foo { bar(): void {} }\n"
+    diff = "-abstract class Foo {}\n+abstract class Foo { bar(): void {} }\n"
+    f = make_file(language="typescript", before=before, after=after, diff=diff)
+    symbols = classify_changed_file(f)
+    foo = next(s for s in symbols if s.name == "Foo")
+    assert foo.kind == "class"
+
+
+def test_ts_exported_abstract_class_kind_detected():
+    """'export abstract class Foo' must be detected as kind='class'."""
+    before = "export abstract class Foo {}\n"
+    after = "export abstract class Foo extends Base {}\n"
+    diff = "-export abstract class Foo {}\n+export abstract class Foo extends Base {}\n"
+    f = make_file(language="typescript", before=before, after=after, diff=diff)
+    symbols = classify_changed_file(f)
+    foo = next(s for s in symbols if s.name == "Foo")
+    assert foo.kind == "class"
+    assert foo.change_type == "interface_changed"
+
+
+def test_mid_word_class_not_detected_as_class_kind():
+    """A name containing 'class' mid-word (e.g. 'declassified') must not produce kind='class'."""
+    before = "def declassified(x):\n    return x\n"
+    after = "def declassified(x, y):\n    return x + y\n"
+    diff = "-def declassified(x):\n+def declassified(x, y):\n"
+    f = make_file(before=before, after=after, diff=diff)
+    symbols = classify_changed_file(f)
+    sym = next(s for s in symbols if s.name == "declassified")
+    assert sym.kind == "function"
 
 
 def test_ts_exported_arrow_function_added_is_interface_added():
