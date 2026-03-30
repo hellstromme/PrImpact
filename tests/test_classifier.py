@@ -1,6 +1,6 @@
 """Unit tests for pr_impact/classifier.py."""
 
-from pr_impact.classifier import _KIND_CLASS, classify_changed_file, get_interface_changes
+from pr_impact.classifier import classify_changed_file, get_interface_changes
 from pr_impact.models import ChangedSymbol
 from tests.helpers import make_file
 
@@ -460,25 +460,8 @@ def test_multiple_symbols_across_multiple_files():
 
 
 # ---------------------------------------------------------------------------
-# _KIND_CLASS regex — prefixed keywords
+# TypeScript class classification with prefixed keywords
 # ---------------------------------------------------------------------------
-
-
-def test_kind_class_matches_bare_class():
-    assert _KIND_CLASS.search("class Foo")
-
-
-def test_kind_class_matches_export_class():
-    assert _KIND_CLASS.search("export class Foo")
-
-
-def test_kind_class_matches_abstract_class():
-    assert _KIND_CLASS.search("abstract class Bar")
-
-
-def test_kind_class_does_not_match_classname_without_space():
-    # "classname" should NOT be treated as a class declaration
-    assert not _KIND_CLASS.search("classname = 1")
 
 
 def test_export_class_classify_kind_is_class():

@@ -1,14 +1,50 @@
 """Unit tests for pure helpers in pr_impact/ai_layer.py.
 
-No API calls are made. All tested functions are deterministic string processors.
+No real API calls are made. run_ai_analysis tests patch anthropic.Anthropic
+at the module boundary so no internal helpers are coupled to.
 """
 
-from pr_impact.ai_layer import _build_diffs_context, _extract_signatures, _parse_json_safe
-from pr_impact.models import ChangedFile
+import json
+from unittest.mock import MagicMock, patch
+
+import anthropic
+import pytest
+
+from pr_impact.ai_layer import (
+    _build_blast_radius_signatures,
+    _build_diffs_context,
+    _extract_signatures,
+    _find_neighbouring_signatures,
+    _parse_json_safe,
+    run_ai_analysis,
+)
+from pr_impact.models import BlastRadiusEntry, ChangedFile
 from tests.helpers import make_file
 
 # _DIFF_CHAR_LIMIT = 8_000 tokens * 4 chars/token = 32_000 chars
 _LIMIT = 32_000
+
+
+def _mock_client(*responses):
+    """Return a mock Anthropic client whose messages.create returns TextBlock responses.
+
+    Each element of *responses is either a str (JSON to return) or an Exception
+    subclass instance (to raise). The retry loop in _call_claude calls
+    messages.create up to twice per logical API call, so pass two consecutive
+    exceptions to simulate a fully-failed call.
+    """
+    mock_client = MagicMock()
+    side_effects = []
+    for resp in responses:
+        if isinstance(resp, Exception):
+            side_effects.append(resp)
+        else:
+            block = anthropic.types.TextBlock(type="text", text=resp)
+            msg = MagicMock()
+            msg.content = [block]
+            side_effects.append(msg)
+    mock_client.messages.create.side_effect = side_effects
+    return mock_client
 
 
 # ---------------------------------------------------------------------------
@@ -246,12 +282,6 @@ def test_empty_content_returns_empty_string():
 # _build_blast_radius_signatures
 # ---------------------------------------------------------------------------
 
-from unittest.mock import patch
-
-from pr_impact.ai_layer import _build_blast_radius_signatures, _find_neighbouring_signatures, run_ai_analysis
-from pr_impact.models import BlastRadiusEntry
-import pytest
-
 
 def test_blast_radius_sigs_unreadable_file_returns_none(tmp_path):
     entry = BlastRadiusEntry(path="ghost.py", distance=1, imported_symbols=[], churn_score=None)
@@ -326,16 +356,16 @@ def test_run_ai_analysis_raises_without_api_key(monkeypatch, tmp_path):
 
 
 def test_run_ai_analysis_returns_populated_analysis(monkeypatch, tmp_path):
-    import json as _json
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    r1 = _json.dumps({
+    r1 = json.dumps({
         "summary": "All good",
         "decisions": [{"description": "d", "rationale": "r", "risk": "rk"}],
         "assumptions": [{"description": "a", "location": "loc", "risk": "rk"}],
     })
-    r2 = _json.dumps({"anomalies": [{"description": "x", "location": "y", "severity": "high"}]})
-    r3 = _json.dumps({"test_gaps": [{"behaviour": "b", "location": "l"}]})
-    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, r2, r3]):
+    r2 = json.dumps({"anomalies": [{"description": "x", "location": "y", "severity": "high"}]})
+    r3 = json.dumps({"test_gaps": [{"behaviour": "b", "location": "l"}]})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         result = run_ai_analysis([make_file()], [], str(tmp_path))
     assert result.summary == "All good"
     assert len(result.decisions) == 1
@@ -348,23 +378,24 @@ def test_run_ai_analysis_returns_populated_analysis(monkeypatch, tmp_path):
 
 
 def test_run_ai_analysis_partial_result_on_call_failure(monkeypatch, tmp_path):
-    import json as _json
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    r1 = _json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
-    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, RuntimeError("timeout"), '{"test_gaps": []}']):
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r3 = json.dumps({"test_gaps": []})
+    # _call_claude retries once: two consecutive raises = fully-failed call 2
+    client = _mock_client(r1, RuntimeError("timeout"), RuntimeError("timeout"), r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         result = run_ai_analysis([make_file()], [], str(tmp_path))
     assert result.summary == "ok"
     assert result.anomalies == []
 
 
 def test_run_ai_analysis_missing_response_fields_use_defaults(monkeypatch, tmp_path):
-    import json as _json
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    # Responses omit most optional keys
-    r1 = _json.dumps({"summary": "s"})
-    r2 = _json.dumps({})
-    r3 = _json.dumps({})
-    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, r2, r3]):
+    r1 = json.dumps({"summary": "s"})
+    r2 = json.dumps({})
+    r3 = json.dumps({})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         result = run_ai_analysis([make_file()], [], str(tmp_path))
     assert result.summary == "s"
     assert result.decisions == []
@@ -374,16 +405,16 @@ def test_run_ai_analysis_missing_response_fields_use_defaults(monkeypatch, tmp_p
 
 
 def test_run_ai_analysis_non_dict_items_in_lists_are_skipped(monkeypatch, tmp_path):
-    import json as _json
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    r1 = _json.dumps({
+    r1 = json.dumps({
         "summary": "",
         "decisions": ["not a dict", {"description": "d", "rationale": "r", "risk": "rk"}],
         "assumptions": [],
     })
-    r2 = _json.dumps({"anomalies": [42, {"description": "x", "location": "y", "severity": "low"}]})
-    r3 = _json.dumps({"test_gaps": [None, {"behaviour": "b", "location": "l"}]})
-    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, r2, r3]):
+    r2 = json.dumps({"anomalies": [42, {"description": "x", "location": "y", "severity": "low"}]})
+    r3 = json.dumps({"test_gaps": [None, {"behaviour": "b", "location": "l"}]})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         result = run_ai_analysis([make_file()], [], str(tmp_path))
     assert len(result.decisions) == 1
     assert len(result.anomalies) == 1
@@ -391,12 +422,12 @@ def test_run_ai_analysis_non_dict_items_in_lists_are_skipped(monkeypatch, tmp_pa
 
 
 def test_run_ai_analysis_missing_nested_fields_default_to_empty_string(monkeypatch, tmp_path):
-    import json as _json
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    r1 = _json.dumps({"summary": "", "decisions": [{}], "assumptions": [{}]})
-    r2 = _json.dumps({"anomalies": [{}]})
-    r3 = _json.dumps({"test_gaps": [{}]})
-    with patch("pr_impact.ai_layer._call_claude", side_effect=[r1, r2, r3]):
+    r1 = json.dumps({"summary": "", "decisions": [{}], "assumptions": [{}]})
+    r2 = json.dumps({"anomalies": [{}]})
+    r3 = json.dumps({"test_gaps": [{}]})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         result = run_ai_analysis([make_file()], [], str(tmp_path))
     assert result.decisions[0].description == ""
     assert result.decisions[0].rationale == ""
