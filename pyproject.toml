@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pr-impact"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "gitpython>=3.1",
+    "anthropic>=0.25",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.scripts]
+pr-impact = "pr_impact.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pr_impact*"]
