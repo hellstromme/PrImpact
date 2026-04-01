@@ -10,7 +10,7 @@ from collections.abc import Iterable
 def _parse_github_remote(url: str) -> tuple[str, str] | None:
     """Return (owner, repo) parsed from a GitHub remote URL, or None."""
     https_match = re.match(
-        r"https?://(?:[^@/]+@)?github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$",
+        r"https?://(?:[^@/]+@)?github\.com(?::\d+)?/([^/]+)/([^/]+?)(?:\.git)?/?$",
         url,
     )
     if https_match:
@@ -22,7 +22,7 @@ def _parse_github_remote(url: str) -> tuple[str, str] | None:
     if ssh_match:
         return ssh_match.group(1), ssh_match.group(2)
     ssh_url_match = re.match(
-        r"ssh://git@github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$",
+        r"ssh://git@github\.com(?::\d+)?/([^/]+)/([^/]+?)(?:\.git)?/?$",
         url,
     )
     if ssh_url_match:
