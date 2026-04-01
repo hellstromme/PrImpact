@@ -221,6 +221,7 @@ def analyse(
                 head = "HEAD"
             else:
                 _print_pr_table(open_prs)
+                sys.stderr.flush()
                 pr_numbers = {str(p["number"]) for p in open_prs}
                 chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
                 if chosen not in pr_numbers:
