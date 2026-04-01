@@ -168,8 +168,7 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
             if not rel_path.endswith(".cs"):
                 continue
             content = _read_file(repo_path, rel_path)
-            m = _CS_NAMESPACE.search(content)
-            if m:
+            for m in _CS_NAMESPACE.finditer(content):
                 cs_namespace_map.setdefault(m.group(1), []).append(rel_path)
 
     graph: dict[str, list[str]] = {}
@@ -263,8 +262,7 @@ def get_imported_symbols(file_path: str, imported_from: str) -> list[str]:
                 symbols.append(sym)
 
     # C#: using Namespace — return leaf namespace name as best-effort
-    cs_using = re.compile(r"^using\s+([\w.]+)\s*;", re.MULTILINE)
-    for m in cs_using.finditer(content):
+    for m in _CS_USING.finditer(content):
         leaf = m.group(1).split(".")[-1]
         symbols.append(leaf)
 
