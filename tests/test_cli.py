@@ -315,7 +315,7 @@ _OPEN_PRS = [
 def _pr_patches(pr_data=_PR_DATA, open_prs=_OPEN_PRS):
     """Return additional patches needed for GitHub PR tests."""
     return [
-        patch("pr_impact.cli.detect_github_remote", return_value=("myorg", "myrepo")),
+        patch("pr_impact.cli.detect_github_remote", return_value=("myorg", "myrepo", "origin")),
         patch("pr_impact.cli.fetch_pr", return_value=pr_data),
         patch("pr_impact.cli.fetch_open_prs", return_value=open_prs),
     ]
@@ -402,7 +402,7 @@ def test_analyse_pr_fetch_error_exits_1(runner):
         base_p[4],
         base_p[5],
         base_p[6],
-        patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo")),
+        patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo", "origin")),
         patch("pr_impact.cli.fetch_pr", side_effect=RuntimeError("GitHub API error 404")),
         patch("pr_impact.cli.fetch_open_prs", return_value=[]),
     ):
@@ -484,7 +484,7 @@ def test_analyse_interactive_invalid_pr_number_exits_1(runner):
 def test_analyse_interactive_no_open_prs_offers_last_two_commits_declined(runner):
     with (
         patch("pr_impact.cli.git.Repo", return_value=MagicMock()),
-        patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo")),
+        patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo", "origin")),
         patch("pr_impact.cli.fetch_open_prs", return_value=[]),
     ):
         result = runner.invoke(
@@ -507,7 +507,7 @@ def test_analyse_interactive_no_open_prs_uses_last_two_commits_when_confirmed(ru
         base_p[4],
         base_p[5],
         base_p[6],
-        patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo")),
+        patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo", "origin")),
         patch("pr_impact.cli.fetch_open_prs", return_value=[]),
     ):
         result = runner.invoke(

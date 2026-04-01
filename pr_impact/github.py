@@ -25,8 +25,8 @@ def _parse_github_remote(url: str) -> tuple[str, str] | None:
     return None
 
 
-def detect_github_remote(repo: git.Repo) -> tuple[str, str] | None:
-    """Return (owner, repo_name) for the first GitHub remote found, or None."""
+def detect_github_remote(repo: git.Repo) -> tuple[str, str, str] | None:
+    """Return (owner, repo_name, remote_name) for the first GitHub remote found, or None."""
     if not repo.remotes:
         return None
     ordered = sorted(repo.remotes, key=lambda r: (r.name != "origin", r.name))
@@ -34,7 +34,8 @@ def detect_github_remote(repo: git.Repo) -> tuple[str, str] | None:
         for url in remote.urls:
             result = _parse_github_remote(url)
             if result is not None:
-                return result
+                owner, repo_name = result
+                return owner, repo_name, remote.name
     return None
 
 

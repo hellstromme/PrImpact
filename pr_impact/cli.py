@@ -12,7 +12,7 @@ from rich.table import Table
 from .ai_layer import run_ai_analysis
 from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
-from .git_analysis import get_changed_files, get_git_churn, get_pr_metadata
+from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .models import AIAnalysis, ImpactReport
 from .reporter import render_json, render_markdown, render_terminal
@@ -155,6 +155,10 @@ def analyse(
 
     # pr_title: set from GitHub data if using --pr or interactive mode
     pr_title: str | None = None
+    # Fetch info — set during PR resolution, used to ensure commits are present locally
+    _fetch_pr_number: int | None = None
+    _fetch_base_ref: str | None = None
+    _fetch_remote: str = "origin"
 
     # Open the repo early — needed for both PR resolution and the pipeline
     try:
@@ -174,14 +178,14 @@ def analyse(
                 f"[bold]{CONFIG_PATH}[/bold]. "
                 "Unauthenticated requests will fail for private repositories."
             )
-        owner_repo = detect_github_remote(repo_obj)
-        if owner_repo is None:
+        github_remote = detect_github_remote(repo_obj)
+        if github_remote is None:
             stderr.print(
                 "[bold red]Error:[/bold red] Could not detect a GitHub remote in this repository. "
                 "Use --base and --head to specify SHAs directly."
             )
             sys.exit(1)
-        owner, repo_name = owner_repo
+        owner, repo_name, _fetch_remote = github_remote
 
         if pr_number is not None:
             try:
@@ -191,6 +195,8 @@ def analyse(
                 sys.exit(1)
             base = pr_data["base"]["sha"]
             head = pr_data["head"]["sha"]
+            _fetch_pr_number = pr_number
+            _fetch_base_ref = pr_data.get("base", {}).get("ref")
             pr_title = f"#{pr_number}: {pr_data.get('title') or f'PR {pr_number}'}"
         else:
             # Interactive: list open PRs and let the user pick
@@ -220,6 +226,8 @@ def analyse(
                 selected = next(p for p in open_prs if str(p["number"]) == chosen)
                 base = selected["base"]["sha"]
                 head = selected["head"]["sha"]
+                _fetch_pr_number = selected["number"]
+                _fetch_base_ref = selected.get("base", {}).get("ref")
                 selected_num = selected["number"]
                 pr_title = f"#{selected_num}: {selected.get('title') or f'PR {selected_num}'}"
 
@@ -229,6 +237,12 @@ def analyse(
         console=Console(stderr=True),
         transient=True,
     ) as progress:
+        # Ensure PR commits are present locally before diffing (no-op for up-to-date clones)
+        if _fetch_pr_number is not None:
+            ensure_commits_present(
+                repo, base, head, _fetch_remote, _fetch_pr_number, _fetch_base_ref, repo=repo_obj
+            )
+
         # Step 1: get changed files
         task = progress.add_task("Extracting changed files...", total=None)
         try:

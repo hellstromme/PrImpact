@@ -76,6 +76,49 @@ def get_git_churn(repo_path: str, path: str, days: int = 90, repo: git.Repo | No
         return 0.0
 
 
+def ensure_commits_present(
+    repo_path: str,
+    base_sha: str,
+    head_sha: str,
+    remote_name: str,
+    pr_number: int | None = None,
+    base_ref: str | None = None,
+    repo: git.Repo | None = None,
+) -> None:
+    """Fetch PR commits from the remote if they are absent locally.
+
+    Stale clones and fork PRs often lack the exact SHAs returned by the
+    GitHub API. Fetches refs/pull/{pr_number}/head for the head and the
+    base branch ref for the base when either is missing. Failures are
+    silenced — get_changed_files will produce a clear error if commits
+    remain absent after the fetch attempt.
+    """
+    r = repo or git.Repo(repo_path)
+
+    head_missing = False
+    base_missing = False
+    try:
+        r.commit(head_sha)
+    except Exception:
+        head_missing = True
+    try:
+        r.commit(base_sha)
+    except Exception:
+        base_missing = True
+
+    if not head_missing and not base_missing:
+        return
+
+    try:
+        remote = r.remote(remote_name)
+        if head_missing and pr_number is not None:
+            remote.fetch(f"refs/pull/{pr_number}/head")
+        if base_missing and base_ref:
+            remote.fetch(base_ref)
+    except Exception:
+        pass  # get_changed_files will fail with a clear message if commits are still absent
+
+
 def get_pr_metadata(repo_path: str, base_sha: str, head_sha: str) -> dict[str, list[str]]:
     try:
         repo = git.Repo(repo_path)

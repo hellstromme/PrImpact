@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import git
 
 from pr_impact.git_analysis import (
+    ensure_commits_present,
     get_changed_files,
     get_git_churn,
     get_pr_metadata,
