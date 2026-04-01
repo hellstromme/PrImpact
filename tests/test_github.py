@@ -78,6 +78,12 @@ def test_detect_github_remote_ssh_url():
     assert detect_github_remote(repo) == ("org", "project", "origin")
 
 
+def test_detect_github_remote_ssh_url_scheme():
+    repo = MagicMock()
+    repo.remotes = [_make_remote("origin", "ssh://git@github.com/org/project.git")]
+    assert detect_github_remote(repo) == ("org", "project", "origin")
+
+
 def test_detect_github_remote_returns_remote_name():
     repo = MagicMock()
     repo.remotes = [_make_remote("upstream", "https://github.com/org/repo.git")]

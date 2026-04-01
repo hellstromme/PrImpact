@@ -22,6 +22,12 @@ def _parse_github_remote(url: str) -> tuple[str, str] | None:
     )
     if ssh_match:
         return ssh_match.group(1), ssh_match.group(2)
+    ssh_url_match = re.match(
+        r"ssh://git@github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$",
+        url,
+    )
+    if ssh_url_match:
+        return ssh_url_match.group(1), ssh_url_match.group(2)
     return None
 
 
