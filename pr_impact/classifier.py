@@ -27,11 +27,23 @@ _TS_ARROW = re.compile(
 )
 
 _CS_CLASS = re.compile(
-    r"^[ \t]*(?:(?:public|protected|private|internal|file)\s+)?(?:(?:abstract|sealed|static|partial|new)\s+)*class\s+(?P<name>\w+)(?P<rest>[^{]*)\{",
+    r"^[ \t]*(?:(?P<access>public|protected|private|internal|file)\s+)?(?:(?:abstract|sealed|static|partial|new)\s+)*class\s+(?P<name>\w+)(?P<rest>[^{]*)\{",
+    re.MULTILINE,
+)
+_CS_INTERFACE = re.compile(
+    r"^[ \t]*(?:(?P<access>public|protected|private|internal|file)\s+)?(?:partial\s+)?interface\s+(?P<name>\w+)(?P<rest>[^{]*)\{",
+    re.MULTILINE,
+)
+_CS_RECORD = re.compile(
+    r"^[ \t]*(?:(?P<access>public|protected|private|internal|file)\s+)?(?:(?:abstract|sealed|partial|new)\s+)*record\s+(?P<name>\w+)(?P<rest>[^{;]*)[{;]",
+    re.MULTILINE,
+)
+_CS_STRUCT = re.compile(
+    r"^[ \t]*(?:(?P<access>public|protected|private|internal|file)\s+)?(?:(?:readonly|ref|partial|new)\s+)*struct\s+(?P<name>\w+)(?P<rest>[^{]*)\{",
     re.MULTILINE,
 )
 _CS_METHOD = re.compile(
-    r"^[ \t]*(?P<access>public|protected|internal)(?:\s+(?:abstract|virtual|override|sealed|static|async|new|extern))*\s+\S.*?\s+(?P<name>\w+)\s*(?:<[^>]*>)?\s*\(",
+    r"^[ \t]*(?P<access>public|protected|internal)(?:\s+(?:abstract|virtual|override|sealed|static|async|new|extern))*\s+\S.*?\s+(?P<name>\w+)\s*(?:<[^>]*>)?\s*\((?P<params>[^)]*)\)",
     re.MULTILINE,
 )
 
@@ -105,19 +117,32 @@ def _is_exported_ts(name: str, content: str) -> bool:
 
 
 def _extract_csharp_defs(content: str) -> dict[str, str]:
-    """Return {name: signature} for C# classes and public/protected/internal methods."""
+    """Return {key: signature} for C# types and public/protected/internal methods.
+
+    Type keys are the bare name. Method keys are name(params) to handle overloads.
+    Signatures include the access modifier so _is_exported_csharp can inspect them.
+    """
     defs: dict[str, str] = {}
-    for m in _CS_CLASS.finditer(content):
-        name = m.group("name")
-        defs[name] = f"class {name}{m.group('rest')}".strip()
+    for pattern, kind_word in (
+        (_CS_CLASS, "class"),
+        (_CS_INTERFACE, "interface"),
+        (_CS_RECORD, "record"),
+        (_CS_STRUCT, "struct"),
+    ):
+        for m in pattern.finditer(content):
+            name = m.group("name")
+            access = (m.group("access") + " ") if m.group("access") else ""
+            defs[name] = f"{access}{kind_word} {name}{m.group('rest')}".strip()
     for m in _CS_METHOD.finditer(content):
         name = m.group("name")
-        defs[name] = m.group(0).strip()
+        key = f"{name}({m.group('params')})"
+        defs[key] = m.group(0).strip()
     return defs
 
 
-def _is_exported_csharp(name: str, content: str) -> bool:
-    return bool(re.search(rf"\bpublic\b[^{{;]*\b{re.escape(name)}\b", content))
+def _is_exported_csharp(sig: str) -> bool:
+    """Return True if the captured signature is declared with public access."""
+    return sig.startswith("public ")
 
 
 def _extract_import_lines(content: str, language: str) -> set[str]:
@@ -197,7 +222,9 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
         defs_after = _extract_csharp_defs(file.content_after)
 
         def is_exported(name: str) -> bool:
-            return _is_exported_csharp(name, file.content_after)
+            sig_b = defs_before.get(name) or ""
+            sig_a = defs_after.get(name) or ""
+            return _is_exported_csharp(sig_b) or _is_exported_csharp(sig_a)
     else:
         file.changed_symbols = symbols
         return symbols
@@ -206,7 +233,9 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
     all_names = set(defs_before) | set(defs_after)
 
     for name in all_names:
-        if name not in touched:
+        # For C# method keys like "GetUser(int id)", check only the base name.
+        check = name.split("(")[0] if file.language == "csharp" else name
+        if check not in touched:
             continue
 
         sig_before = defs_before.get(name)
