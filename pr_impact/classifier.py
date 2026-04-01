@@ -94,15 +94,17 @@ def _is_exported_ts(name: str, content: str) -> bool:
     return bool(re.search(rf"\bexport\b[^;{{]*\b{re.escape(name)}\b", content))
 
 
+
 def _extract_import_lines(content: str, language: str) -> set[str]:
     if language == "python":
         return {
             line.strip() for line in content.splitlines() if _PY_IMPORT_LINE.match(line.strip())
         }
-    else:
+    elif language in ("javascript", "typescript"):
         return {
             line.strip() for line in content.splitlines() if _JS_IMPORT_LINE.match(line.strip())
         }
+    return set()
 
 
 def _names_touched_in_diff(diff: str) -> set[str]:
@@ -152,15 +154,14 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
     if file.language == "python":
         defs_before = _extract_python_defs(file.content_before)
         defs_after = _extract_python_defs(file.content_after)
-
-        def is_exported(name: str) -> bool:
-            return _is_exported_python(name, file.content_after)
-    else:
+        _exported = _is_exported_python
+    elif file.language in ("javascript", "typescript"):
         defs_before = _extract_ts_defs(file.content_before)
         defs_after = _extract_ts_defs(file.content_after)
-
-        def is_exported(name: str) -> bool:
-            return _is_exported_ts(name, file.content_after)
+        _exported = _is_exported_ts
+    else:
+        file.changed_symbols = symbols
+        return symbols
 
     touched = _names_touched_in_diff(file.diff)
     all_names = set(defs_before) | set(defs_after)
@@ -171,13 +172,15 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
 
         sig_before = defs_before.get(name)
         sig_after = defs_after.get(name)
+        exported_before = _exported(name, file.content_before)
+        exported_after = _exported(name, file.content_after)
 
         if sig_before is None and sig_after is not None:
-            change_type = "interface_added" if is_exported(name) else "internal"
+            change_type = "interface_added" if exported_after else "internal"
         elif sig_before is not None and sig_after is None:
-            change_type = "interface_removed" if is_exported(name) else "internal"
+            change_type = "interface_removed" if exported_before else "internal"
         elif sig_before != sig_after:
-            change_type = "interface_changed" if is_exported(name) else "internal"
+            change_type = "interface_changed" if (exported_before or exported_after) else "internal"
         else:
             change_type = "internal"
 

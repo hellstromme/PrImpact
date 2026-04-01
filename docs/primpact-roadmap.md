@@ -38,7 +38,7 @@ in the time it takes to drink a coffee.
 *The design document covers this in full. Summary only here.*
 
 **Capabilities:**
-- Regex-based import graph across Python, TypeScript, JavaScript
+- Regex-based import graph across Python, TypeScript, JavaScript, C#
 - BFS blast radius to depth 3
 - Change classification (internal / interface / dependency / new / deleted)
 - Three-prompt AI analysis: summary + decisions + assumptions, anomalies, test gaps
@@ -80,9 +80,10 @@ The JSON sidecar is uploaded as a build artefact, enabling downstream tooling.
 
 Add support for:
 - **Java** — import graph only; AI layer already handles it
-- **C#** — using statements, namespace graph
 - **Go** — import graph is explicit and clean; straightforward addition
 - **Ruby** — require/require_relative patterns
+
+C# (`using` statements, namespace graph) was added in v0.1.
 
 The classifier and AI layer are language-agnostic. Only the import extractor is
 language-specific — each new language is an addition to one module.

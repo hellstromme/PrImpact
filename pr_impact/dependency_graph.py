@@ -18,6 +18,9 @@ _JS_IMPORT_FROM = re.compile(
 _JS_REQUIRE = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 _JS_PLAIN_IMPORT = re.compile(r"""^import\s+['"]([^'"]+)['"]""", re.MULTILINE)
 
+_CS_USING = re.compile(r"^using\s+([\w.]+)\s*;", re.MULTILINE)
+_CS_NAMESPACE = re.compile(r"^namespace\s+([\w.]+)", re.MULTILINE)
+
 
 def _list_repo_files(repo_path: str, language_filter: list[str]) -> list[str]:
     """Return repo-relative paths of tracked files matching the language filter."""
@@ -25,6 +28,7 @@ def _list_repo_files(repo_path: str, language_filter: list[str]) -> list[str]:
         "python": {".py"},
         "typescript": {".ts", ".tsx"},
         "javascript": {".js", ".jsx", ".mjs", ".cjs"},
+        "csharp": {".cs"},
     }
     wanted_exts: set[str] = set()
     for lang in language_filter:
@@ -107,8 +111,17 @@ def _resolve_js_import(specifier: str, source_file: str, all_files: set[str]) ->
     return None
 
 
+def _resolve_csharp_import(namespace: str, cs_namespace_map: dict[str, list[str]]) -> list[str]:
+    """Look up a C# namespace in the pre-built namespace→files map."""
+    return cs_namespace_map.get(namespace, [])
+
+
 def _extract_imports(
-    content: str, source_file: str, language: str, all_files: set[str]
+    content: str,
+    source_file: str,
+    language: str,
+    all_files: set[str],
+    cs_namespace_map: dict[str, list[str]] | None = None,
 ) -> list[str]:
     resolved: list[str] = []
 
@@ -121,7 +134,7 @@ def _extract_imports(
             r = _resolve_python_module(m.group(1), source_file, all_files)
             if r:
                 resolved.append(r)
-    else:
+    elif language in ("javascript", "typescript"):
         for m in _JS_IMPORT_FROM.finditer(content):
             r = _resolve_js_import(m.group(1), source_file, all_files)
             if r:
@@ -134,6 +147,9 @@ def _extract_imports(
             r = _resolve_js_import(m.group(1), source_file, all_files)
             if r:
                 resolved.append(r)
+    elif language == "csharp":
+        for m in _CS_USING.finditer(content):
+            resolved.extend(_resolve_csharp_import(m.group(1), cs_namespace_map or {}))
 
     return list(set(resolved))
 
@@ -144,12 +160,22 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
     """Return forward graph: {file: [files it imports]}."""
     files = _list_repo_files(repo_path, language_filter)
     all_files = set(files)
-    graph: dict[str, list[str]] = {}
 
+    # Pre-build namespace→files map for C# resolution
+    cs_namespace_map: dict[str, list[str]] = {}
+    if "csharp" in language_filter:
+        for rel_path in files:
+            if not rel_path.endswith(".cs"):
+                continue
+            content = _read_file(repo_path, rel_path)
+            for m in _CS_NAMESPACE.finditer(content):
+                cs_namespace_map.setdefault(m.group(1), []).append(rel_path)
+
+    graph: dict[str, list[str]] = {}
     for rel_path in files:
         content = _read_file(repo_path, rel_path)
         lang = resolve_language(rel_path)
-        imports = _extract_imports(content, rel_path, lang, all_files)
+        imports = _extract_imports(content, rel_path, lang, all_files, cs_namespace_map)
         graph[rel_path] = imports
 
     return graph
@@ -234,5 +260,10 @@ def get_imported_symbols(file_path: str, imported_from: str) -> list[str]:
             sym = sym.strip().split(" as ")[0].strip()
             if sym:
                 symbols.append(sym)
+
+    # C#: using Namespace — return leaf namespace name as best-effort
+    for m in _CS_USING.finditer(content):
+        leaf = m.group(1).split(".")[-1]
+        symbols.append(leaf)
 
     return list(set(symbols))

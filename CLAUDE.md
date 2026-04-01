@@ -91,4 +91,4 @@ Context priority order: full diffs (always, truncated at 8k tokens) → distance
 
 ### Supported languages (v0.1)
 
-Python (`.py`), TypeScript (`.ts`, `.tsx`), JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`)
+Python (`.py`), TypeScript (`.ts`, `.tsx`), JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`), C# (`.cs`)

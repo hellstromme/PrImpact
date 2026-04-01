@@ -9,6 +9,7 @@ _LANGUAGE_MAP: dict[str, str] = {
     ".jsx": "javascript",
     ".mjs": "javascript",
     ".cjs": "javascript",
+    ".cs": "csharp",
 }
 
 

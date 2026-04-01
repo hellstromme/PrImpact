@@ -10,7 +10,7 @@ under ten minutes of reading.
 **Constraints:**
 - Works on any repo with no prior instrumentation
 - No runtime data required — static analysis only
-- Languages supported in MVP: Python, TypeScript, JavaScript
+- Languages supported in MVP: Python, TypeScript, JavaScript, C#
 - Output: Markdown report + JSON sidecar
 
 ---
@@ -37,7 +37,7 @@ pr_impact/
 @dataclass
 class ChangedFile:
     path: str
-    language: str                      # 'python' | 'typescript' | 'javascript' | 'unknown'
+    language: str                      # 'python' | 'typescript' | 'javascript' | 'csharp' | 'unknown'
     diff: str                          # Raw unified diff for this file
     content_before: str
     content_after: str
@@ -123,8 +123,8 @@ def get_changed_files(repo_path: str, base_sha: str, head_sha: str) -> list[Chan
 ```
 - Get the diff between base and head
 - For each changed file: extract the raw diff, and the full file content at both commits
-- Filter to supported languages only
-- Resolve language from file extension
+- Filter to supported languages only (Python, TypeScript, JavaScript, C#)
+- Resolve language from file extension (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.cs`)
 
 ```python
 def get_git_churn(repo_path: str, path: str, days: int = 90) -> float
@@ -159,6 +159,9 @@ TypeScript / JavaScript:
 - `import { X } from 'Y'`
 - `const X = require('Y')`
 - `export { X } from 'Y'` (re-exports — important to track)
+
+C#:
+- `using Namespace;` (resolved via a pre-built namespace→files map scanned from `namespace` declarations)
 
 **Functions:**
 
@@ -508,4 +511,4 @@ this use case.
 - Integration with GitHub/GitLab PR APIs (MVP works on local repos)
 - Roadmap / backlog integration
 - Web UI or dashboard
-- Support for languages beyond Python, TypeScript, JavaScript
+- Support for languages beyond Python, TypeScript, JavaScript, C#
