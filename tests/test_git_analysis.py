@@ -296,13 +296,13 @@ def test_ensure_commits_present_fetch_failure_raises():
 
 
 def test_ensure_commits_present_sha_still_absent_after_fetch_raises():
-    repo, remote = _make_repo_for_fetch(head_present=False, base_present=True, fetch_resolves=False)
+    repo, _remote = _make_repo_for_fetch(head_present=False, base_present=True, fetch_resolves=False)
     with pytest.raises(RuntimeError, match="still not present after fetch"):
         ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, repo=repo)
 
 
 def test_ensure_commits_present_base_still_absent_after_fetch_raises():
-    repo, remote = _make_repo_for_fetch(head_present=True, base_present=False, fetch_resolves=False)
+    repo, _remote = _make_repo_for_fetch(head_present=True, base_present=False, fetch_resolves=False)
     with pytest.raises(RuntimeError, match="still not present after fetch"):
         ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, base_ref="main", repo=repo)
 

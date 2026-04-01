@@ -121,17 +121,17 @@ def ensure_commits_present(
     if head_missing and pr_number is not None:
         try:
             r.commit(head_sha)
-        except Exception:
+        except Exception as err:
             raise RuntimeError(
                 f"Head SHA {head_sha!r} still not present after fetch from '{remote_name}'."
-            )
+            ) from err
     if base_missing and base_ref:
         try:
             r.commit(base_sha)
-        except Exception:
+        except Exception as err:
             raise RuntimeError(
                 f"Base SHA {base_sha!r} still not present after fetch from '{remote_name}'."
-            )
+            ) from err
 
 
 def get_pr_metadata(repo_path: str, base_sha: str, head_sha: str) -> dict[str, list[str]]:
