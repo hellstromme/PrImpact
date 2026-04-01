@@ -56,6 +56,11 @@ def _load_config() -> None:
     os.environ["ANTHROPIC_API_KEY"] = expanded
 
 
+def _env_placeholder(var: str) -> str:
+    """Return the platform-appropriate env-var placeholder for config file hints."""
+    return f"%{var}%" if sys.platform == "win32" else f"${var}"
+
+
 def _get_github_token() -> str | None:
     """Return a GitHub token from env or config file, or None if absent."""
     token = os.environ.get("GITHUB_TOKEN")
@@ -174,7 +179,7 @@ def analyse(
             stderr.print(
                 "[yellow]Warning:[/yellow] No GitHub token found. "
                 "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
-                "or add [bold]github_token = \"%GITHUB_TOKEN%\"[/bold] to "
+                f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
                 f"[bold]{CONFIG_PATH}[/bold]. "
                 "Unauthenticated requests will fail for private repositories."
             )
