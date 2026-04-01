@@ -111,9 +111,9 @@ def _resolve_js_import(specifier: str, source_file: str, all_files: set[str]) ->
     return None
 
 
-def _resolve_csharp_import(namespace: str, cs_namespace_map: dict[str, str]) -> str | None:
-    """Look up a C# namespace in the pre-built namespace→file map."""
-    return cs_namespace_map.get(namespace)
+def _resolve_csharp_import(namespace: str, cs_namespace_map: dict[str, list[str]]) -> list[str]:
+    """Look up a C# namespace in the pre-built namespace→files map."""
+    return cs_namespace_map.get(namespace, [])
 
 
 def _extract_imports(
@@ -121,7 +121,7 @@ def _extract_imports(
     source_file: str,
     language: str,
     all_files: set[str],
-    cs_namespace_map: dict[str, str] | None = None,
+    cs_namespace_map: dict[str, list[str]] | None = None,
 ) -> list[str]:
     resolved: list[str] = []
 
@@ -149,9 +149,7 @@ def _extract_imports(
                 resolved.append(r)
     elif language == "csharp":
         for m in _CS_USING.finditer(content):
-            r = _resolve_csharp_import(m.group(1), cs_namespace_map or {})
-            if r:
-                resolved.append(r)
+            resolved.extend(_resolve_csharp_import(m.group(1), cs_namespace_map or {}))
 
     return list(set(resolved))
 
@@ -163,8 +161,8 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
     files = _list_repo_files(repo_path, language_filter)
     all_files = set(files)
 
-    # Pre-build namespace→file map for C# resolution
-    cs_namespace_map: dict[str, str] = {}
+    # Pre-build namespace→files map for C# resolution
+    cs_namespace_map: dict[str, list[str]] = {}
     if "csharp" in language_filter:
         for rel_path in files:
             if not rel_path.endswith(".cs"):
@@ -172,7 +170,7 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
             content = _read_file(repo_path, rel_path)
             m = _CS_NAMESPACE.search(content)
             if m:
-                cs_namespace_map[m.group(1)] = rel_path
+                cs_namespace_map.setdefault(m.group(1), []).append(rel_path)
 
     graph: dict[str, list[str]] = {}
     for rel_path in files:
