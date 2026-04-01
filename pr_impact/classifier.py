@@ -142,8 +142,8 @@ def _extract_csharp_defs(content: str) -> dict[str, str]:
 
 
 def _is_exported_csharp(sig: str) -> bool:
-    """Return True if the captured signature is declared with public access."""
-    return sig.startswith("public ")
+    """Return True if the captured signature is declared with public or protected access."""
+    return sig.startswith("public ") or sig.startswith("protected ")
 
 
 def _extract_import_lines(content: str, language: str) -> set[str]:
