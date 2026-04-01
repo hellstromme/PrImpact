@@ -117,9 +117,11 @@ def _is_exported_ts(name: str, content: str) -> bool:
 
 
 def _extract_csharp_defs(content: str) -> dict[str, str]:
-    """Return {key: signature} for C# types and public/protected/internal methods.
+    """Return {name: signature} for C# types and public/protected/internal methods.
 
-    Type keys are the bare name. Method keys are name(params) to handle overloads.
+    All keys are the bare name. For overloaded methods the last definition wins,
+    which is consistent with how Python and TypeScript are handled and avoids
+    treating a parameter-list change as a remove + add pair.
     Signatures include the access modifier so _is_exported_csharp can inspect them.
     """
     defs: dict[str, str] = {}
@@ -135,8 +137,7 @@ def _extract_csharp_defs(content: str) -> dict[str, str]:
             defs[name] = f"{access}{kind_word} {name}{m.group('rest')}".strip()
     for m in _CS_METHOD.finditer(content):
         name = m.group("name")
-        key = f"{name}({m.group('params')})"
-        defs[key] = m.group(0).strip()
+        defs[name] = m.group(0).strip()
     return defs
 
 
