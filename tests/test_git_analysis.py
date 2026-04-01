@@ -4,8 +4,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import git
+import pytest
 
 from pr_impact.git_analysis import (
+    ensure_commits_present,
     get_changed_files,
     get_git_churn,
     get_pr_metadata,
@@ -219,6 +221,90 @@ def test_get_changed_files_mixed_languages_filtered():
     result = get_changed_files(".", "abc", "def", repo=stub)
     assert len(result) == 2
     assert {r.language for r in result} == {"python", "typescript"}
+
+
+# ---------------------------------------------------------------------------
+# ensure_commits_present — mock-based unit tests
+# ---------------------------------------------------------------------------
+
+
+def _make_repo_for_fetch(
+    head_present: bool = True,
+    base_present: bool = True,
+    fetch_resolves: bool = True,
+):
+    """Return a stub git.Repo with controllable commit lookup and remote fetch.
+
+    When fetch_resolves=True (default), calling remote.fetch() makes the
+    previously-missing SHA resolvable, simulating a successful fetch.
+    When fetch_resolves=False, the SHA remains absent after fetch.
+    """
+    resolved: set[str] = set()
+    if head_present:
+        resolved.add("head123")
+    if base_present:
+        resolved.add("base456")
+
+    def _commit(sha):
+        if sha not in resolved:
+            raise git.BadName(sha)
+
+    def _fetch(ref):
+        if fetch_resolves:
+            if "pull/" in ref:
+                resolved.add("head123")
+            else:
+                resolved.add("base456")
+
+    repo = MagicMock()
+    repo.commit.side_effect = _commit
+    remote = MagicMock()
+    remote.fetch.side_effect = _fetch
+    repo.remote.return_value = remote
+    return repo, remote
+
+
+def test_ensure_commits_present_both_present_no_fetch():
+    repo, remote = _make_repo_for_fetch(head_present=True, base_present=True)
+    ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, repo=repo)
+    remote.fetch.assert_not_called()
+
+
+def test_ensure_commits_present_missing_head_fetches_pr_ref():
+    repo, remote = _make_repo_for_fetch(head_present=False, base_present=True)
+    ensure_commits_present(".", "base456", "head123", "origin", pr_number=42, repo=repo)
+    remote.fetch.assert_called_once_with("refs/pull/42/head")
+
+
+def test_ensure_commits_present_missing_base_fetches_base_ref():
+    repo, remote = _make_repo_for_fetch(head_present=True, base_present=False)
+    ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, base_ref="main", repo=repo)
+    remote.fetch.assert_called_once_with("main")
+
+
+def test_ensure_commits_present_missing_base_no_base_ref_skips_fetch():
+    repo, remote = _make_repo_for_fetch(head_present=True, base_present=False)
+    ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, base_ref=None, repo=repo)
+    remote.fetch.assert_not_called()
+
+
+def test_ensure_commits_present_fetch_failure_raises():
+    repo, remote = _make_repo_for_fetch(head_present=False, base_present=True)
+    remote.fetch.side_effect = git.GitCommandError("fetch", 128)
+    with pytest.raises(RuntimeError, match="Could not fetch missing PR commits"):
+        ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, repo=repo)
+
+
+def test_ensure_commits_present_sha_still_absent_after_fetch_raises():
+    repo, _remote = _make_repo_for_fetch(head_present=False, base_present=True, fetch_resolves=False)
+    with pytest.raises(RuntimeError, match="still not present after fetch"):
+        ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, repo=repo)
+
+
+def test_ensure_commits_present_base_still_absent_after_fetch_raises():
+    repo, _remote = _make_repo_for_fetch(head_present=True, base_present=False, fetch_resolves=False)
+    with pytest.raises(RuntimeError, match="still not present after fetch"):
+        ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, base_ref="main", repo=repo)
 
 
 # ---------------------------------------------------------------------------
