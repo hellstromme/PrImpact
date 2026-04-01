@@ -115,8 +115,8 @@ def ensure_commits_present(
             remote.fetch(f"refs/pull/{pr_number}/head")
         if base_missing and base_ref:
             remote.fetch(base_ref)
-    except Exception:
-        pass  # get_changed_files will fail with a clear message if commits are still absent
+    except Exception as e:
+        raise RuntimeError(f"Could not fetch missing PR commits from '{remote_name}': {e}") from e
 
 
 def get_pr_metadata(repo_path: str, base_sha: str, head_sha: str) -> dict[str, list[str]]:

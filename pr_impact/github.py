@@ -4,8 +4,7 @@ import json
 import re
 import urllib.error
 import urllib.request
-
-import git
+from collections.abc import Iterable
 
 
 def _parse_github_remote(url: str) -> tuple[str, str] | None:
@@ -31,17 +30,22 @@ def _parse_github_remote(url: str) -> tuple[str, str] | None:
     return None
 
 
-def detect_github_remote(repo: git.Repo) -> tuple[str, str, str] | None:
-    """Return (owner, repo_name, remote_name) for the first GitHub remote found, or None."""
-    if not repo.remotes:
-        return None
-    ordered = sorted(repo.remotes, key=lambda r: (r.name != "origin", r.name))
-    for remote in ordered:
-        for url in remote.urls:
+def detect_github_remote(
+    remotes: Iterable[tuple[str, Iterable[str]]],
+) -> tuple[str, str, str] | None:
+    """Return (owner, repo_name, remote_name) for the first GitHub remote found, or None.
+
+    ``remotes`` is an iterable of ``(name, urls)`` pairs; callers construct it
+    from their VCS objects so this module stays free of GitPython.
+    ``origin`` is checked before other remotes.
+    """
+    ordered = sorted(remotes, key=lambda r: (r[0] != "origin", r[0]))
+    for name, urls in ordered:
+        for url in urls:
             result = _parse_github_remote(url)
             if result is not None:
                 owner, repo_name = result
-                return owner, repo_name, remote.name
+                return owner, repo_name, name
     return None
 
 

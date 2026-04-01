@@ -44,50 +44,32 @@ def test_parse_github_remote(url, expected):
 # ---------------------------------------------------------------------------
 
 
-def _make_remote(name: str, url: str) -> MagicMock:
-    remote = MagicMock()
-    remote.name = name
-    remote.urls = iter([url])
-    return remote
-
-
 def test_detect_github_remote_no_remotes():
-    repo = MagicMock()
-    repo.remotes = []
-    assert detect_github_remote(repo) is None
+    assert detect_github_remote([]) is None
 
 
 def test_detect_github_remote_origin_first():
-    repo = MagicMock()
-    repo.remotes = [
-        _make_remote("upstream", "https://github.com/upstream/repo.git"),
-        _make_remote("origin", "https://github.com/myorg/myrepo.git"),
+    remotes = [
+        ("upstream", ["https://github.com/upstream/repo.git"]),
+        ("origin", ["https://github.com/myorg/myrepo.git"]),
     ]
-    assert detect_github_remote(repo) == ("myorg", "myrepo", "origin")
+    assert detect_github_remote(remotes) == ("myorg", "myrepo", "origin")
 
 
 def test_detect_github_remote_non_github_returns_none():
-    repo = MagicMock()
-    repo.remotes = [_make_remote("origin", "https://gitlab.com/owner/repo.git")]
-    assert detect_github_remote(repo) is None
+    assert detect_github_remote([("origin", ["https://gitlab.com/owner/repo.git"])]) is None
 
 
 def test_detect_github_remote_ssh_url():
-    repo = MagicMock()
-    repo.remotes = [_make_remote("origin", "git@github.com:org/project.git")]
-    assert detect_github_remote(repo) == ("org", "project", "origin")
+    assert detect_github_remote([("origin", ["git@github.com:org/project.git"])]) == ("org", "project", "origin")
 
 
 def test_detect_github_remote_ssh_url_scheme():
-    repo = MagicMock()
-    repo.remotes = [_make_remote("origin", "ssh://git@github.com/org/project.git")]
-    assert detect_github_remote(repo) == ("org", "project", "origin")
+    assert detect_github_remote([("origin", ["ssh://git@github.com/org/project.git"])]) == ("org", "project", "origin")
 
 
 def test_detect_github_remote_returns_remote_name():
-    repo = MagicMock()
-    repo.remotes = [_make_remote("upstream", "https://github.com/org/repo.git")]
-    assert detect_github_remote(repo) == ("org", "repo", "upstream")
+    assert detect_github_remote([("upstream", ["https://github.com/org/repo.git"])]) == ("org", "repo", "upstream")
 
 
 # ---------------------------------------------------------------------------

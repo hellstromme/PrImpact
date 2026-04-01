@@ -22,10 +22,10 @@ stderr = Console(stderr=True)
 CONFIG_PATH = Path.home() / ".pr_impact" / "config.toml"
 
 
-def _load_config() -> None:
-    """Load ~/.pr_impact/config.toml and populate os.environ with any values found."""
+def _read_toml_config() -> dict | None:
+    """Parse ~/.pr_impact/config.toml and return the dict, or None on missing/error."""
     if not CONFIG_PATH.exists():
-        return
+        return None
     try:
         if sys.version_info >= (3, 11):
             import tomllib
@@ -35,9 +35,17 @@ def _load_config() -> None:
             except ImportError:
                 import tomli as tomllib  # type: ignore[no-redef]
         with open(CONFIG_PATH, "rb") as fh:
-            config = tomllib.load(fh)
-    except Exception as e:
-        stderr.print(f"[bold red]Error:[/bold red] Could not parse config file {CONFIG_PATH}: {e}")
+            return tomllib.load(fh)
+    except Exception:
+        return None
+
+
+def _load_config() -> None:
+    """Load ~/.pr_impact/config.toml and populate os.environ with any values found."""
+    config = _read_toml_config()
+    if config is None:
+        if CONFIG_PATH.exists():
+            stderr.print(f"[bold red]Error:[/bold red] Could not parse config file {CONFIG_PATH}")
         return
 
     api_key = config.get("anthropic_api_key") or config.get("ANTHROPIC_API_KEY")
@@ -66,19 +74,8 @@ def _get_github_token() -> str | None:
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         return token
-    if not CONFIG_PATH.exists():
-        return None
-    try:
-        if sys.version_info >= (3, 11):
-            import tomllib
-        else:
-            try:
-                import tomllib  # type: ignore[no-redef]
-            except ImportError:
-                import tomli as tomllib  # type: ignore[no-redef]
-        with open(CONFIG_PATH, "rb") as fh:
-            config = tomllib.load(fh)
-    except Exception:
+    config = _read_toml_config()
+    if config is None:
         return None
     raw = config.get("github_token") or config.get("GITHUB_TOKEN")
     if not raw:
@@ -183,7 +180,7 @@ def analyse(
                 f"[bold]{CONFIG_PATH}[/bold]. "
                 "Unauthenticated requests will fail for private repositories."
             )
-        github_remote = detect_github_remote(repo_obj)
+        github_remote = detect_github_remote([(r.name, r.urls) for r in repo_obj.remotes])
         if github_remote is None:
             stderr.print(
                 "[bold red]Error:[/bold red] Could not detect a GitHub remote in this repository. "
@@ -245,9 +242,12 @@ def analyse(
     ) as progress:
         # Ensure PR commits are present locally before diffing (no-op for up-to-date clones)
         if _fetch_pr_number is not None:
-            ensure_commits_present(
-                repo, base, head, _fetch_remote, _fetch_pr_number, _fetch_base_ref, repo=repo_obj
-            )
+            try:
+                ensure_commits_present(
+                    repo, base, head, _fetch_remote, _fetch_pr_number, _fetch_base_ref, repo=repo_obj
+                )
+            except RuntimeError as e:
+                stderr.print(f"[yellow]Warning:[/yellow] {e}. Continuing — diff will fail if commits are still absent.")
 
         # Step 1: get changed files
         task = progress.add_task("Extracting changed files...", total=None)
