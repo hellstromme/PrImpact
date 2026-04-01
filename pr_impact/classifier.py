@@ -26,30 +26,8 @@ _TS_ARROW = re.compile(
     re.MULTILINE,
 )
 
-_CS_CLASS = re.compile(
-    r"^[ \t]*(?:(?P<access>public|protected|private|internal|file)\s+)?(?:(?:abstract|sealed|static|partial|new)\s+)*class\s+(?P<name>\w+)(?P<rest>[^{]*)\{",
-    re.MULTILINE,
-)
-_CS_INTERFACE = re.compile(
-    r"^[ \t]*(?:(?P<access>public|protected|private|internal|file)\s+)?(?:partial\s+)?interface\s+(?P<name>\w+)(?P<rest>[^{]*)\{",
-    re.MULTILINE,
-)
-_CS_RECORD = re.compile(
-    r"^[ \t]*(?:(?P<access>public|protected|private|internal|file)\s+)?(?:(?:abstract|sealed|partial|new)\s+)*record\s+(?P<name>\w+)(?P<rest>[^{;]*)[{;]",
-    re.MULTILINE,
-)
-_CS_STRUCT = re.compile(
-    r"^[ \t]*(?:(?P<access>public|protected|private|internal|file)\s+)?(?:(?:readonly|ref|partial|new)\s+)*struct\s+(?P<name>\w+)(?P<rest>[^{]*)\{",
-    re.MULTILINE,
-)
-_CS_METHOD = re.compile(
-    r"^[ \t]*(?P<access>public|protected|internal)(?:\s+(?:abstract|virtual|override|sealed|static|async|new|extern))*\s+\S.*?\s+(?P<name>\w+)\s*(?:<[^>]*>)?\s*\((?P<params>[^)]*)\)",
-    re.MULTILINE,
-)
-
 _PY_IMPORT_LINE = re.compile(r"^(?:import\s+|from\s+)", re.MULTILINE)
 _JS_IMPORT_LINE = re.compile(r"^(?:import\s+|const\s+\w+\s*=\s*require)", re.MULTILINE)
-_CS_IMPORT_LINE = re.compile(r"^using\s+", re.MULTILINE)
 
 _DIFF_ADDED = re.compile(r"^\+(?!\+\+)(.*)$", re.MULTILINE)
 _DIFF_REMOVED = re.compile(r"^-(?!--)(.*)$", re.MULTILINE)
@@ -116,35 +94,6 @@ def _is_exported_ts(name: str, content: str) -> bool:
     return bool(re.search(rf"\bexport\b[^;{{]*\b{re.escape(name)}\b", content))
 
 
-def _extract_csharp_defs(content: str) -> dict[str, str]:
-    """Return {name: signature} for C# types and public/protected/internal methods.
-
-    All keys are the bare name. For overloaded methods the last definition wins,
-    which is consistent with how Python and TypeScript are handled and avoids
-    treating a parameter-list change as a remove + add pair.
-    Signatures include the access modifier so _is_exported_csharp can inspect them.
-    """
-    defs: dict[str, str] = {}
-    for pattern, kind_word in (
-        (_CS_CLASS, "class"),
-        (_CS_INTERFACE, "interface"),
-        (_CS_RECORD, "record"),
-        (_CS_STRUCT, "struct"),
-    ):
-        for m in pattern.finditer(content):
-            name = m.group("name")
-            access = (m.group("access") + " ") if m.group("access") else ""
-            defs[name] = f"{access}{kind_word} {name}{m.group('rest')}".strip()
-    for m in _CS_METHOD.finditer(content):
-        name = m.group("name")
-        defs[name] = m.group(0).strip()
-    return defs
-
-
-def _is_exported_csharp(sig: str) -> bool:
-    """Return True if the captured signature is declared with public or protected access."""
-    return sig.startswith("public ") or sig.startswith("protected ")
-
 
 def _extract_import_lines(content: str, language: str) -> set[str]:
     if language == "python":
@@ -154,10 +103,6 @@ def _extract_import_lines(content: str, language: str) -> set[str]:
     elif language in ("javascript", "typescript"):
         return {
             line.strip() for line in content.splitlines() if _JS_IMPORT_LINE.match(line.strip())
-        }
-    elif language == "csharp":
-        return {
-            line.strip() for line in content.splitlines() if _CS_IMPORT_LINE.match(line.strip())
         }
     return set()
 
