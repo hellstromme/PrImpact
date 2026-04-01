@@ -228,18 +228,38 @@ def test_get_changed_files_mixed_languages_filtered():
 # ---------------------------------------------------------------------------
 
 
-def _make_repo_for_fetch(head_present: bool = True, base_present: bool = True):
-    """Return a stub git.Repo with controllable commit lookup and remote fetch."""
-    repo = MagicMock()
+def _make_repo_for_fetch(
+    head_present: bool = True,
+    base_present: bool = True,
+    fetch_resolves: bool = True,
+):
+    """Return a stub git.Repo with controllable commit lookup and remote fetch.
+
+    When fetch_resolves=True (default), calling remote.fetch() makes the
+    previously-missing SHA resolvable, simulating a successful fetch.
+    When fetch_resolves=False, the SHA remains absent after fetch.
+    """
+    resolved: set[str] = set()
+    if head_present:
+        resolved.add("head123")
+    if base_present:
+        resolved.add("base456")
 
     def _commit(sha):
-        if sha == "head123" and not head_present:
-            raise git.BadName(sha)
-        if sha == "base456" and not base_present:
+        if sha not in resolved:
             raise git.BadName(sha)
 
+    def _fetch(ref):
+        if fetch_resolves:
+            if "pull/" in ref:
+                resolved.add("head123")
+            else:
+                resolved.add("base456")
+
+    repo = MagicMock()
     repo.commit.side_effect = _commit
     remote = MagicMock()
+    remote.fetch.side_effect = _fetch
     repo.remote.return_value = remote
     return repo, remote
 
@@ -273,6 +293,18 @@ def test_ensure_commits_present_fetch_failure_raises():
     remote.fetch.side_effect = git.GitCommandError("fetch", 128)
     with pytest.raises(RuntimeError, match="Could not fetch missing PR commits"):
         ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, repo=repo)
+
+
+def test_ensure_commits_present_sha_still_absent_after_fetch_raises():
+    repo, remote = _make_repo_for_fetch(head_present=False, base_present=True, fetch_resolves=False)
+    with pytest.raises(RuntimeError, match="still not present after fetch"):
+        ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, repo=repo)
+
+
+def test_ensure_commits_present_base_still_absent_after_fetch_raises():
+    repo, remote = _make_repo_for_fetch(head_present=True, base_present=False, fetch_resolves=False)
+    with pytest.raises(RuntimeError, match="still not present after fetch"):
+        ensure_commits_present(".", "base456", "head123", "origin", pr_number=7, base_ref="main", repo=repo)
 
 
 # ---------------------------------------------------------------------------
