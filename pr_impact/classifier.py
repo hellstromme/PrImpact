@@ -26,8 +26,18 @@ _TS_ARROW = re.compile(
     re.MULTILINE,
 )
 
+_CS_CLASS = re.compile(
+    r"^[ \t]*(?:(?:public|protected|private|internal|file)\s+)?(?:(?:abstract|sealed|static|partial|new)\s+)*class\s+(?P<name>\w+)(?P<rest>[^{]*)\{",
+    re.MULTILINE,
+)
+_CS_METHOD = re.compile(
+    r"^[ \t]*(?P<access>public|protected|internal)(?:\s+(?:abstract|virtual|override|sealed|static|async|new|extern))*\s+\S.*?\s+(?P<name>\w+)\s*(?:<[^>]*>)?\s*\(",
+    re.MULTILINE,
+)
+
 _PY_IMPORT_LINE = re.compile(r"^(?:import\s+|from\s+)", re.MULTILINE)
 _JS_IMPORT_LINE = re.compile(r"^(?:import\s+|const\s+\w+\s*=\s*require)", re.MULTILINE)
+_CS_IMPORT_LINE = re.compile(r"^using\s+", re.MULTILINE)
 
 _DIFF_ADDED = re.compile(r"^\+(?!\+\+)(.*)$", re.MULTILINE)
 _DIFF_REMOVED = re.compile(r"^-(?!--)(.*)$", re.MULTILINE)
@@ -94,15 +104,36 @@ def _is_exported_ts(name: str, content: str) -> bool:
     return bool(re.search(rf"\bexport\b[^;{{]*\b{re.escape(name)}\b", content))
 
 
+def _extract_csharp_defs(content: str) -> dict[str, str]:
+    """Return {name: signature} for C# classes and public/protected/internal methods."""
+    defs: dict[str, str] = {}
+    for m in _CS_CLASS.finditer(content):
+        name = m.group("name")
+        defs[name] = f"class {name}{m.group('rest')}".strip()
+    for m in _CS_METHOD.finditer(content):
+        name = m.group("name")
+        defs[name] = m.group(0).strip()
+    return defs
+
+
+def _is_exported_csharp(name: str, content: str) -> bool:
+    return bool(re.search(rf"\bpublic\b[^{{;]*\b{re.escape(name)}\b", content))
+
+
 def _extract_import_lines(content: str, language: str) -> set[str]:
     if language == "python":
         return {
             line.strip() for line in content.splitlines() if _PY_IMPORT_LINE.match(line.strip())
         }
-    else:
+    elif language in ("javascript", "typescript"):
         return {
             line.strip() for line in content.splitlines() if _JS_IMPORT_LINE.match(line.strip())
         }
+    elif language == "csharp":
+        return {
+            line.strip() for line in content.splitlines() if _CS_IMPORT_LINE.match(line.strip())
+        }
+    return set()
 
 
 def _names_touched_in_diff(diff: str) -> set[str]:
@@ -155,12 +186,21 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
 
         def is_exported(name: str) -> bool:
             return _is_exported_python(name, file.content_after)
-    else:
+    elif file.language in ("javascript", "typescript"):
         defs_before = _extract_ts_defs(file.content_before)
         defs_after = _extract_ts_defs(file.content_after)
 
         def is_exported(name: str) -> bool:
             return _is_exported_ts(name, file.content_after)
+    elif file.language == "csharp":
+        defs_before = _extract_csharp_defs(file.content_before)
+        defs_after = _extract_csharp_defs(file.content_after)
+
+        def is_exported(name: str) -> bool:
+            return _is_exported_csharp(name, file.content_after)
+    else:
+        file.changed_symbols = symbols
+        return symbols
 
     touched = _names_touched_in_diff(file.diff)
     all_names = set(defs_before) | set(defs_after)
