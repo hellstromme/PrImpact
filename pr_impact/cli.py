@@ -6,8 +6,10 @@ from pathlib import Path
 import click
 import git
 from rich.console import Console
+from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
+from rich.text import Text
 
 from .ai_layer import run_ai_analysis
 from .classifier import classify_changed_file, get_interface_changes
@@ -18,6 +20,22 @@ from .models import AIAnalysis, ImpactReport
 from .reporter import render_json, render_markdown, render_terminal
 
 stderr = Console(stderr=True)
+
+
+def _print_banner() -> None:
+    """Print the startup banner to stderr."""
+    try:
+        from importlib.metadata import version as _pkg_version
+        ver = _pkg_version("pr-impact")
+    except Exception:
+        ver = "dev"
+    content = Text()
+    content.append("PrImpact", style="bold cyan")
+    content.append(f"  v{ver}", style="dim")
+    content.append("\n")
+    content.append("blast-radius analysis for code changes", style="dim")
+    stderr.print(Panel(content, expand=False, border_style="dim cyan", padding=(0, 2)))
+
 
 CONFIG_PATH = Path.home() / ".pr_impact" / "config.toml"
 
@@ -143,6 +161,8 @@ def analyse(
     max_depth: int,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
+    if _stdin_is_interactive():
+        _print_banner()
     _load_config()
 
     # --pr cannot be combined with --base or --head
