@@ -69,6 +69,11 @@ def _env_placeholder(var: str) -> str:
     return f"%{var}%" if sys.platform == "win32" else f"${var}"
 
 
+def _stdin_is_interactive() -> bool:
+    """Return True when stdin is an interactive terminal."""
+    return sys.stdin.isatty()
+
+
 def _get_github_token() -> str | None:
     """Return a GitHub token from env or config file, or None if absent."""
     token = os.environ.get("GITHUB_TOKEN")
@@ -172,7 +177,9 @@ def analyse(
     # GitHub PR resolution (runs before the progress spinner so interactive prompts work)
     if pr_number is not None or (base is None and head is None):
         github_token = _get_github_token()
-        if github_token is None:
+        # interactive_discovery: whether we should attempt PR listing when no --pr was given
+        _interactive = pr_number is None
+        if github_token is None and not _interactive:
             stderr.print(
                 "[yellow]Warning:[/yellow] No GitHub token found. "
                 "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
@@ -182,57 +189,69 @@ def analyse(
             )
         github_remote = detect_github_remote([(r.name, r.urls) for r in repo_obj.remotes])
         if github_remote is None:
-            stderr.print(
-                "[bold red]Error:[/bold red] Could not detect a GitHub remote in this repository. "
-                "Use --base and --head to specify SHAs directly."
-            )
-            sys.exit(1)
-        owner, repo_name, _fetch_remote = github_remote
-
-        if pr_number is not None:
-            try:
-                pr_data = fetch_pr(owner, repo_name, pr_number, github_token)
-            except RuntimeError as e:
-                stderr.print(f"[bold red]Error:[/bold red] {e}")
+            if not _interactive:
+                stderr.print(
+                    "[bold red]Error:[/bold red] Could not detect a GitHub remote in this repository. "
+                    "Use --base and --head to specify SHAs directly."
+                )
                 sys.exit(1)
-            base = pr_data["base"]["sha"]
-            head = pr_data["head"]["sha"]
-            _fetch_pr_number = pr_number
-            _fetch_base_ref = pr_data.get("base", {}).get("ref")
-            pr_title = f"#{pr_number}: {pr_data.get('title') or f'PR {pr_number}'}"
+            # No-arg path: no GitHub remote → fall back silently to HEAD~1..HEAD
+            base = "HEAD~1"
+            head = "HEAD"
         else:
-            # Interactive: list open PRs and let the user pick
-            try:
-                open_prs = fetch_open_prs(owner, repo_name, github_token)
-            except RuntimeError as e:
-                stderr.print(f"[bold red]Error:[/bold red] Could not fetch open PRs: {e}")
-                sys.exit(1)
-            if not open_prs:
-                stderr.print("[yellow]No open PRs found.[/yellow]")
-                if not click.confirm(
-                    "Analyse the last two commits (HEAD~1 → HEAD) instead?",
-                    default=True,
-                ):
-                    sys.exit(0)
+            owner, repo_name, _fetch_remote = github_remote
+
+            if not _interactive:
+                try:
+                    pr_data = fetch_pr(owner, repo_name, pr_number, github_token)
+                except RuntimeError as e:
+                    stderr.print(f"[bold red]Error:[/bold red] {e}")
+                    sys.exit(1)
+                base = pr_data["base"]["sha"]
+                head = pr_data["head"]["sha"]
+                _fetch_pr_number = pr_number
+                _fetch_base_ref = pr_data.get("base", {}).get("ref")
+                pr_title = f"#{pr_number}: {pr_data.get('title') or f'PR {pr_number}'}"
+            elif _stdin_is_interactive():
+                # Interactive terminal: list open PRs and let the user pick
+                if github_token is None:
+                    stderr.print(
+                        "[yellow]Warning:[/yellow] No GitHub token found. "
+                        "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
+                        f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
+                        f"[bold]{CONFIG_PATH}[/bold]. "
+                        "Unauthenticated requests will fail for private repositories."
+                    )
+                try:
+                    open_prs = fetch_open_prs(owner, repo_name, github_token)
+                except RuntimeError as e:
+                    stderr.print(f"[yellow]Warning:[/yellow] Could not fetch open PRs: {e}. Falling back to HEAD~1 → HEAD.")
+                    open_prs = []
+                if not open_prs:
+                    stderr.print("[yellow]No open PRs found — analysing HEAD~1 → HEAD.[/yellow]")
+                    base = "HEAD~1"
+                    head = "HEAD"
+                else:
+                    _print_pr_table(open_prs)
+                    sys.stderr.flush()
+                    pr_numbers = {str(p["number"]) for p in open_prs}
+                    chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
+                    if chosen not in pr_numbers:
+                        stderr.print(
+                            f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list."
+                        )
+                        sys.exit(1)
+                    selected = next(p for p in open_prs if str(p["number"]) == chosen)
+                    base = selected["base"]["sha"]
+                    head = selected["head"]["sha"]
+                    _fetch_pr_number = selected["number"]
+                    _fetch_base_ref = selected.get("base", {}).get("ref")
+                    selected_num = selected["number"]
+                    pr_title = f"#{selected_num}: {selected.get('title') or f'PR {selected_num}'}"
+            else:
+                # Non-interactive (CI, piped): skip PR discovery, fall back to HEAD~1..HEAD
                 base = "HEAD~1"
                 head = "HEAD"
-            else:
-                _print_pr_table(open_prs)
-                sys.stderr.flush()
-                pr_numbers = {str(p["number"]) for p in open_prs}
-                chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
-                if chosen not in pr_numbers:
-                    stderr.print(
-                        f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list."
-                    )
-                    sys.exit(1)
-                selected = next(p for p in open_prs if str(p["number"]) == chosen)
-                base = selected["base"]["sha"]
-                head = selected["head"]["sha"]
-                _fetch_pr_number = selected["number"]
-                _fetch_base_ref = selected.get("base", {}).get("ref")
-                selected_num = selected["number"]
-                pr_title = f"#{selected_num}: {selected.get('title') or f'PR {selected_num}'}"
 
     with Progress(
         SpinnerColumn(),

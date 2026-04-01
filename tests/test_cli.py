@@ -415,14 +415,38 @@ def test_analyse_pr_fetch_error_exits_1(runner):
     assert "GitHub API error 404" in result.output
 
 
-def test_analyse_no_github_remote_exits_1(runner):
+def test_analyse_no_github_remote_falls_back_to_head(runner):
+    """No-arg path with no GitHub remote should fall back to HEAD~1..HEAD, not exit."""
+    base_p = _base_patches()
+    with (
+        base_p[0],
+        base_p[1] as mock_changed,
+        base_p[2],
+        base_p[3],
+        base_p[4],
+        base_p[5],
+        base_p[6],
+        patch("pr_impact.cli.detect_github_remote", return_value=None),
+    ):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", "."],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+    call_args = mock_changed.call_args
+    assert "HEAD~1" in call_args.args or "HEAD~1" in str(call_args)
+
+
+def test_analyse_no_github_remote_with_pr_flag_exits_1(runner):
+    """--pr flag with no GitHub remote should still exit with an error."""
     with (
         patch("pr_impact.cli.git.Repo", return_value=MagicMock()),
         patch("pr_impact.cli.detect_github_remote", return_value=None),
     ):
         result = runner.invoke(
             main,
-            ["analyse", "--repo", "."],
+            ["analyse", "--repo", ".", "--pr", "5"],
             env=_ENV,
         )
     assert result.exit_code == 1
@@ -443,6 +467,7 @@ def test_analyse_interactive_selects_pr(runner):
         github_p[0],
         github_p[1],
         github_p[2],
+        patch("pr_impact.cli._stdin_is_interactive", return_value=True),
     ):
         result = runner.invoke(
             main,
@@ -470,6 +495,7 @@ def test_analyse_interactive_invalid_pr_number_exits_1(runner):
         github_p[0],
         github_p[1],
         github_p[2],
+        patch("pr_impact.cli._stdin_is_interactive", return_value=True),
     ):
         result = runner.invoke(
             main,
@@ -481,23 +507,30 @@ def test_analyse_interactive_invalid_pr_number_exits_1(runner):
     assert "not a valid PR number" in result.output
 
 
-def test_analyse_interactive_no_open_prs_offers_last_two_commits_declined(runner):
+def test_analyse_interactive_no_open_prs_falls_back_to_head(runner):
+    """When no open PRs are found in an interactive session, fall back automatically."""
+    base_p = _base_patches()
     with (
-        patch("pr_impact.cli.git.Repo", return_value=MagicMock()),
+        base_p[0],
+        base_p[1] as mock_changed,
+        base_p[2],
+        base_p[3],
+        base_p[4],
+        base_p[5],
+        base_p[6],
         patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo", "origin")),
         patch("pr_impact.cli.fetch_open_prs", return_value=[]),
+        patch("pr_impact.cli._stdin_is_interactive", return_value=True),
     ):
-        result = runner.invoke(
-            main,
-            ["analyse", "--repo", "."],
-            env=_ENV,
-            input="n\n",
-        )
+        result = runner.invoke(main, ["analyse", "--repo", "."], env=_ENV)
     assert result.exit_code == 0
     assert "No open PRs found" in result.output
+    call_args = mock_changed.call_args
+    assert "HEAD~1" in call_args.args or "HEAD~1" in str(call_args)
 
 
-def test_analyse_interactive_no_open_prs_uses_last_two_commits_when_confirmed(runner):
+def test_analyse_non_interactive_no_open_prs_uses_last_two_commits(runner):
+    """Non-interactive (CI) path: no PR discovery, falls back to HEAD~1..HEAD silently."""
     base_p = _base_patches()
     with (
         base_p[0],
@@ -510,12 +543,7 @@ def test_analyse_interactive_no_open_prs_uses_last_two_commits_when_confirmed(ru
         patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo", "origin")),
         patch("pr_impact.cli.fetch_open_prs", return_value=[]),
     ):
-        result = runner.invoke(
-            main,
-            ["analyse", "--repo", "."],
-            env=_ENV,
-            input="y\n",
-        )
+        result = runner.invoke(main, ["analyse", "--repo", "."], env=_ENV)
     assert result.exit_code == 0
     call_args = mock_changed.call_args
     assert "HEAD~1" in call_args.args or "HEAD~1" in str(call_args)
