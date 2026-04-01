@@ -46,7 +46,7 @@ Primpact is a CLI tool that takes a git repository and a pair of commit SHAs (or
 
 ### Scope of v0.1
 
-- Languages supported: Python, TypeScript, JavaScript
+- Languages supported: Python, TypeScript, JavaScript, C#
 - Input: local git repository + two commit SHAs
 - Output: Markdown report + JSON sidecar
 - AI analysis via Anthropic Claude API (three prompt calls per run)
@@ -112,7 +112,7 @@ Represents a single file that was modified between `base_sha` and `head_sha`.
 @dataclass
 class ChangedFile:
     path: str
-    language: str           # 'python' | 'typescript' | 'javascript' | 'unknown'
+    language: str           # 'python' | 'typescript' | 'javascript' | 'csharp' | 'unknown'
     diff: str               # Raw unified diff
     content_before: str     # Full file content at base_sha
     content_after: str      # Full file content at head_sha
@@ -276,8 +276,8 @@ Uses `gitpython`. Responsible for all interaction with the local git repository.
 
 - Compute the diff between `base_sha` and `head_sha`
 - For each changed file: extract the unified diff, and the full file content at both commits
-- Filter to supported languages only (Python, TypeScript, JavaScript)
-- Resolve language from file extension (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`)
+- Filter to supported languages only (Python, TypeScript, JavaScript, C#)
+- Resolve language from file extension (`.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.cs`)
 - Return a list of populated `ChangedFile` objects with `changed_symbols` initially empty (populated later by `classifier.py`)
 
 #### `get_git_churn(repo_path, path, days=90) -> float`
@@ -310,6 +310,9 @@ Builds an import graph for the whole codebase using regex-based import extractio
 - `import { X } from 'Y'`
 - `const X = require('Y')`
 - `export { X } from 'Y'` (re-exports — tracked as a dependency edge)
+
+**C#:**
+- `using Namespace;` (resolved via a pre-built namespace→files map; a namespace may span multiple files)
 
 #### `build_import_graph(repo_path, language_filter) -> dict[str, list[str]]`
 
@@ -680,6 +683,8 @@ If neither `--output` nor `--json` is provided, the Markdown report is printed t
 - Re-exports via barrel files (`index.ts`) may inflate the blast radius with false positives
 - Relative import resolution may be inaccurate for deeply nested package structures
 - The classifier cannot distinguish between overloaded function signatures in TypeScript
+- C# `using` resolution maps namespace declarations to files; a file with no `namespace` declaration is not reachable via the import graph
+- C# symbol classification (interface/internal detection) is not implemented; `.cs` files produce blast radius and import graph entries but no `ChangedSymbol` records
 - Churn scores do not account for file renames in git history
 - No support for monorepos with multiple `package.json` or `pyproject.toml` files
 
@@ -687,7 +692,7 @@ If neither `--output` nor `--json` is provided, the Markdown report is printed t
 
 - Native GitHub/GitLab PR input via `--pr` flag (currently requires manual SHAs)
 - GitHub Actions integration for automatic PR commenting
-- Support for Java, C#, Go, and Ruby import graphs
+- Support for Java, Go, and Ruby import graphs
 - SARIF output format (`--sarif` flag)
 
 ### Deferred to v0.3
