@@ -208,23 +208,11 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
     if file.language == "python":
         defs_before = _extract_python_defs(file.content_before)
         defs_after = _extract_python_defs(file.content_after)
-
-        def is_exported(name: str) -> bool:
-            return _is_exported_python(name, file.content_after)
+        _exported = _is_exported_python
     elif file.language in ("javascript", "typescript"):
         defs_before = _extract_ts_defs(file.content_before)
         defs_after = _extract_ts_defs(file.content_after)
-
-        def is_exported(name: str) -> bool:
-            return _is_exported_ts(name, file.content_after)
-    elif file.language == "csharp":
-        defs_before = _extract_csharp_defs(file.content_before)
-        defs_after = _extract_csharp_defs(file.content_after)
-
-        def is_exported(name: str) -> bool:
-            sig_b = defs_before.get(name) or ""
-            sig_a = defs_after.get(name) or ""
-            return _is_exported_csharp(sig_b) or _is_exported_csharp(sig_a)
+        _exported = _is_exported_ts
     else:
         file.changed_symbols = symbols
         return symbols
@@ -233,20 +221,20 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
     all_names = set(defs_before) | set(defs_after)
 
     for name in all_names:
-        # For C# method keys like "GetUser(int id)", check only the base name.
-        check = name.split("(")[0] if file.language == "csharp" else name
-        if check not in touched:
+        if name not in touched:
             continue
 
         sig_before = defs_before.get(name)
         sig_after = defs_after.get(name)
+        exported_before = _exported(name, file.content_before)
+        exported_after = _exported(name, file.content_after)
 
         if sig_before is None and sig_after is not None:
-            change_type = "interface_added" if is_exported(name) else "internal"
+            change_type = "interface_added" if exported_after else "internal"
         elif sig_before is not None and sig_after is None:
-            change_type = "interface_removed" if is_exported(name) else "internal"
+            change_type = "interface_removed" if exported_before else "internal"
         elif sig_before != sig_after:
-            change_type = "interface_changed" if is_exported(name) else "internal"
+            change_type = "interface_changed" if (exported_before or exported_after) else "internal"
         else:
             change_type = "internal"
 
