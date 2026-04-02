@@ -87,3 +87,4 @@ jobs:
             pr_impact_report.md
             pr_impact_report.json
           retention-days: 30
+          if-no-files-found: ignore
