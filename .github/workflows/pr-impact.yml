@@ -1,0 +1,90 @@
+name: PrImpact Analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  analyse:
+    name: Analyse PR impact
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pr-impact
+        run: pip install .
+
+      - name: Run PrImpact analysis
+        id: analysis
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pr-impact analyse \
+            --repo . \
+            --pr ${{ github.event.pull_request.number }} \
+            --output pr_impact_report.md \
+            --json pr_impact_report.json
+
+      - name: Post report as PR comment
+        if: steps.analysis.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -f pr_impact_report.md ] || exit 0
+          MARKER="<!-- pr-impact-report -->"
+          BODY="${MARKER}
+          $(cat pr_impact_report.md)"
+
+          # Look for an existing comment with our marker
+          COMMENT_ID=$(gh api \
+            repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+            --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" \
+            | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            # Update the existing comment
+            gh api repos/${{ github.repository }}/issues/comments/"$COMMENT_ID" \
+              -X PATCH \
+              -f body="$BODY"
+          else
+            # Post a new comment
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --repo ${{ github.repository }} \
+              --body "$BODY"
+          fi
+
+      - name: Check for high-severity anomalies
+        if: steps.analysis.outcome == 'success'
+        run: |
+          [ -f pr_impact_report.json ] || exit 0
+          HIGH_COUNT=$(jq '[(.ai_analysis.anomalies // [])[] | select(.severity == "high")] | length' pr_impact_report.json)
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "::warning::PrImpact found ${HIGH_COUNT} high-severity anomaly/anomalies — review the report before merging"
+          fi
+
+      - name: Upload report artefacts
+        if: always() && steps.analysis.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-impact-report
+          path: |
+            pr_impact_report.md
+            pr_impact_report.json
+          retention-days: 30
+          if-no-files-found: ignore
