@@ -73,7 +73,7 @@ jobs:
         if: steps.analysis.outcome == 'success'
         run: |
           [ -f pr_impact_report.json ] || exit 0
-          HIGH_COUNT=$(jq '[.ai_analysis.anomalies[] | select(.severity == "high")] | length' pr_impact_report.json)
+          HIGH_COUNT=$(jq '[(.ai_analysis.anomalies // [])[] | select(.severity == "high")] | length' pr_impact_report.json)
           if [ "$HIGH_COUNT" -gt 0 ]; then
             echo "::warning::PrImpact found ${HIGH_COUNT} high-severity anomaly/anomalies — review the report before merging"
           fi
