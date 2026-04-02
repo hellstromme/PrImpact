@@ -42,10 +42,11 @@ jobs:
             --json pr_impact_report.json
 
       - name: Post report as PR comment
-        if: always() && steps.analysis.outcome != 'skipped'
+        if: steps.analysis.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          [ -f pr_impact_report.md ] || exit 0
           MARKER="<!-- pr-impact-report -->"
           BODY="${MARKER}
           $(cat pr_impact_report.md)"
@@ -71,6 +72,7 @@ jobs:
       - name: Check for high-severity anomalies
         if: steps.analysis.outcome == 'success'
         run: |
+          [ -f pr_impact_report.json ] || exit 0
           HIGH_COUNT=$(jq '[.ai_analysis.anomalies[] | select(.severity == "high")] | length' pr_impact_report.json)
           if [ "$HIGH_COUNT" -gt 0 ]; then
             echo "::warning::PrImpact found ${HIGH_COUNT} high-severity anomaly/anomalies — review the report before merging"
