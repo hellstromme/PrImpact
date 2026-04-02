@@ -22,6 +22,15 @@ from .reporter import render_json, render_markdown, render_terminal
 stderr = Console(stderr=True)
 
 
+_TITLE_ART = """\
+  :::::::::  :::::::::  ::::::::::: ::::    ::::  :::::::::     :::      ::::::::  :::::::::::
+  :+:    :+: :+:    :+:     :+:     +:+:+: :+:+:+ :+:    :+:  :+: :+:   :+:    :+:     :+:
+  +:+    +:+ +:+    +:+     +:+     +:+ +:+:+ +:+ +:+    +:+ +:+   +:+  +:+            +:+
+  +#++:++#+  +#++:++#:      +#+     +#+  +:+  +#+ +#++:++#+ +#++:++#++: +#+            +#+
+  +#+        +#+    +#+     +#+     +#+       +#+ +#+       +#+     +#+ +#+            +#+
+  #+#        #+#    #+#     #+#     #+#       #+# #+#       #+#     #+# #+#    #+#     #+#
+  ###        ###    ### ########### ###       ### ###       ###     ###  ########      ###"""
+
 def _print_banner() -> None:
     """Print the startup banner to stderr."""
     try:
@@ -29,12 +38,21 @@ def _print_banner() -> None:
         ver = _pkg_version("pr-impact")
     except Exception:
         ver = "dev"
+
     content = Text()
-    content.append("PrImpact", style="bold cyan")
-    content.append(f"  v{ver}", style="dim")
-    content.append("\n")
-    content.append("blast-radius analysis for code changes", style="dim")
-    stderr.print(Panel(content, expand=False, border_style="dim cyan", padding=(0, 2)))
+    for ch in _TITLE_ART:
+        if ch == "#":
+            content.append(ch, style="bold cyan")
+        elif ch == "+":
+            content.append(ch, style="cyan")
+        elif ch == ":":
+            content.append(ch, style="dim cyan")
+        else:
+            content.append(ch)
+    content.append("\n  ")
+    content.append(f"v{ver}", style="bold white")
+    content.append("  ·  blast-radius analysis for code changes", style="dim")
+    stderr.print(Panel(content, expand=False, border_style="dim cyan", padding=(0, 1)))
 
 
 CONFIG_PATH = Path.home() / ".pr_impact" / "config.toml"
