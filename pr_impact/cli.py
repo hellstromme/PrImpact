@@ -259,10 +259,18 @@ def _run_pipeline(
     # Step 6: git churn for blast radius entries
     progress.update(task, description="Computing churn scores...")
     for entry in blast_radius:
-        entry.churn_score = get_git_churn(repo, entry.path, repo=repo_obj)
+        try:
+            entry.churn_score = get_git_churn(repo, entry.path, repo=repo_obj)
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Churn score failed for {entry.path}: {e}")
+            entry.churn_score = None
 
     # Metadata (best-effort)
-    metadata = get_pr_metadata(repo, refs.base, refs.head)
+    try:
+        metadata = get_pr_metadata(repo, refs.base, refs.head)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] PR metadata lookup failed: {e}")
+        metadata = {}
 
     # Step 7: AI analysis
     progress.update(task, description="Running AI analysis (3 API calls)...")

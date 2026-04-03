@@ -776,7 +776,7 @@ def test_run_pipeline_import_graph_failure_continues():
     patches = _pipeline_patches()
     patches[1] = patch("pr_impact.cli.build_import_graph", side_effect=RuntimeError("oops"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -786,7 +786,7 @@ def test_run_pipeline_blast_radius_failure_continues():
     patches = _pipeline_patches()
     patches[2] = patch("pr_impact.cli.get_blast_radius", side_effect=RuntimeError("oops"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, blast, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert blast == []
 
 
@@ -796,7 +796,7 @@ def test_run_pipeline_ai_failure_returns_empty_analysis():
     patches = _pipeline_patches()
     patches[5] = patch("pr_impact.cli.run_ai_analysis", side_effect=ValueError("no key"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, _, ai, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert ai.summary == ""
 
 
@@ -813,7 +813,7 @@ def test_run_pipeline_classifier_failure_continues():
         patches[5],
         patch("pr_impact.cli.classify_changed_file", side_effect=RuntimeError("parse error")),
     ):
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -830,7 +830,7 @@ def test_run_pipeline_interface_change_failure_continues():
         patches[5],
         patch("pr_impact.cli.get_interface_changes", side_effect=RuntimeError("oops")),
     ):
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, interface, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert interface == []
 
 
@@ -847,8 +847,30 @@ def test_run_pipeline_ensure_commits_warning_on_failure():
         patches[5],
         patch("pr_impact.cli.ensure_commits_present", side_effect=RuntimeError("fetch failed")),
     ):
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline completed despite the warning
+
+
+def test_run_pipeline_churn_failure_sets_none_and_continues():
+    """get_git_churn raising is non-fatal — churn_score falls back to None."""
+    refs = RefsResult(base="abc", head="def")
+    blast_entry = MagicMock()
+    patches = _pipeline_patches()
+    patches[2] = patch("pr_impact.cli.get_blast_radius", return_value=[blast_entry])
+    patches[3] = patch("pr_impact.cli.get_git_churn", side_effect=RuntimeError("git error"))
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        _, blast, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert blast_entry.churn_score is None
+
+
+def test_run_pipeline_metadata_failure_returns_empty_dict():
+    """get_pr_metadata raising is non-fatal — metadata falls back to {}."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    patches[4] = patch("pr_impact.cli.get_pr_metadata", side_effect=RuntimeError("no history"))
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        _, _, _, _, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert meta == {}
 
 
 def test_resolve_refs_interactive_no_token_warns(mock_repo):
@@ -956,6 +978,7 @@ def test_write_outputs_writes_json_file(tmp_path):
     assert "pr_title" in data
 
 
-def test_write_outputs_does_nothing_when_both_none(tmp_path):
+def test_write_outputs_does_nothing_when_both_none(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     _write_outputs(make_report(), None, None)
     assert list(tmp_path.iterdir()) == []
