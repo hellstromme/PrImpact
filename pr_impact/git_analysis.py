@@ -10,7 +10,9 @@ def _blob_content(blob: git.Blob) -> str:
     try:
         data: bytes = blob.data_stream.read()
         return data.decode("utf-8", errors="replace")
-    except Exception:
+    except Exception as exc:
+        if not isinstance(exc, (UnicodeDecodeError,)):
+            print(f"[pr-impact] Could not read blob: {exc}", file=sys.stderr)
         return ""
 
 
@@ -72,8 +74,18 @@ def get_git_churn(repo_path: str, path: str, days: int = 90, repo: git.Repo | No
         )
         lines = [ln for ln in log_output.splitlines() if ln.strip()]
         return float(len(lines))
-    except Exception:
+    except Exception as exc:
+        print(f"[pr-impact] git churn failed for {path!r}: {exc}", file=sys.stderr)
         return 0.0
+
+
+def _ensure_commit_reachable(r: git.Repo, sha: str) -> bool:
+    """Return True if sha is reachable in repo r, False otherwise."""
+    try:
+        r.commit(sha)
+        return True
+    except Exception:
+        return False
 
 
 def ensure_commits_present(
@@ -95,16 +107,8 @@ def ensure_commits_present(
     """
     r = repo or git.Repo(repo_path)
 
-    head_missing = False
-    base_missing = False
-    try:
-        r.commit(head_sha)
-    except Exception:
-        head_missing = True
-    try:
-        r.commit(base_sha)
-    except Exception:
-        base_missing = True
+    head_missing = not _ensure_commit_reachable(r, head_sha)
+    base_missing = not _ensure_commit_reachable(r, base_sha)
 
     if not head_missing and not base_missing:
         return
@@ -119,19 +123,15 @@ def ensure_commits_present(
         raise RuntimeError(f"Could not fetch missing PR commits from '{remote_name}': {e}") from e
 
     if head_missing and pr_number is not None:
-        try:
-            r.commit(head_sha)
-        except Exception as err:
+        if not _ensure_commit_reachable(r, head_sha):
             raise RuntimeError(
                 f"Head SHA {head_sha!r} still not present after fetch from '{remote_name}'."
-            ) from err
+            )
     if base_missing and base_ref:
-        try:
-            r.commit(base_sha)
-        except Exception as err:
+        if not _ensure_commit_reachable(r, base_sha):
             raise RuntimeError(
                 f"Base SHA {base_sha!r} still not present after fetch from '{remote_name}'."
-            ) from err
+            )
 
 
 def get_pr_metadata(repo_path: str, base_sha: str, head_sha: str) -> dict[str, list[str]]:
@@ -142,5 +142,6 @@ def get_pr_metadata(repo_path: str, base_sha: str, head_sha: str) -> dict[str, l
             "commits": [str(c.message).strip() for c in commits],
             "authors": list({str(c.author.name) for c in commits}),
         }
-    except Exception:
+    except Exception as exc:
+        print(f"[pr-impact] Could not read PR metadata: {exc}", file=sys.stderr)
         return {}
