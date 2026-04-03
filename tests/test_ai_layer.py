@@ -572,7 +572,7 @@ def test_neighbouring_sigs_respects_max_per_dir_cap(tmp_path):
 
 
 def test_neighbouring_sigs_second_file_in_same_dir_skips_when_capped(tmp_path):
-    """Second changed file in same dir hits the count >= max_per_dir guard (line 149)."""
+    """Second changed file in same dir hits the count >= max_per_dir guard."""
     (tmp_path / "a.py").write_text("def a(): pass\n")
     (tmp_path / "b.py").write_text("def b(): pass\n")
     (tmp_path / "neighbour.py").write_text("def neighbour(): pass\n")
@@ -584,7 +584,7 @@ def test_neighbouring_sigs_second_file_in_same_dir_skips_when_capped(tmp_path):
 
 
 def test_neighbouring_sigs_skips_empty_neighbour_files(tmp_path):
-    """Files with no content hit the 'if not content: continue' branch (line 158)."""
+    """Files with no content hit the 'if not content: continue' branch."""
     (tmp_path / "changed.py").write_text("def changed(): pass\n")
     (tmp_path / "empty.py").write_text("")
     (tmp_path / "real.py").write_text("def real(): pass\n")
@@ -600,7 +600,7 @@ def test_neighbouring_sigs_skips_empty_neighbour_files(tmp_path):
 
 
 def test_call_claude_raises_after_two_consecutive_failures():
-    """Both attempts fail — the second exception is re-raised (line 182)."""
+    """Both attempts fail — the second exception is re-raised."""
     client = _mock_client(RuntimeError("attempt 0"), RuntimeError("attempt 1"))
     with pytest.raises(RuntimeError, match="attempt 1"):
         _call_claude(client, "any prompt")
@@ -614,7 +614,7 @@ def test_call_claude_succeeds_on_second_attempt():
 
 
 def test_call_claude_raises_on_unexpected_block_type():
-    """Response with a non-TextBlock triggers ValueError (line 182)."""
+    """Response with a non-TextBlock triggers ValueError (unexpected block type path)."""
     mock_client = MagicMock()
     bad_block = MagicMock(spec=[])  # not an anthropic.types.TextBlock
     msg = MagicMock()
@@ -630,7 +630,7 @@ def test_call_claude_raises_on_unexpected_block_type():
 
 
 def test_parse_json_fallback_finds_braces_but_still_invalid():
-    """Regex finds {...} but the content inside is not valid JSON (lines 202-203)."""
+    """Regex finds {...} but the content inside is not valid JSON (regex fallback path)."""
     raw = "{ invalid: json content }"
     assert _parse_json_safe(raw) == {}
 
@@ -641,7 +641,7 @@ def test_parse_json_fallback_finds_braces_but_still_invalid():
 
 
 def test_find_test_files_dedup_across_changed_files(tmp_path):
-    """Same test file found via two different source files; second hit is deduped (line 119)."""
+    """Same test file found via two different source files; second hit is deduped."""
     (tmp_path / "test_a.py").write_text("def test_func(): pass\n")
     # a.py has stem "a" → test_a.py matches; b.py also scans same dir → test_a.py already in found
     f1 = make_file(path="a.py")
@@ -651,7 +651,7 @@ def test_find_test_files_dedup_across_changed_files(tmp_path):
 
 
 def test_find_test_files_skips_unrelated_test_files(tmp_path):
-    """test_utils.py doesn't contain the stem 'models' — hits stem-mismatch continue (line 127)."""
+    """test_utils.py doesn't contain the stem 'models' — hits stem-mismatch continue."""
     (tmp_path / "test_utils.py").write_text("def test_helper(): pass\n")
     f = make_file(path="models.py")
     result = _find_test_files([f], str(tmp_path))

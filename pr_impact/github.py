@@ -6,6 +6,9 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterable
 
+# GitHub REST API version header; update if the API introduces breaking changes
+_GITHUB_API_VERSION = "2022-11-28"
+
 
 def _parse_github_remote(url: str) -> tuple[str, str] | None:
     """Return (owner, repo) parsed from a GitHub remote URL, or None."""
@@ -52,7 +55,7 @@ def detect_github_remote(
 def _make_github_request(url: str, token: str | None) -> dict | list:
     headers = {
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
+        "X-GitHub-Api-Version": _GITHUB_API_VERSION,
         "User-Agent": "pr-impact/0.1",
     }
     if token:

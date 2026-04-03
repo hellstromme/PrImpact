@@ -747,7 +747,7 @@ def test_run_pipeline_returns_five_tuple():
     patches = _pipeline_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
         result = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
-    changed, blast, interface, ai, meta = result
+    changed, blast, _, ai, _ = result
     assert changed[0].path == "foo.py"
     assert blast == []
     assert ai.summary == "ok"
