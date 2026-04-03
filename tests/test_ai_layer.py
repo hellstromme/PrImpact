@@ -173,6 +173,28 @@ def test_empty_file_list_returns_empty_string():
     assert _build_diffs_context([]) == ""
 
 
+def test_single_file_exactly_at_limit_is_not_truncated():
+    diff = "x" * _LIMIT
+    f = _make_diff_file("a.py", diff)
+    ctx = _build_diffs_context([f])
+    assert "[truncated]" not in ctx
+    assert diff in ctx
+
+
+def test_multiple_files_greedy_uses_full_budget():
+    """Three files each slightly over equal-split quota: greedy includes the first two
+    in full and only truncates the third, while floor-division would truncate all three."""
+    # per-file floor div = 32_000 // 3 = 10_666 < 11_000 → all three truncated under old approach
+    # greedy: f1(11_000) + f2(11_000) = 22_000 → remaining 10_000 → f3 truncated
+    f1 = _make_diff_file("a.py", "a" * 11_000)
+    f2 = _make_diff_file("b.py", "b" * 11_000)
+    f3 = _make_diff_file("c.py", "c" * 11_000)
+    ctx = _build_diffs_context([f1, f2, f3])
+    assert "a" * 11_000 in ctx   # f1 fully included
+    assert "b" * 11_000 in ctx   # f2 fully included
+    assert "[truncated]" in ctx  # f3 truncated
+
+
 # ---------------------------------------------------------------------------
 # _extract_signatures
 # ---------------------------------------------------------------------------

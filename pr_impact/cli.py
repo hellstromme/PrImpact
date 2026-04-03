@@ -1,7 +1,6 @@
 import os
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 
 import click
@@ -17,7 +16,7 @@ from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
-from .models import AIAnalysis, ImpactReport
+from .models import AIAnalysis, ImpactReport, RefsResult
 from .reporter import render_json, render_markdown, render_terminal
 
 stderr = Console(stderr=True)
@@ -134,17 +133,6 @@ def _write_outputs(report: "ImpactReport", output: str | None, json_output: str 
     if json_output:
         with open(json_output, "w", encoding="utf-8") as fh:
             fh.write(render_json(report))
-
-
-@dataclass
-class RefsResult:
-    """Resolved commit references and associated PR metadata for the pipeline."""
-    base: str
-    head: str
-    pr_title: str | None = None
-    fetch_pr_number: int | None = None   # set when a real GitHub PR was resolved
-    fetch_base_ref: str | None = None    # branch name of the PR base
-    fetch_remote: str = "origin"         # remote to fetch from if commits are missing
 
 
 def _format_pr_title(number: int, raw_title: str | None) -> str:

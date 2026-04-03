@@ -92,6 +92,17 @@ class AIAnalysis:
 
 
 @dataclass
+class RefsResult:
+    """Resolved commit references and associated PR metadata for the pipeline."""
+    base: str
+    head: str
+    pr_title: str | None = None
+    fetch_pr_number: int | None = None   # set when a real GitHub PR was resolved
+    fetch_base_ref: str | None = None    # branch name of the PR base
+    fetch_remote: str = "origin"         # remote to fetch from if commits are missing
+
+
+@dataclass
 class ImpactReport:
     pr_title: str
     base_sha: str

@@ -1,11 +1,11 @@
 import json
 import os
 import re
-import sys
 import tempfile
 from pathlib import Path
 
 import anthropic
+from rich.console import Console
 
 from .models import (
     AIAnalysis,
@@ -69,14 +69,18 @@ def _build_diffs_context(changed_files: list[ChangedFile]) -> str:
         return "\n\n".join(f"### {f.path}\n{f.diff}" for f in changed_files)
 
     if len(changed_files) > 1:
-        # Truncate each file's diff proportionally
-        per_file = _DIFF_CHAR_LIMIT // len(changed_files)
+        # Greedily include each file in full until the budget is exhausted
         parts: list[str] = []
+        remaining = _DIFF_CHAR_LIMIT
         for f in changed_files:
-            diff = f.diff[:per_file]
-            if len(f.diff) > per_file:
-                diff += "\n... [truncated]"
-            parts.append(f"### {f.path}\n{diff}")
+            if remaining <= 0:
+                parts.append(f"### {f.path}\n... [truncated]")
+            elif len(f.diff) <= remaining:
+                parts.append(f"### {f.path}\n{f.diff}")
+                remaining -= len(f.diff)
+            else:
+                parts.append(f"### {f.path}\n{f.diff[:remaining]}\n... [truncated]")
+                remaining = 0
         return "\n\n".join(parts)
 
     # Single file exceeds limit
@@ -264,7 +268,7 @@ def run_ai_analysis(
             if isinstance(a, dict)
         ]
     except Exception as e:
-        print(f"Warning: AI call 1 (summary/decisions/assumptions) failed: {e}", file=sys.stderr)
+        Console(stderr=True).print(f"[yellow]Warning:[/yellow] AI call 1 (summary/decisions/assumptions) failed: {e}")
 
     # Call 2: anomaly detection
     try:
@@ -286,7 +290,7 @@ def run_ai_analysis(
             if isinstance(a, dict)
         ]
     except Exception as e:
-        print(f"Warning: AI call 2 (anomaly detection) failed: {e}", file=sys.stderr)
+        Console(stderr=True).print(f"[yellow]Warning:[/yellow] AI call 2 (anomaly detection) failed: {e}")
 
     # Call 3: test gap analysis
     try:
@@ -307,6 +311,6 @@ def run_ai_analysis(
             if isinstance(t, dict)
         ]
     except Exception as e:
-        print(f"Warning: AI call 3 (test gap analysis) failed: {e}", file=sys.stderr)
+        Console(stderr=True).print(f"[yellow]Warning:[/yellow] AI call 3 (test gap analysis) failed: {e}")
 
     return result

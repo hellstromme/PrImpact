@@ -8,7 +8,6 @@ import pytest
 from click.testing import CliRunner
 
 from pr_impact.cli import (
-    RefsResult,
     _FALLBACK_BASE,
     _FALLBACK_HEAD,
     _format_pr_title,
@@ -17,7 +16,7 @@ from pr_impact.cli import (
     _run_pipeline,
     main,
 )
-from pr_impact.models import AIAnalysis, BlastRadiusEntry
+from pr_impact.models import AIAnalysis, BlastRadiusEntry, RefsResult
 from tests.helpers import make_file
 
 _ENV = {"ANTHROPIC_API_KEY": "test-key"}
