@@ -851,6 +851,28 @@ def test_run_pipeline_ensure_commits_warning_on_failure():
     assert changed  # pipeline completed despite the warning
 
 
+def test_run_pipeline_churn_failure_sets_none_and_continues():
+    """get_git_churn raising is non-fatal — churn_score falls back to None."""
+    refs = RefsResult(base="abc", head="def")
+    blast_entry = MagicMock()
+    patches = _pipeline_patches()
+    patches[2] = patch("pr_impact.cli.get_blast_radius", return_value=[blast_entry])
+    patches[3] = patch("pr_impact.cli.get_git_churn", side_effect=RuntimeError("git error"))
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        _, blast, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert blast_entry.churn_score is None
+
+
+def test_run_pipeline_metadata_failure_returns_empty_dict():
+    """get_pr_metadata raising is non-fatal — metadata falls back to {}."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    patches[4] = patch("pr_impact.cli.get_pr_metadata", side_effect=RuntimeError("no history"))
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        _, _, _, _, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert meta == {}
+
+
 def test_resolve_refs_interactive_no_token_warns(mock_repo):
     """Path D with no GitHub token should call _warn_no_github_token (line 343)."""
     with (

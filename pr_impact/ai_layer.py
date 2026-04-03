@@ -41,7 +41,7 @@ _SIG_JS_KEEP = re.compile(
 
 _TEST_PATTERNS = re.compile(r"(?:test_|_test\.|\.test\.|\.spec\.).*$", re.IGNORECASE)
 _TEST_EXTENSIONS = {".py", ".ts", ".js", ".tsx", ".jsx"}
-
+_TRUNCATION_SUFFIX = "\n... [truncated]"
 
 
 def _extract_signatures(content: str, language: str) -> str:
@@ -64,7 +64,6 @@ def _read_file_safe(path: str) -> str:
 
 
 def _build_diffs_context(changed_files: list[ChangedFile]) -> str:
-    _TRUNCATION_SUFFIX = "\n... [truncated]"
     header_overhead = sum(len(f"### {f.path}\n") for f in changed_files)
     sep_overhead = max(0, len(changed_files) - 1) * len("\n\n")
     available = _DIFF_CHAR_LIMIT - header_overhead - sep_overhead
@@ -84,7 +83,8 @@ def _build_diffs_context(changed_files: list[ChangedFile]) -> str:
                 parts.append(f"### {f.path}\n{f.diff}")
                 remaining -= len(f.diff)
             else:
-                parts.append(f"### {f.path}\n{f.diff[:remaining]}{_TRUNCATION_SUFFIX}")
+                diff_chars = max(0, remaining - len(_TRUNCATION_SUFFIX))
+                parts.append(f"### {f.path}\n{f.diff[:diff_chars]}{_TRUNCATION_SUFFIX}")
                 remaining = 0
         return "\n\n".join(parts)
 
