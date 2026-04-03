@@ -1,5 +1,6 @@
 import dataclasses
 import json
+from typing import NamedTuple
 
 from rich import box as _rich_box
 from rich.console import Console
@@ -10,9 +11,19 @@ from rich.text import Text
 
 from .models import ImpactReport
 
-_SEVERITY_ICON = {"high": "🔴", "medium": "🟡", "low": "🔵"}
-_SEVERITY_COLOR = {"high": "bright_red", "medium": "yellow", "low": "bright_blue"}
-_SEVERITY_BULLET = {"high": "●", "medium": "◉", "low": "○"}
+
+class _SeverityStyle(NamedTuple):
+    icon: str
+    color: str
+    bullet: str
+
+
+_SEVERITY: dict[str, _SeverityStyle] = {
+    "high":   _SeverityStyle("🔴", "bright_red",  "●"),
+    "medium": _SeverityStyle("🟡", "yellow",       "◉"),
+    "low":    _SeverityStyle("🔵", "bright_blue",  "○"),
+}
+_SEVERITY_DEFAULT = _SeverityStyle("🔵", "bright_blue", "○")
 
 
 def render_markdown(report: ImpactReport) -> str:
@@ -87,7 +98,7 @@ def render_markdown(report: ImpactReport) -> str:
     if report.ai_analysis.anomalies:
         lines.append("## Anomalies")
         for anomaly in report.ai_analysis.anomalies:
-            icon = _SEVERITY_ICON.get(anomaly.severity, "🔵")
+            icon = _SEVERITY.get(anomaly.severity, _SEVERITY_DEFAULT).icon
             lines.append(f"{icon} **{anomaly.description}**")
             lines.append(f"  Location: `{anomaly.location}`")
             lines.append("")
@@ -212,7 +223,7 @@ def render_terminal(
             console.print()
             for i, d in enumerate(report.ai_analysis.decisions, 1):
                 risk_lower = d.risk.lower() if d.risk else ""
-                risk_color = _SEVERITY_COLOR.get(risk_lower, "dim")
+                risk_color = _SEVERITY[risk_lower].color if risk_lower in _SEVERITY else "dim"
                 console.print(f"  [bold]{i}[/bold]  {d.description}")
                 console.print(f"     [dim]Rationale:[/dim] {d.rationale}")
                 console.print(f"     [dim]Risk:[/dim] [{risk_color}]{d.risk}[/{risk_color}]")
@@ -223,7 +234,7 @@ def render_terminal(
             console.print()
             for i, a in enumerate(report.ai_analysis.assumptions, 1):
                 risk_lower = a.risk.lower() if a.risk else ""
-                risk_color = _SEVERITY_COLOR.get(risk_lower, "dim")
+                risk_color = _SEVERITY[risk_lower].color if risk_lower in _SEVERITY else "dim"
                 console.print(
                     f"  [bold]{i}[/bold]  {a.description}"
                     f"  [{risk_color}]{a.risk.upper()} RISK[/{risk_color}]"
@@ -244,8 +255,9 @@ def render_terminal(
         )
         console.print()
         for anomaly in report.ai_analysis.anomalies:
-            color = _SEVERITY_COLOR.get(anomaly.severity, "bright_blue")
-            bullet = _SEVERITY_BULLET.get(anomaly.severity, "○")
+            style = _SEVERITY.get(anomaly.severity, _SEVERITY_DEFAULT)
+            color = style.color
+            bullet = style.bullet
             console.print(
                 f"  [{color}]{bullet}[/{color}] {anomaly.description}"
                 f"  [{color}][bold]{anomaly.severity.upper()}[/bold][/{color}]"
