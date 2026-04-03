@@ -11,8 +11,7 @@ def _blob_content(blob: git.Blob) -> str:
         data: bytes = blob.data_stream.read()
         return data.decode("utf-8", errors="replace")
     except Exception as exc:
-        if not isinstance(exc, (UnicodeDecodeError,)):
-            print(f"[pr-impact] Could not read blob: {exc}", file=sys.stderr)
+        print(f"[pr-impact] Could not read blob: {exc}", file=sys.stderr)
         return ""
 
 

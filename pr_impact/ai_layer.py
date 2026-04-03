@@ -270,7 +270,11 @@ def run_ai_analysis(
     ]
 
     # Call 2: anomaly detection
-    neighbour_sigs = _find_neighbouring_signatures(changed_files, repo_path)
+    try:
+        neighbour_sigs = _find_neighbouring_signatures(changed_files, repo_path)
+    except Exception as exc:
+        print(f"[pr-impact] Neighbour signature collection failed: {exc}", file=sys.stderr)
+        neighbour_sigs = "(none)"
     data2 = _call_api(
         client,
         PROMPT_ANOMALY_DETECTION.format(
@@ -290,7 +294,11 @@ def run_ai_analysis(
     ]
 
     # Call 3: test gap analysis
-    test_ctx = _find_test_files(changed_files, repo_path)
+    try:
+        test_ctx = _find_test_files(changed_files, repo_path)
+    except Exception as exc:
+        print(f"[pr-impact] Test file collection failed: {exc}", file=sys.stderr)
+        test_ctx = "(no test files found)"
     data3 = _call_api(
         client,
         PROMPT_TEST_GAP_ANALYSIS.format(

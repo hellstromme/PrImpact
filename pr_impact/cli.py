@@ -405,7 +405,7 @@ def analyse(
     # Step 8: render report
     if pr_title is None:
         commits = metadata.get("commits", [])
-        pr_title = commits[0].splitlines()[0] if commits else f"Changes {base[:7]}..{head[:7]}"
+        pr_title = commits[0].splitlines()[0] if commits else f"Changes {(base or 'unknown')[:7]}..{(head or 'unknown')[:7]}"
 
     report = ImpactReport(
         pr_title=pr_title,
