@@ -23,7 +23,7 @@ from .prompts import (
     PROMPT_TEST_GAP_ANALYSIS,
 )
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-4-5"
 MAX_RESPONSE_TOKENS = 4096
 # Rough characters-per-token estimate for budget calculations
 _CHARS_PER_TOKEN = 4
@@ -41,7 +41,7 @@ _SIG_JS_KEEP = re.compile(
 
 _TEST_PATTERNS = re.compile(r"(?:test_|_test\.|\.test\.|\.spec\.).*$", re.IGNORECASE)
 _TEST_EXTENSIONS = {".py", ".ts", ".js", ".tsx", ".jsx"}
-
+_TRUNCATION_SUFFIX = "\n... [truncated]"
 
 
 def _extract_signatures(content: str, language: str) -> str:
@@ -52,6 +52,10 @@ def _extract_signatures(content: str, language: str) -> str:
 
 
 def _read_file_safe(path: str) -> str:
+    # Note: git_analysis._blob_content serves the same role for git objects.
+    # The duplication is intentional — the no-cross-import constraint means
+    # models.py is the only shared module; add a third copy here only if
+    # adding a new module, not by importing across the pipeline.
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             return fh.read()
@@ -60,23 +64,34 @@ def _read_file_safe(path: str) -> str:
 
 
 def _build_diffs_context(changed_files: list[ChangedFile]) -> str:
-    parts: list[str] = []
-    for f in changed_files:
-        parts.append(f"### {f.path}\n{f.diff}")
-    combined = "\n\n".join(parts)
-    if len(combined) > _DIFF_CHAR_LIMIT and len(changed_files) > 1:
-        # Truncate each file's diff proportionally
-        per_file = _DIFF_CHAR_LIMIT // len(changed_files)
-        parts = []
+    header_overhead = sum(len(f"### {f.path}\n") for f in changed_files)
+    sep_overhead = max(0, len(changed_files) - 1) * len("\n\n")
+    available = _DIFF_CHAR_LIMIT - header_overhead - sep_overhead
+
+    total_diffs = sum(len(f.diff) for f in changed_files)
+    if total_diffs <= available:
+        return "\n\n".join(f"### {f.path}\n{f.diff}" for f in changed_files)
+
+    if len(changed_files) > 1:
+        # Greedily include each file in full until the budget is exhausted
+        parts: list[str] = []
+        remaining = available
         for f in changed_files:
-            diff = f.diff[:per_file]
-            if len(f.diff) > per_file:
-                diff += "\n... [truncated]"
-            parts.append(f"### {f.path}\n{diff}")
-        combined = "\n\n".join(parts)
-    elif len(combined) > _DIFF_CHAR_LIMIT:
-        combined = combined[:_DIFF_CHAR_LIMIT] + "\n... [truncated]"
-    return combined
+            if remaining <= 0:
+                parts.append(f"### {f.path}\n... [truncated]")
+            elif len(f.diff) <= remaining:
+                parts.append(f"### {f.path}\n{f.diff}")
+                remaining -= len(f.diff)
+            else:
+                diff_chars = max(0, remaining - len(_TRUNCATION_SUFFIX))
+                parts.append(f"### {f.path}\n{f.diff[:diff_chars]}{_TRUNCATION_SUFFIX}")
+                remaining = 0
+        return "\n\n".join(parts)
+
+    # Single file exceeds limit
+    single = changed_files[0]
+    single_available = max(0, available - len(_TRUNCATION_SUFFIX))
+    return f"### {single.path}\n{single.diff[:single_available]}{_TRUNCATION_SUFFIX}"
 
 
 def _build_blast_radius_signatures(

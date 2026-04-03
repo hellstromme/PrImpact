@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 _LANGUAGE_MAP: dict[str, str] = {
     ".py": "python",
@@ -21,7 +22,7 @@ def resolve_language(path: str) -> str:
 @dataclass
 class ChangedSymbol:
     name: str
-    kind: str  # 'function' | 'class' | 'method' | 'variable' | 'export'
+    kind: Literal["file", "function", "class", "import"]
     change_type: str  # See classifier.py for full type list
     signature_before: str | None
     signature_after: str | None
@@ -88,6 +89,17 @@ class AIAnalysis:
     assumptions: list[Assumption] = field(default_factory=list)
     anomalies: list[Anomaly] = field(default_factory=list)
     test_gaps: list[TestGap] = field(default_factory=list)
+
+
+@dataclass
+class RefsResult:
+    """Resolved commit references and associated PR metadata for the pipeline."""
+    base: str
+    head: str
+    pr_title: str | None = None
+    fetch_pr_number: int | None = None   # set when a real GitHub PR was resolved
+    fetch_base_ref: str | None = None    # branch name of the PR base
+    fetch_remote: str = "origin"         # remote to fetch from if commits are missing
 
 
 @dataclass

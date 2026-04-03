@@ -153,14 +153,30 @@ def test_method_in_class_not_surfaced_as_top_level():
 # ---------------------------------------------------------------------------
 
 
-def test_all_excludes_function_from_interface_change():
-    """A function not in __all__ should be classified as internal even if signature changes."""
+def test_previously_exported_function_removed_from_all_is_interface_changed():
+    """A function that was exported before (no __all__) and whose signature changes is
+    interface_changed even if __all__ is introduced without it.  The OR logic is correct:
+    callers that depended on the previously-public foo will break."""
     before = "def foo(x):\n    return x\n"
     after = "__all__ = ['bar']\ndef foo(x, y):\n    return x + y\ndef bar(): pass\n"
     diff = "+__all__ = ['bar']\n-def foo(x):\n+def foo(x, y):\n"
     f = make_file(before=before, after=after, diff=diff)
     symbols = classify_changed_file(f)
     foo_syms = [s for s in symbols if s.name == "foo"]
+    assert foo_syms, "expected foo to appear as a changed symbol"
+    for s in foo_syms:
+        assert s.change_type == "interface_changed"
+
+
+def test_function_never_exported_via_all_is_internal():
+    """A function absent from __all__ in both before and after is always internal."""
+    before = "__all__ = ['bar']\ndef foo(x):\n    return x\ndef bar(): pass\n"
+    after = "__all__ = ['bar']\ndef foo(x, y):\n    return x + y\ndef bar(): pass\n"
+    diff = "-def foo(x):\n+def foo(x, y):\n"
+    f = make_file(before=before, after=after, diff=diff)
+    symbols = classify_changed_file(f)
+    foo_syms = [s for s in symbols if s.name == "foo"]
+    assert foo_syms, "expected foo to appear as a changed symbol"
     for s in foo_syms:
         assert s.change_type == "internal"
 

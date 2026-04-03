@@ -1,9 +1,17 @@
 """Unit tests for pr_impact/dependency_graph.py."""
 
+import git
+
 from pr_impact.dependency_graph import (
+    _extract_imports,
+    _list_repo_files,
+    _read_file,
+    _resolve_csharp_import,
     _resolve_js_import,
     _resolve_python_module,
+    build_import_graph,
     get_blast_radius,
+    get_imported_symbols,
 )
 
 # ---------------------------------------------------------------------------
@@ -246,3 +254,228 @@ def test_multiple_changed_files_union_of_dependents():
     paths = {e.path for e in entries}
     assert "x.py" in paths
     assert "y.py" in paths
+
+
+# ---------------------------------------------------------------------------
+# _read_file
+# ---------------------------------------------------------------------------
+
+
+def test_read_file_returns_content(tmp_path):
+    f = tmp_path / "foo.py"
+    f.write_text("hello = 1\n", encoding="utf-8")
+    assert _read_file(str(tmp_path), "foo.py") == "hello = 1\n"
+
+
+def test_read_file_returns_empty_string_on_missing():
+    assert _read_file("/nonexistent_dir_xyz", "missing.py") == ""
+
+
+# ---------------------------------------------------------------------------
+# _resolve_csharp_import
+# ---------------------------------------------------------------------------
+
+
+def test_csharp_namespace_found_in_map():
+    ns_map = {"MyApp.Services": ["src/services.cs", "src/extra.cs"]}
+    result = _resolve_csharp_import("MyApp.Services", ns_map)
+    assert result == ["src/services.cs", "src/extra.cs"]
+
+
+def test_csharp_namespace_not_found_returns_empty():
+    assert _resolve_csharp_import("Missing.Namespace", {}) == []
+
+
+def test_csharp_empty_map_returns_empty():
+    assert _resolve_csharp_import("Any.Namespace", {}) == []
+
+
+# ---------------------------------------------------------------------------
+# _extract_imports: JS/TS and C# branches (Python covered by blast-radius tests)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_imports_ts_named_import():
+    content = "import { foo } from './utils';\n"
+    result = _extract_imports(content, "src/app.ts", "typescript", {"src/utils.ts"})
+    assert "src/utils.ts" in result
+
+
+def test_extract_imports_ts_export_from():
+    content = "export { bar } from './helpers';\n"
+    result = _extract_imports(content, "src/index.ts", "typescript", {"src/helpers.ts"})
+    assert "src/helpers.ts" in result
+
+
+def test_extract_imports_js_require():
+    content = "const utils = require('./lib/utils.js');\n"
+    result = _extract_imports(content, "src/app.js", "javascript", {"src/lib/utils.js"})
+    assert "src/lib/utils.js" in result
+
+
+def test_extract_imports_js_plain_import():
+    content = "import './polyfill.js';\n"
+    result = _extract_imports(content, "src/app.js", "javascript", {"src/polyfill.js"})
+    assert "src/polyfill.js" in result
+
+
+def test_extract_imports_external_package_excluded():
+    content = "import React from 'react';\n"
+    result = _extract_imports(content, "src/app.ts", "typescript", set())
+    assert result == []
+
+
+def test_extract_imports_csharp_using():
+    content = "using MyApp.Models;\nclass Foo {}\n"
+    cs_map = {"MyApp.Models": ["src/models.cs"]}
+    result = _extract_imports(content, "src/ctrl.cs", "csharp", {"src/models.cs"}, cs_map)
+    assert "src/models.cs" in result
+
+
+def test_extract_imports_csharp_no_map_returns_empty():
+    content = "using MyApp.Models;\nclass Foo {}\n"
+    result = _extract_imports(content, "src/ctrl.cs", "csharp", set())
+    assert result == []
+
+
+def test_extract_imports_unknown_language_returns_empty():
+    content = "some content"
+    result = _extract_imports(content, "file.rb", "ruby", set())
+    assert result == []
+
+
+def test_extract_imports_deduplicates():
+    content = "import { a } from './mod';\nimport { b } from './mod';\n"
+    result = _extract_imports(content, "src/app.ts", "typescript", {"src/mod.ts"})
+    assert result.count("src/mod.ts") == 1
+
+
+# ---------------------------------------------------------------------------
+# get_imported_symbols
+# ---------------------------------------------------------------------------
+
+
+def test_get_imported_symbols_empty_path_returns_empty():
+    assert get_imported_symbols("", "something.py") == []
+
+
+def test_get_imported_symbols_empty_imported_from_returns_empty(tmp_path):
+    f = tmp_path / "consumer.py"
+    f.write_text("from models import foo\n")
+    assert get_imported_symbols(str(f), "") == []
+
+
+def test_get_imported_symbols_missing_file_returns_empty():
+    assert get_imported_symbols("/nonexistent/file.py", "models.py") == []
+
+
+def test_get_imported_symbols_python_from_import(tmp_path):
+    f = tmp_path / "consumer.py"
+    f.write_text("from models import foo, bar\n")
+    result = get_imported_symbols(str(f), "models.py")
+    assert "foo" in result
+    assert "bar" in result
+
+
+def test_get_imported_symbols_python_aliased_import(tmp_path):
+    f = tmp_path / "consumer.py"
+    f.write_text("from models import foo as f, bar\n")
+    result = get_imported_symbols(str(f), "models.py")
+    assert "foo" in result
+    assert "bar" in result
+
+
+def test_get_imported_symbols_js_named_import(tmp_path):
+    f = tmp_path / "consumer.ts"
+    f.write_text("import { doThing, helper } from './utils';\n")
+    result = get_imported_symbols(str(f), "utils.ts")
+    assert "doThing" in result
+    assert "helper" in result
+
+
+def test_get_imported_symbols_csharp_using(tmp_path):
+    f = tmp_path / "Controller.cs"
+    f.write_text("using MyApp.Models;\nclass Foo {}\n")
+    result = get_imported_symbols(str(f), "Models.cs")
+    assert "Models" in result
+
+
+def test_get_imported_symbols_star_import_excluded(tmp_path):
+    f = tmp_path / "consumer.py"
+    f.write_text("from models import *\n")
+    result = get_imported_symbols(str(f), "models.py")
+    assert "*" not in result
+
+
+# ---------------------------------------------------------------------------
+# _extract_imports: Python branch (lines 129-136)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_imports_python_absolute_import():
+    content = "import pr_impact.models\n"
+    all_files = {"pr_impact/models.py"}
+    result = _extract_imports(content, "pr_impact/cli.py", "python", all_files)
+    assert "pr_impact/models.py" in result
+
+
+def test_extract_imports_python_from_import():
+    content = "from pr_impact.models import Foo\n"
+    all_files = {"pr_impact/models.py"}
+    result = _extract_imports(content, "pr_impact/cli.py", "python", all_files)
+    assert "pr_impact/models.py" in result
+
+
+def test_extract_imports_python_unresolvable_returns_empty():
+    content = "from external_package import something\n"
+    result = _extract_imports(content, "src/app.py", "python", set())
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _list_repo_files and build_import_graph: git-backed tests
+# ---------------------------------------------------------------------------
+
+
+def _make_git_repo(path):
+    """Create a minimal git repo with two tracked Python files."""
+    repo = git.Repo.init(str(path))
+    actor = git.Actor("test", "test@example.com")
+    (path / "a.py").write_text("from b import foo\n")
+    (path / "b.py").write_text("def foo(): pass\n")
+    repo.index.add(["a.py", "b.py"])
+    repo.index.commit("init", author=actor, committer=actor)
+    return repo
+
+
+def test_list_repo_files_returns_tracked_py_files(tmp_path):
+    _make_git_repo(tmp_path)
+    result = _list_repo_files(str(tmp_path), ["python"])
+    assert "a.py" in result
+    assert "b.py" in result
+
+
+def test_list_repo_files_filters_by_language(tmp_path):
+    _make_git_repo(tmp_path)
+    result = _list_repo_files(str(tmp_path), ["typescript"])
+    assert "a.py" not in result
+    assert "b.py" not in result
+
+
+def test_list_repo_files_returns_empty_on_invalid_repo():
+    result = _list_repo_files("/nonexistent_repo_path_xyz", ["python"])
+    assert result == []
+
+
+def test_build_import_graph_python(tmp_path):
+    _make_git_repo(tmp_path)
+    graph = build_import_graph(str(tmp_path), ["python"])
+    assert "a.py" in graph
+    assert "b.py" in graph
+    # a.py imports b.py
+    assert "b.py" in graph["a.py"]
+
+
+def test_build_import_graph_returns_empty_on_invalid_repo():
+    result = build_import_graph("/nonexistent_repo_path_xyz", ["python"])
+    assert result == {}
