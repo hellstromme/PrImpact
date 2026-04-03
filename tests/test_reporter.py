@@ -14,7 +14,7 @@ from pr_impact.models import (
     InterfaceChange,
     TestGap,
 )
-from pr_impact.reporter import render_json, render_markdown, render_terminal
+from pr_impact.reporter import _fmt_churn, _sev, _sev_color, render_json, render_markdown, render_terminal
 from tests.helpers import make_file, make_report
 
 
@@ -618,3 +618,48 @@ def test_terminal_blast_radius_distance_3_and_other():
     assert "dist1.py" in out
     assert "dist2.py" in out
     assert "dist3.py" in out
+
+
+# ---------------------------------------------------------------------------
+# _sev, _sev_color, _fmt_churn — direct unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_sev_returns_default_style_for_unknown_key():
+    style = _sev("critical")
+    assert style.icon == "🔵"
+    assert style.color == "bright_blue"
+
+
+def test_sev_color_returns_dim_for_unknown_key():
+    assert _sev_color("critical") == "dim"
+
+
+def test_sev_color_returns_dim_for_empty_string():
+    assert _sev_color("") == "dim"
+
+
+def test_sev_color_returns_correct_colors_for_known_keys():
+    assert _sev_color("high") == "bright_red"
+    assert _sev_color("medium") == "yellow"
+    assert _sev_color("low") == "bright_blue"
+
+
+def test_fmt_churn_returns_dash_for_none():
+    assert _fmt_churn(None) == "—"
+
+
+def test_fmt_churn_returns_int_string_for_float():
+    assert _fmt_churn(7.9) == "7"
+    assert _fmt_churn(0.0) == "0"
+
+
+def test_terminal_decision_risk_unrecognised_does_not_raise():
+    """render_terminal with a decision risk not in _SEVERITY falls back to 'dim' safely."""
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            decisions=[Decision(description="do X", rationale="faster", risk="Catastrophic")]
+        )
+    )
+    out = _capture_terminal(report)
+    assert "Catastrophic" in out

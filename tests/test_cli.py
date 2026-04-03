@@ -14,10 +14,12 @@ from pr_impact.cli import (
     _invert_graph,
     _resolve_refs,
     _run_pipeline,
+    _warn_no_github_token,
+    _write_outputs,
     main,
 )
 from pr_impact.models import AIAnalysis, BlastRadiusEntry, RefsResult
-from tests.helpers import make_file
+from tests.helpers import make_file, make_report
 
 _ENV = {"ANTHROPIC_API_KEY": "test-key"}
 
@@ -885,3 +887,75 @@ def test_analyse_head_only_defaults_base_to_parent(runner):
     assert result.exit_code == 0
     call_args = mock_changed.call_args
     assert "myhead~1" in call_args.args or "myhead~1" in str(call_args)
+
+
+# ---------------------------------------------------------------------------
+# _run_pipeline — ensure_commits_present skipped when fetch_pr_number is None
+# ---------------------------------------------------------------------------
+
+
+def test_run_pipeline_skips_ensure_commits_when_no_pr_number():
+    """When fetch_pr_number is None, ensure_commits_present must not be called."""
+    refs = RefsResult(base="abc", head="def")  # fetch_pr_number defaults to None
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patch("pr_impact.cli.ensure_commits_present") as mock_ensure,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    mock_ensure.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# RefsResult — default field values
+# ---------------------------------------------------------------------------
+
+
+def test_refs_result_default_fields():
+    r = RefsResult(base="abc123", head="def456")
+    assert r.pr_title is None
+    assert r.fetch_pr_number is None
+    assert r.fetch_base_ref is None
+    assert r.fetch_remote == "origin"
+
+
+# ---------------------------------------------------------------------------
+# _warn_no_github_token — warning text
+# ---------------------------------------------------------------------------
+
+
+def test_warn_no_github_token_outputs_warning_text():
+    with patch("pr_impact.cli.stderr") as mock_stderr:
+        _warn_no_github_token()
+    printed = mock_stderr.print.call_args[0][0]
+    assert "GITHUB_TOKEN" in printed
+
+
+# ---------------------------------------------------------------------------
+# _write_outputs — three paths
+# ---------------------------------------------------------------------------
+
+
+def test_write_outputs_writes_markdown_file(tmp_path):
+    out = str(tmp_path / "report.md")
+    _write_outputs(make_report(), out, None)
+    with open(out) as fh:
+        assert fh.read().startswith("# PR Impact Report")
+
+
+def test_write_outputs_writes_json_file(tmp_path):
+    out = str(tmp_path / "report.json")
+    _write_outputs(make_report(), None, out)
+    with open(out) as fh:
+        data = json.loads(fh.read())
+    assert "pr_title" in data
+
+
+def test_write_outputs_does_nothing_when_both_none(tmp_path):
+    _write_outputs(make_report(), None, None)
+    assert list(tmp_path.iterdir()) == []
