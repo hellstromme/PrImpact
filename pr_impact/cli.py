@@ -127,6 +127,16 @@ def _get_github_token() -> str | None:
     return expanded or None
 
 
+def _warn_no_github_token() -> None:
+    stderr.print(
+        "[yellow]Warning:[/yellow] No GitHub token found. "
+        "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
+        f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
+        f"[bold]{CONFIG_PATH}[/bold]. "
+        "Unauthenticated requests will fail for private repositories."
+    )
+
+
 def _invert_graph(forward: dict[str, list[str]]) -> dict[str, list[str]]:
     reverse: dict[str, list[str]] = defaultdict(list)
     for src, targets in forward.items():
@@ -154,77 +164,34 @@ def _print_pr_table(prs: list[dict]) -> None:
     stderr.print(table)
 
 
-@click.group()
-def main() -> None:
-    pass
-
-
-@main.command()
-@click.option("--repo", required=True, help="Path to the local git repository")
-@click.option("--pr", "pr_number", type=int, default=None, help="GitHub PR number to analyse")
-@click.option("--head", default=None, help="Head commit SHA (default: HEAD)")
-@click.option("--base", default=None, help="Base commit SHA (default: <head>~1)")
-@click.option("--output", default=None, help="Write Markdown report to this file")
-@click.option("--json", "json_output", default=None, help="Write JSON sidecar to this file")
-@click.option(
-    "--max-depth", default=3, show_default=True, help="Maximum BFS depth for blast radius"
-)
-def analyse(
-    repo: str,
+def _resolve_sha_pair(
+    repo_obj: git.Repo,
     pr_number: int | None,
     base: str | None,
     head: str | None,
-    output: str | None,
-    json_output: str | None,
-    max_depth: int,
-) -> None:
-    """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
-    if _stdin_is_interactive():
-        _print_banner()
-    _load_config()
+) -> tuple[str, str, str | None, int | None, str | None, str]:
+    """Resolve base/head SHAs and PR metadata from CLI args or GitHub.
 
-    # --pr cannot be combined with --base or --head
-    if pr_number is not None and (base is not None or head is not None):
-        stderr.print(
-            "[bold red]Error:[/bold red] --pr cannot be combined with --base or --head. "
-            "When --pr is given, the PR provides both SHAs from GitHub."
-        )
-        sys.exit(1)
-
-    # Direct SHA mode: apply head/base defaults now
+    Returns (base, head, pr_title, fetch_pr_number, fetch_base_ref, fetch_remote).
+    Exits with sys.exit(1) on unrecoverable errors.
+    """
+    # Direct SHA mode: apply head/base defaults
     if pr_number is None and (base is not None or head is not None):
         if head is None:
             head = "HEAD"
         if base is None:
             base = f"{head}~1"
 
-    # pr_title: set from GitHub data if using --pr or interactive mode
     pr_title: str | None = None
-    # Fetch info — set during PR resolution, used to ensure commits are present locally
-    _fetch_pr_number: int | None = None
-    _fetch_base_ref: str | None = None
-    _fetch_remote: str = "origin"
+    fetch_pr_number: int | None = None
+    fetch_base_ref: str | None = None
+    fetch_remote: str = "origin"
 
-    # Open the repo early — needed for both PR resolution and the pipeline
-    try:
-        repo_obj = git.Repo(repo)
-    except Exception as e:
-        stderr.print(f"[bold red]Error:[/bold red] Could not open git repository: {e}")
-        sys.exit(1)
-
-    # GitHub PR resolution (runs before the progress spinner so interactive prompts work)
     if pr_number is not None or (base is None and head is None):
         github_token = _get_github_token()
-        # interactive_discovery: whether we should attempt PR listing when no --pr was given
         _interactive = pr_number is None
         if github_token is None and not _interactive:
-            stderr.print(
-                "[yellow]Warning:[/yellow] No GitHub token found. "
-                "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
-                f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
-                f"[bold]{CONFIG_PATH}[/bold]. "
-                "Unauthenticated requests will fail for private repositories."
-            )
+            _warn_no_github_token()
         github_remote = detect_github_remote([(r.name, r.urls) for r in repo_obj.remotes])
         if github_remote is None:
             if not _interactive:
@@ -233,11 +200,10 @@ def analyse(
                     "Use --base and --head to specify SHAs directly."
                 )
                 sys.exit(1)
-            # No-arg path: no GitHub remote → fall back silently to HEAD~1..HEAD
             base = "HEAD~1"
             head = "HEAD"
         else:
-            owner, repo_name, _fetch_remote = github_remote
+            owner, repo_name, fetch_remote = github_remote
 
             if not _interactive:
                 try:
@@ -247,19 +213,13 @@ def analyse(
                     sys.exit(1)
                 base = pr_data["base"]["sha"]
                 head = pr_data["head"]["sha"]
-                _fetch_pr_number = pr_number
-                _fetch_base_ref = pr_data.get("base", {}).get("ref")
+                fetch_pr_number = pr_number
+                fetch_base_ref = pr_data.get("base", {}).get("ref")
                 pr_title = f"#{pr_number}: {pr_data.get('title') or f'PR {pr_number}'}"
             elif _stdin_is_interactive():
                 # Interactive terminal: list open PRs and let the user pick
                 if github_token is None:
-                    stderr.print(
-                        "[yellow]Warning:[/yellow] No GitHub token found. "
-                        "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
-                        f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
-                        f"[bold]{CONFIG_PATH}[/bold]. "
-                        "Unauthenticated requests will fail for private repositories."
-                    )
+                    _warn_no_github_token()
                 try:
                     open_prs = fetch_open_prs(owner, repo_name, github_token)
                 except RuntimeError as e:
@@ -282,8 +242,8 @@ def analyse(
                     selected = next(p for p in open_prs if str(p["number"]) == chosen)
                     base = selected["base"]["sha"]
                     head = selected["head"]["sha"]
-                    _fetch_pr_number = selected["number"]
-                    _fetch_base_ref = selected.get("base", {}).get("ref")
+                    fetch_pr_number = selected["number"]
+                    fetch_base_ref = selected.get("base", {}).get("ref")
                     selected_num = selected["number"]
                     pr_title = f"#{selected_num}: {selected.get('title') or f'PR {selected_num}'}"
             else:
@@ -291,6 +251,24 @@ def analyse(
                 base = "HEAD~1"
                 head = "HEAD"
 
+    return base, head, pr_title, fetch_pr_number, fetch_base_ref, fetch_remote
+
+
+def _run_pipeline(
+    repo: str,
+    repo_obj: git.Repo,
+    base: str,
+    head: str,
+    fetch_pr_number: int | None,
+    fetch_base_ref: str | None,
+    fetch_remote: str,
+    max_depth: int,
+) -> tuple:
+    """Run pipeline steps 1–7 inside a progress spinner.
+
+    Returns (changed_files, blast_radius, interface_changes, ai_analysis, metadata).
+    Exits with sys.exit on unrecoverable errors.
+    """
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -298,10 +276,10 @@ def analyse(
         transient=True,
     ) as progress:
         # Ensure PR commits are present locally before diffing (no-op for up-to-date clones)
-        if _fetch_pr_number is not None:
+        if fetch_pr_number is not None:
             try:
                 ensure_commits_present(
-                    repo, base, head, _fetch_remote, _fetch_pr_number, _fetch_base_ref, repo=repo_obj
+                    repo, base, head, fetch_remote, fetch_pr_number, fetch_base_ref, repo=repo_obj
                 )
             except RuntimeError as e:
                 stderr.print(f"[yellow]Warning:[/yellow] {e}. Continuing — diff will fail if commits are still absent.")
@@ -371,10 +349,63 @@ def analyse(
 
         progress.remove_task(task)
 
+    return changed_files, blast_radius, interface_changes, ai_analysis, metadata
+
+
+@click.group()
+def main() -> None:
+    pass
+
+
+@main.command()
+@click.option("--repo", required=True, help="Path to the local git repository")
+@click.option("--pr", "pr_number", type=int, default=None, help="GitHub PR number to analyse")
+@click.option("--head", default=None, help="Head commit SHA (default: HEAD)")
+@click.option("--base", default=None, help="Base commit SHA (default: <head>~1)")
+@click.option("--output", default=None, help="Write Markdown report to this file")
+@click.option("--json", "json_output", default=None, help="Write JSON sidecar to this file")
+@click.option(
+    "--max-depth", default=3, show_default=True, help="Maximum BFS depth for blast radius"
+)
+def analyse(
+    repo: str,
+    pr_number: int | None,
+    base: str | None,
+    head: str | None,
+    output: str | None,
+    json_output: str | None,
+    max_depth: int,
+) -> None:
+    """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
+    if _stdin_is_interactive():
+        _print_banner()
+    _load_config()
+
+    if pr_number is not None and (base is not None or head is not None):
+        stderr.print(
+            "[bold red]Error:[/bold red] --pr cannot be combined with --base or --head. "
+            "When --pr is given, the PR provides both SHAs from GitHub."
+        )
+        sys.exit(1)
+
+    try:
+        repo_obj = git.Repo(repo)
+    except Exception as e:
+        stderr.print(f"[bold red]Error:[/bold red] Could not open git repository: {e}")
+        sys.exit(1)
+
+    base, head, pr_title, fetch_pr_number, fetch_base_ref, fetch_remote = _resolve_sha_pair(
+        repo_obj, pr_number, base, head
+    )
+
+    changed_files, blast_radius, interface_changes, ai_analysis, metadata = _run_pipeline(
+        repo, repo_obj, base, head, fetch_pr_number, fetch_base_ref, fetch_remote, max_depth
+    )
+
     # Step 8: render report
     if pr_title is None:
         commits = metadata.get("commits", [])
-        pr_title = commits[0].splitlines()[0] if commits else f"Changes {(base or 'unknown')[:7]}..{(head or 'unknown')[:7]}"
+        pr_title = commits[0].splitlines()[0] if commits else f"Changes {base[:7]}..{head[:7]}"
 
     report = ImpactReport(
         pr_title=pr_title,
