@@ -174,7 +174,10 @@ def test_empty_file_list_returns_empty_string():
 
 
 def test_single_file_exactly_at_limit_is_not_truncated():
-    diff = "x" * _LIMIT
+    # The assembled string is "### a.py\n" + diff, so the diff budget is
+    # _LIMIT minus the header length to keep the total within _DIFF_CHAR_LIMIT.
+    header = "### a.py\n"
+    diff = "x" * (_LIMIT - len(header))
     f = _make_diff_file("a.py", diff)
     ctx = _build_diffs_context([f])
     assert "[truncated]" not in ctx
@@ -617,7 +620,7 @@ def test_call_claude_raises_on_unexpected_block_type():
     msg = MagicMock()
     msg.content = [bad_block]
     mock_client.messages.create.return_value = msg
-    with pytest.raises((ValueError, Exception)):
+    with pytest.raises(ValueError):
         _call_claude(mock_client, "prompt")
 
 

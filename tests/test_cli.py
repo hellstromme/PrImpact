@@ -776,7 +776,7 @@ def test_run_pipeline_import_graph_failure_continues():
     patches = _pipeline_patches()
     patches[1] = patch("pr_impact.cli.build_import_graph", side_effect=RuntimeError("oops"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -786,7 +786,7 @@ def test_run_pipeline_blast_radius_failure_continues():
     patches = _pipeline_patches()
     patches[2] = patch("pr_impact.cli.get_blast_radius", side_effect=RuntimeError("oops"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, blast, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert blast == []
 
 
@@ -796,7 +796,7 @@ def test_run_pipeline_ai_failure_returns_empty_analysis():
     patches = _pipeline_patches()
     patches[5] = patch("pr_impact.cli.run_ai_analysis", side_effect=ValueError("no key"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, _, ai, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert ai.summary == ""
 
 
@@ -813,7 +813,7 @@ def test_run_pipeline_classifier_failure_continues():
         patches[5],
         patch("pr_impact.cli.classify_changed_file", side_effect=RuntimeError("parse error")),
     ):
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -830,7 +830,7 @@ def test_run_pipeline_interface_change_failure_continues():
         patches[5],
         patch("pr_impact.cli.get_interface_changes", side_effect=RuntimeError("oops")),
     ):
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, interface, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert interface == []
 
 
@@ -847,7 +847,7 @@ def test_run_pipeline_ensure_commits_warning_on_failure():
         patches[5],
         patch("pr_impact.cli.ensure_commits_present", side_effect=RuntimeError("fetch failed")),
     ):
-        changed, blast, interface, ai, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline completed despite the warning
 
 
@@ -956,6 +956,7 @@ def test_write_outputs_writes_json_file(tmp_path):
     assert "pr_title" in data
 
 
-def test_write_outputs_does_nothing_when_both_none(tmp_path):
+def test_write_outputs_does_nothing_when_both_none(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     _write_outputs(make_report(), None, None)
     assert list(tmp_path.iterdir()) == []
