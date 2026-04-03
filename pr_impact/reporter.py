@@ -1,5 +1,6 @@
 import dataclasses
 import json
+from typing import NamedTuple
 
 from rich import box as _rich_box
 from rich.console import Console
@@ -10,9 +11,32 @@ from rich.text import Text
 
 from .models import ImpactReport
 
-_SEVERITY_ICON = {"high": "🔴", "medium": "🟡", "low": "🔵"}
-_SEVERITY_COLOR = {"high": "bright_red", "medium": "yellow", "low": "bright_blue"}
-_SEVERITY_BULLET = {"high": "●", "medium": "◉", "low": "○"}
+
+class _SeverityStyle(NamedTuple):
+    icon: str
+    color: str
+    bullet: str
+
+
+_SEVERITY: dict[str, _SeverityStyle] = {
+    "high":   _SeverityStyle(icon="🔴", color="bright_red",  bullet="●"),
+    "medium": _SeverityStyle(icon="🟡", color="yellow",       bullet="◉"),
+    "low":    _SeverityStyle(icon="🔵", color="bright_blue",  bullet="○"),
+}
+_DEFAULT_SEVERITY = _SeverityStyle(icon="🔵", color="bright_blue", bullet="○")
+
+
+def _sev(key: str) -> _SeverityStyle:
+    return _SEVERITY.get(key, _DEFAULT_SEVERITY)
+
+
+def _sev_color(key: str, default: str = "dim") -> str:
+    style = _SEVERITY.get(key)
+    return style.color if style else default
+
+
+def _fmt_churn(score: float | None) -> str:
+    return str(int(score)) if score is not None else "—"
 
 
 def render_markdown(report: ImpactReport) -> str:
@@ -47,8 +71,7 @@ def render_markdown(report: ImpactReport) -> str:
         lines.append("|------|----------|------|-------------|")
         for entry in report.blast_radius:
             uses = ", ".join(entry.imported_symbols) if entry.imported_symbols else "—"
-            churn = str(int(entry.churn_score)) if entry.churn_score is not None else "—"
-            lines.append(f"| `{entry.path}` | {entry.distance} | {uses} | {churn} |")
+            lines.append(f"| `{entry.path}` | {entry.distance} | {uses} | {_fmt_churn(entry.churn_score)} |")
         lines.append("")
 
     # Interface Changes
@@ -87,8 +110,7 @@ def render_markdown(report: ImpactReport) -> str:
     if report.ai_analysis.anomalies:
         lines.append("## Anomalies")
         for anomaly in report.ai_analysis.anomalies:
-            icon = _SEVERITY_ICON.get(anomaly.severity, "🔵")
-            lines.append(f"{icon} **{anomaly.description}**")
+            lines.append(f"{_sev(anomaly.severity).icon} **{anomaly.description}**")
             lines.append(f"  Location: `{anomaly.location}`")
             lines.append("")
 
@@ -157,14 +179,13 @@ def render_terminal(
 
         for entry in report.blast_radius:
             uses = ", ".join(entry.imported_symbols) if entry.imported_symbols else "—"
-            churn = str(int(entry.churn_score)) if entry.churn_score is not None else "—"
             if entry.distance == 1:
                 row_style = "bold"
             elif entry.distance == 3:
                 row_style = "dim"
             else:
                 row_style = ""
-            table.add_row(entry.path, str(entry.distance), uses, churn, style=row_style)
+            table.add_row(entry.path, str(entry.distance), uses, _fmt_churn(entry.churn_score), style=row_style)
 
         console.print(table)
         console.print()
@@ -212,7 +233,7 @@ def render_terminal(
             console.print()
             for i, d in enumerate(report.ai_analysis.decisions, 1):
                 risk_lower = d.risk.lower() if d.risk else ""
-                risk_color = _SEVERITY_COLOR.get(risk_lower, "dim")
+                risk_color = _sev_color(risk_lower)
                 console.print(f"  [bold]{i}[/bold]  {d.description}")
                 console.print(f"     [dim]Rationale:[/dim] {d.rationale}")
                 console.print(f"     [dim]Risk:[/dim] [{risk_color}]{d.risk}[/{risk_color}]")
@@ -223,7 +244,7 @@ def render_terminal(
             console.print()
             for i, a in enumerate(report.ai_analysis.assumptions, 1):
                 risk_lower = a.risk.lower() if a.risk else ""
-                risk_color = _SEVERITY_COLOR.get(risk_lower, "dim")
+                risk_color = _sev_color(risk_lower)
                 console.print(
                     f"  [bold]{i}[/bold]  {a.description}"
                     f"  [{risk_color}]{a.risk.upper()} RISK[/{risk_color}]"
@@ -244,8 +265,8 @@ def render_terminal(
         )
         console.print()
         for anomaly in report.ai_analysis.anomalies:
-            color = _SEVERITY_COLOR.get(anomaly.severity, "bright_blue")
-            bullet = _SEVERITY_BULLET.get(anomaly.severity, "○")
+            color = _sev_color(anomaly.severity, "bright_blue")
+            bullet = _sev(anomaly.severity).bullet
             console.print(
                 f"  [{color}]{bullet}[/{color}] {anomaly.description}"
                 f"  [{color}][bold]{anomaly.severity.upper()}[/bold][/{color}]"

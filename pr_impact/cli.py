@@ -1,6 +1,7 @@
 import os
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
@@ -20,6 +21,10 @@ from .models import AIAnalysis, ImpactReport
 from .reporter import render_json, render_markdown, render_terminal
 
 stderr = Console(stderr=True)
+
+# Default SHAs used when no PR or explicit refs are supplied
+_FALLBACK_BASE = "HEAD~1"
+_FALLBACK_HEAD = "HEAD"
 
 
 _TITLE_ART = """\
@@ -110,6 +115,43 @@ def _stdin_is_interactive() -> bool:
     return sys.stdin.isatty()
 
 
+def _warn_no_github_token() -> None:
+    """Print a one-time warning that no GitHub token was found."""
+    stderr.print(
+        "[yellow]Warning:[/yellow] No GitHub token found. "
+        "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
+        f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
+        f"[bold]{CONFIG_PATH}[/bold]. "
+        "Unauthenticated requests will fail for private repositories."
+    )
+
+
+def _write_outputs(report: "ImpactReport", output: str | None, json_output: str | None) -> None:
+    """Write Markdown and/or JSON report files if paths were given."""
+    if output:
+        with open(output, "w", encoding="utf-8") as fh:
+            fh.write(render_markdown(report))
+    if json_output:
+        with open(json_output, "w", encoding="utf-8") as fh:
+            fh.write(render_json(report))
+
+
+@dataclass
+class RefsResult:
+    """Resolved commit references and associated PR metadata for the pipeline."""
+    base: str
+    head: str
+    pr_title: str | None = None
+    fetch_pr_number: int | None = None   # set when a real GitHub PR was resolved
+    fetch_base_ref: str | None = None    # branch name of the PR base
+    fetch_remote: str = "origin"         # remote to fetch from if commits are missing
+
+
+def _format_pr_title(number: int, raw_title: str | None) -> str:
+    """Return a display string like '#42: feat: add login'."""
+    return f"#{number}: {raw_title or f'PR {number}'}"
+
+
 def _get_github_token() -> str | None:
     """Return a GitHub token from env or config file, or None if absent."""
     token = os.environ.get("GITHUB_TOKEN")
@@ -154,6 +196,183 @@ def _print_pr_table(prs: list[dict]) -> None:
     stderr.print(table)
 
 
+def _run_pipeline(
+    repo: str,
+    repo_obj: git.Repo,
+    refs: RefsResult,
+    max_depth: int,
+    progress,
+) -> tuple:
+    """Execute all 8 pipeline steps with an injected progress object.
+
+    Returns (changed_files, blast_radius, interface_changes, ai_analysis, metadata).
+    Exits with code 1 on fatal git errors, code 0 when no supported files changed.
+    The ``progress`` parameter accepts any object with add_task/update/remove_task
+    methods; tests pass a MagicMock() to suppress spinner output.
+    """
+    # Ensure PR commits are present locally before diffing (no-op for up-to-date clones)
+    if refs.fetch_pr_number is not None:
+        try:
+            ensure_commits_present(
+                repo, refs.base, refs.head,
+                refs.fetch_remote, refs.fetch_pr_number, refs.fetch_base_ref,
+                repo=repo_obj,
+            )
+        except RuntimeError as e:
+            stderr.print(f"[yellow]Warning:[/yellow] {e}. Continuing — diff will fail if commits are still absent.")
+
+    # Step 1: get changed files
+    task = progress.add_task("Extracting changed files...", total=None)
+    try:
+        changed_files = get_changed_files(repo, refs.base, refs.head, repo=repo_obj)
+    except Exception as e:
+        stderr.print(f"[bold red]Error:[/bold red] Could not read git repository: {e}")
+        sys.exit(1)
+    progress.update(task, description=f"Found {len(changed_files)} changed file(s)")
+
+    if not changed_files:
+        stderr.print("No supported source files changed between the two SHAs.")
+        sys.exit(0)
+
+    # Step 2: build import graph
+    progress.update(task, description="Building import graph...")
+    languages = list({f.language for f in changed_files})
+    try:
+        forward_graph = build_import_graph(repo, languages)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Import graph failed: {e}")
+        forward_graph = {}
+    reverse_graph = _invert_graph(forward_graph)
+
+    # Step 3: blast radius
+    progress.update(task, description="Calculating blast radius...")
+    changed_paths = [f.path for f in changed_files]
+    try:
+        blast_radius = get_blast_radius(reverse_graph, changed_paths, max_depth, repo)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Blast radius calculation failed: {e}")
+        blast_radius = []
+
+    # Step 4: classify changed files
+    progress.update(task, description="Classifying changes...")
+    for f in changed_files:
+        try:
+            classify_changed_file(f)
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Classifier failed for {f.path}: {e}")
+
+    # Step 5: interface changes
+    try:
+        interface_changes = get_interface_changes(changed_files, reverse_graph)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Interface change detection failed: {e}")
+        interface_changes = []
+
+    # Step 6: git churn for blast radius entries
+    progress.update(task, description="Computing churn scores...")
+    for entry in blast_radius:
+        entry.churn_score = get_git_churn(repo, entry.path, repo=repo_obj)
+
+    # Metadata (best-effort)
+    metadata = get_pr_metadata(repo, refs.base, refs.head)
+
+    # Step 7: AI analysis
+    progress.update(task, description="Running AI analysis (3 API calls)...")
+    try:
+        ai_analysis = run_ai_analysis(changed_files, blast_radius, repo)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")
+        ai_analysis = AIAnalysis()
+
+    progress.remove_task(task)
+
+    return changed_files, blast_radius, interface_changes, ai_analysis, metadata
+
+
+def _resolve_refs(
+    repo_obj: git.Repo,
+    pr_number: int | None,
+    base: str | None,
+    head: str | None,
+) -> RefsResult:
+    """Resolve base/head SHAs and PR metadata from GitHub or fall back to HEAD~1..HEAD.
+
+    Called only when --pr was given or neither --base nor --head was supplied.
+    Exits with code 1 on unrecoverable errors to preserve CliRunner semantics.
+    """
+    github_token = _get_github_token()
+    _interactive = pr_number is None  # True → no explicit --pr, attempt discovery
+
+    if github_token is None and not _interactive:
+        _warn_no_github_token()
+
+    github_remote = detect_github_remote([(r.name, r.urls) for r in repo_obj.remotes])
+
+    if github_remote is None:
+        if not _interactive:
+            # Path B: --pr given but no GitHub remote detectable
+            stderr.print(
+                "[bold red]Error:[/bold red] Could not detect a GitHub remote in this repository. "
+                "Use --base and --head to specify SHAs directly."
+            )
+            sys.exit(1)
+        # Path C: no --pr, no remote → fall back silently
+        return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+    owner, repo_name, fetch_remote = github_remote
+
+    if not _interactive:
+        # Path A: explicit --pr with a known remote
+        try:
+            pr_data = fetch_pr(owner, repo_name, pr_number, github_token)
+        except RuntimeError as e:
+            stderr.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(1)
+        return RefsResult(
+            base=pr_data["base"]["sha"],
+            head=pr_data["head"]["sha"],
+            pr_title=_format_pr_title(pr_number, pr_data.get("title")),
+            fetch_pr_number=pr_number,
+            fetch_base_ref=pr_data.get("base", {}).get("ref"),
+            fetch_remote=fetch_remote,
+        )
+
+    if _stdin_is_interactive():
+        # Path D: interactive terminal — list open PRs and let the user pick
+        if github_token is None:
+            _warn_no_github_token()
+        try:
+            open_prs = fetch_open_prs(owner, repo_name, github_token)
+        except RuntimeError as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Could not fetch open PRs: {e}. Falling back to HEAD~1 → HEAD.")
+            return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+        if not open_prs:
+            stderr.print("[yellow]No open PRs found — analysing HEAD~1 → HEAD.[/yellow]")
+            return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+        _print_pr_table(open_prs)
+        sys.stderr.flush()
+        pr_numbers = {str(p["number"]) for p in open_prs}
+        chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
+        if chosen not in pr_numbers:
+            stderr.print(f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list.")
+            sys.exit(1)
+        selected = next(p for p in open_prs if str(p["number"]) == chosen)
+        selected_num = selected["number"]
+        return RefsResult(
+            base=selected["base"]["sha"],
+            head=selected["head"]["sha"],
+            pr_title=_format_pr_title(selected_num, selected.get("title")),
+            fetch_pr_number=selected_num,
+            fetch_base_ref=selected.get("base", {}).get("ref"),
+            fetch_remote=fetch_remote,
+        )
+
+    # Path E: non-interactive (CI / piped) — skip discovery, fall back silently
+    return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+
 @click.group()
 def main() -> None:
     pass
@@ -191,19 +410,12 @@ def analyse(
         )
         sys.exit(1)
 
-    # Direct SHA mode: apply head/base defaults now
+    # Direct SHA mode: apply head/base defaults before opening the repo
     if pr_number is None and (base is not None or head is not None):
         if head is None:
             head = "HEAD"
         if base is None:
             base = f"{head}~1"
-
-    # pr_title: set from GitHub data if using --pr or interactive mode
-    pr_title: str | None = None
-    # Fetch info — set during PR resolution, used to ensure commits are present locally
-    _fetch_pr_number: int | None = None
-    _fetch_base_ref: str | None = None
-    _fetch_remote: str = "origin"
 
     # Open the repo early — needed for both PR resolution and the pipeline
     try:
@@ -212,84 +424,11 @@ def analyse(
         stderr.print(f"[bold red]Error:[/bold red] Could not open git repository: {e}")
         sys.exit(1)
 
-    # GitHub PR resolution (runs before the progress spinner so interactive prompts work)
+    # Resolve refs: GitHub PR lookup or HEAD~1..HEAD fallback
     if pr_number is not None or (base is None and head is None):
-        github_token = _get_github_token()
-        # interactive_discovery: whether we should attempt PR listing when no --pr was given
-        _interactive = pr_number is None
-        if github_token is None and not _interactive:
-            stderr.print(
-                "[yellow]Warning:[/yellow] No GitHub token found. "
-                "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
-                f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
-                f"[bold]{CONFIG_PATH}[/bold]. "
-                "Unauthenticated requests will fail for private repositories."
-            )
-        github_remote = detect_github_remote([(r.name, r.urls) for r in repo_obj.remotes])
-        if github_remote is None:
-            if not _interactive:
-                stderr.print(
-                    "[bold red]Error:[/bold red] Could not detect a GitHub remote in this repository. "
-                    "Use --base and --head to specify SHAs directly."
-                )
-                sys.exit(1)
-            # No-arg path: no GitHub remote → fall back silently to HEAD~1..HEAD
-            base = "HEAD~1"
-            head = "HEAD"
-        else:
-            owner, repo_name, _fetch_remote = github_remote
-
-            if not _interactive:
-                try:
-                    pr_data = fetch_pr(owner, repo_name, pr_number, github_token)
-                except RuntimeError as e:
-                    stderr.print(f"[bold red]Error:[/bold red] {e}")
-                    sys.exit(1)
-                base = pr_data["base"]["sha"]
-                head = pr_data["head"]["sha"]
-                _fetch_pr_number = pr_number
-                _fetch_base_ref = pr_data.get("base", {}).get("ref")
-                pr_title = f"#{pr_number}: {pr_data.get('title') or f'PR {pr_number}'}"
-            elif _stdin_is_interactive():
-                # Interactive terminal: list open PRs and let the user pick
-                if github_token is None:
-                    stderr.print(
-                        "[yellow]Warning:[/yellow] No GitHub token found. "
-                        "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
-                        f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
-                        f"[bold]{CONFIG_PATH}[/bold]. "
-                        "Unauthenticated requests will fail for private repositories."
-                    )
-                try:
-                    open_prs = fetch_open_prs(owner, repo_name, github_token)
-                except RuntimeError as e:
-                    stderr.print(f"[yellow]Warning:[/yellow] Could not fetch open PRs: {e}. Falling back to HEAD~1 → HEAD.")
-                    open_prs = []
-                if not open_prs:
-                    stderr.print("[yellow]No open PRs found — analysing HEAD~1 → HEAD.[/yellow]")
-                    base = "HEAD~1"
-                    head = "HEAD"
-                else:
-                    _print_pr_table(open_prs)
-                    sys.stderr.flush()
-                    pr_numbers = {str(p["number"]) for p in open_prs}
-                    chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
-                    if chosen not in pr_numbers:
-                        stderr.print(
-                            f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list."
-                        )
-                        sys.exit(1)
-                    selected = next(p for p in open_prs if str(p["number"]) == chosen)
-                    base = selected["base"]["sha"]
-                    head = selected["head"]["sha"]
-                    _fetch_pr_number = selected["number"]
-                    _fetch_base_ref = selected.get("base", {}).get("ref")
-                    selected_num = selected["number"]
-                    pr_title = f"#{selected_num}: {selected.get('title') or f'PR {selected_num}'}"
-            else:
-                # Non-interactive (CI, piped): skip PR discovery, fall back to HEAD~1..HEAD
-                base = "HEAD~1"
-                head = "HEAD"
+        refs = _resolve_refs(repo_obj, pr_number, base, head)
+    else:
+        refs = RefsResult(base=base, head=head)
 
     with Progress(
         SpinnerColumn(),
@@ -297,105 +436,33 @@ def analyse(
         console=Console(stderr=True),
         transient=True,
     ) as progress:
-        # Ensure PR commits are present locally before diffing (no-op for up-to-date clones)
-        if _fetch_pr_number is not None:
-            try:
-                ensure_commits_present(
-                    repo, base, head, _fetch_remote, _fetch_pr_number, _fetch_base_ref, repo=repo_obj
-                )
-            except RuntimeError as e:
-                stderr.print(f"[yellow]Warning:[/yellow] {e}. Continuing — diff will fail if commits are still absent.")
+        changed_files, blast_radius, interface_changes, ai_analysis, metadata = (
+            _run_pipeline(repo, repo_obj, refs, max_depth, progress)
+        )
 
-        # Step 1: get changed files
-        task = progress.add_task("Extracting changed files...", total=None)
-        try:
-            changed_files = get_changed_files(repo, base, head, repo=repo_obj)
-        except Exception as e:
-            stderr.print(f"[bold red]Error:[/bold red] Could not read git repository: {e}")
-            sys.exit(1)
-        progress.update(task, description=f"Found {len(changed_files)} changed file(s)")
-
-        if not changed_files:
-            stderr.print("No supported source files changed between the two SHAs.")
-            sys.exit(0)
-
-        # Step 2: build import graph
-        progress.update(task, description="Building import graph...")
-        languages = list({f.language for f in changed_files})
-        try:
-            forward_graph = build_import_graph(repo, languages)
-        except Exception as e:
-            stderr.print(f"[yellow]Warning:[/yellow] Import graph failed: {e}")
-            forward_graph = {}
-        reverse_graph = _invert_graph(forward_graph)
-
-        # Step 3: blast radius
-        progress.update(task, description="Calculating blast radius...")
-        changed_paths = [f.path for f in changed_files]
-        try:
-            blast_radius = get_blast_radius(reverse_graph, changed_paths, max_depth, repo)
-        except Exception as e:
-            stderr.print(f"[yellow]Warning:[/yellow] Blast radius calculation failed: {e}")
-            blast_radius = []
-
-        # Step 4: classify changed files
-        progress.update(task, description="Classifying changes...")
-        for f in changed_files:
-            try:
-                classify_changed_file(f)
-            except Exception as e:
-                stderr.print(f"[yellow]Warning:[/yellow] Classifier failed for {f.path}: {e}")
-
-        # Step 5: interface changes
-        try:
-            interface_changes = get_interface_changes(changed_files, reverse_graph)
-        except Exception as e:
-            stderr.print(f"[yellow]Warning:[/yellow] Interface change detection failed: {e}")
-            interface_changes = []
-
-        # Step 6: git churn for blast radius entries
-        progress.update(task, description="Computing churn scores...")
-        for entry in blast_radius:
-            entry.churn_score = get_git_churn(repo, entry.path, repo=repo_obj)
-
-        # Metadata (best-effort)
-        metadata = get_pr_metadata(repo, base, head)
-
-        # Step 7: AI analysis
-        progress.update(task, description="Running AI analysis (3 API calls)...")
-        try:
-            ai_analysis = run_ai_analysis(changed_files, blast_radius, repo)
-        except Exception as e:
-            stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")
-            ai_analysis = AIAnalysis()
-
-        progress.remove_task(task)
-
-    # Step 8: render report
-    if pr_title is None:
+    # Build title: from resolved PR or fall back to first commit message / SHA range
+    if refs.pr_title is not None:
+        pr_title = refs.pr_title
+    else:
         commits = metadata.get("commits", [])
-        pr_title = commits[0].splitlines()[0] if commits else f"Changes {(base or 'unknown')[:7]}..{(head or 'unknown')[:7]}"
+        pr_title = (
+            commits[0].splitlines()[0]
+            if commits
+            else f"Changes {refs.base[:7]}..{refs.head[:7]}"
+        )
 
     report = ImpactReport(
         pr_title=pr_title,
-        base_sha=base,
-        head_sha=head,
+        base_sha=refs.base,
+        head_sha=refs.head,
         changed_files=changed_files,
         blast_radius=blast_radius,
         interface_changes=interface_changes,
         ai_analysis=ai_analysis,
     )
 
-    if output:
-        with open(output, "w", encoding="utf-8") as fh:
-            fh.write(render_markdown(report))
-
-    if json_output:
-        with open(json_output, "w", encoding="utf-8") as fh:
-            fh.write(render_json(report))
-
-    stdout_console = Console()
-    render_terminal(report, stdout_console, output, json_output)
+    _write_outputs(report, output, json_output)
+    render_terminal(report, Console(), output, json_output)
 
 
 if __name__ == "__main__":

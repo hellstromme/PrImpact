@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
 
@@ -51,6 +52,10 @@ def _extract_signatures(content: str, language: str) -> str:
 
 
 def _read_file_safe(path: str) -> str:
+    # Note: git_analysis._blob_content serves the same role for git objects.
+    # The duplication is intentional — the no-cross-import constraint means
+    # models.py is the only shared module; add a third copy here only if
+    # adding a new module, not by importing across the pipeline.
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             return fh.read()
@@ -59,23 +64,24 @@ def _read_file_safe(path: str) -> str:
 
 
 def _build_diffs_context(changed_files: list[ChangedFile]) -> str:
-    parts: list[str] = []
-    for f in changed_files:
-        parts.append(f"### {f.path}\n{f.diff}")
-    combined = "\n\n".join(parts)
-    if len(combined) > _DIFF_CHAR_LIMIT and len(changed_files) > 1:
+    total_chars = sum(len(f.diff) for f in changed_files)
+    if total_chars <= _DIFF_CHAR_LIMIT:
+        return "\n\n".join(f"### {f.path}\n{f.diff}" for f in changed_files)
+
+    if len(changed_files) > 1:
         # Truncate each file's diff proportionally
         per_file = _DIFF_CHAR_LIMIT // len(changed_files)
-        parts = []
+        parts: list[str] = []
         for f in changed_files:
             diff = f.diff[:per_file]
             if len(f.diff) > per_file:
                 diff += "\n... [truncated]"
             parts.append(f"### {f.path}\n{diff}")
-        combined = "\n\n".join(parts)
-    elif len(combined) > _DIFF_CHAR_LIMIT:
-        combined = combined[:_DIFF_CHAR_LIMIT] + "\n... [truncated]"
-    return combined
+        return "\n\n".join(parts)
+
+    # Single file exceeds limit
+    single = changed_files[0]
+    return f"### {single.path}\n{single.diff[:_DIFF_CHAR_LIMIT]}\n... [truncated]"
 
 
 def _build_blast_radius_signatures(
@@ -178,7 +184,6 @@ def _call_claude(client: anthropic.Anthropic, prompt: str) -> str:
         except Exception:
             if attempt == 1:
                 raise
-    return ""  # unreachable
 
 
 def _parse_json_safe(raw: str) -> dict:
@@ -200,6 +205,8 @@ def _parse_json_safe(raw: str) -> dict:
 
 
 def _log_response(label: str, raw: str) -> None:
+    # Best-effort debug dump; silence I/O errors intentionally — this must not
+    # interrupt the main pipeline.
     try:
         path = os.path.join(tempfile.gettempdir(), f"primpact_{label}.txt")
         with open(path, "w", encoding="utf-8") as fh:
@@ -256,8 +263,8 @@ def run_ai_analysis(
             for a in data1.get("assumptions", [])
             if isinstance(a, dict)
         ]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: AI call 1 (summary/decisions/assumptions) failed: {e}", file=sys.stderr)
 
     # Call 2: anomaly detection
     try:
@@ -278,8 +285,8 @@ def run_ai_analysis(
             for a in data2.get("anomalies", [])
             if isinstance(a, dict)
         ]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: AI call 2 (anomaly detection) failed: {e}", file=sys.stderr)
 
     # Call 3: test gap analysis
     try:
@@ -299,7 +306,7 @@ def run_ai_analysis(
             for t in data3.get("test_gaps", [])
             if isinstance(t, dict)
         ]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: AI call 3 (test gap analysis) failed: {e}", file=sys.stderr)
 
     return result

@@ -13,8 +13,11 @@ import pytest
 from pr_impact.ai_layer import (
     _build_blast_radius_signatures,
     _build_diffs_context,
+    _call_claude,
     _extract_signatures,
     _find_neighbouring_signatures,
+    _find_test_files,
+    _log_response,
     _parse_json_safe,
     run_ai_analysis,
 )
@@ -435,3 +438,196 @@ def test_run_ai_analysis_missing_nested_fields_default_to_empty_string(monkeypat
     assert result.anomalies[0].severity == "low"
     assert result.test_gaps[0].behaviour == ""
     assert result.test_gaps[0].location == ""
+
+
+def test_run_ai_analysis_call1_failure_prints_warning(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(RuntimeError("call1 fail"), RuntimeError("call1 fail"), r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert "call1 fail" in capsys.readouterr().err
+    assert result.summary == ""
+
+
+def test_run_ai_analysis_call2_failure_prints_warning(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, RuntimeError("call2 fail"), RuntimeError("call2 fail"), r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert "call2 fail" in capsys.readouterr().err
+    assert result.anomalies == []
+
+
+def test_run_ai_analysis_call3_failure_prints_warning(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    client = _mock_client(r1, r2, RuntimeError("call3 fail"), RuntimeError("call3 fail"))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert "call3 fail" in capsys.readouterr().err
+    assert result.test_gaps == []
+
+
+# ---------------------------------------------------------------------------
+# _log_response
+# ---------------------------------------------------------------------------
+
+
+def test_log_response_writes_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    _log_response("test_label", "response content")
+    out_file = tmp_path / "primpact_test_label.txt"
+    assert out_file.exists()
+    assert out_file.read_text(encoding="utf-8") == "response content"
+
+
+def test_log_response_silently_ignores_write_failure(tmp_path):
+    # Pass a path that can't be opened (directory name as label)
+    # Should not raise even if the write fails
+    _log_response("label\x00invalid", "content")  # null byte makes path invalid on most OSes
+
+
+# ---------------------------------------------------------------------------
+# _find_test_files
+# ---------------------------------------------------------------------------
+
+
+def test_find_test_files_finds_matching_test(tmp_path):
+    (tmp_path / "models.py").write_text("class Foo: pass\n")
+    (tmp_path / "test_models.py").write_text("def test_foo(): pass\n")
+    f = make_file(path="models.py")
+    result = _find_test_files([f], str(tmp_path))
+    assert "test_models.py" in result
+    assert "test_foo" in result
+
+
+def test_find_test_files_ignores_non_test_files(tmp_path):
+    (tmp_path / "models.py").write_text("class Foo: pass\n")
+    (tmp_path / "helpers.py").write_text("def helper(): pass\n")
+    f = make_file(path="models.py")
+    result = _find_test_files([f], str(tmp_path))
+    assert "helpers.py" not in result
+
+
+def test_find_test_files_no_tests_returns_placeholder(tmp_path):
+    (tmp_path / "models.py").write_text("class Foo: pass\n")
+    f = make_file(path="models.py")
+    result = _find_test_files([f], str(tmp_path))
+    assert result == "(no test files found)"
+
+
+def test_find_test_files_looks_in_tests_subdir(tmp_path):
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_models.py").write_text("def test_foo(): pass\n")
+    f = make_file(path="models.py")
+    result = _find_test_files([f], str(tmp_path))
+    assert "test_models.py" in result
+
+
+# ---------------------------------------------------------------------------
+# _find_neighbouring_signatures: max_per_dir cap
+# ---------------------------------------------------------------------------
+
+
+def test_neighbouring_sigs_respects_max_per_dir_cap(tmp_path):
+    # Write 6 Python files + 1 changed file; max_per_dir defaults to 5
+    for i in range(6):
+        (tmp_path / f"mod_{i}.py").write_text(f"def func_{i}(): pass\n")
+    (tmp_path / "changed.py").write_text("def changed(): pass\n")
+    f = make_file(path="changed.py")
+    result = _find_neighbouring_signatures([f], str(tmp_path), max_per_dir=5)
+    # Should include at most 5 neighbours, not 6
+    assert result.count("###") <= 5
+
+
+def test_neighbouring_sigs_second_file_in_same_dir_skips_when_capped(tmp_path):
+    """Second changed file in same dir hits the count >= max_per_dir guard (line 149)."""
+    (tmp_path / "a.py").write_text("def a(): pass\n")
+    (tmp_path / "b.py").write_text("def b(): pass\n")
+    (tmp_path / "neighbour.py").write_text("def neighbour(): pass\n")
+    f1 = make_file(path="a.py")
+    f2 = make_file(path="b.py")
+    result = _find_neighbouring_signatures([f1, f2], str(tmp_path), max_per_dir=1)
+    # Only 1 neighbour found (from f1's scan); f2's outer-loop check fires and skips
+    assert result.count("###") == 1
+
+
+def test_neighbouring_sigs_skips_empty_neighbour_files(tmp_path):
+    """Files with no content hit the 'if not content: continue' branch (line 158)."""
+    (tmp_path / "changed.py").write_text("def changed(): pass\n")
+    (tmp_path / "empty.py").write_text("")
+    (tmp_path / "real.py").write_text("def real(): pass\n")
+    f = make_file(path="changed.py")
+    result = _find_neighbouring_signatures([f], str(tmp_path))
+    assert "empty.py" not in result
+    assert "real.py" in result
+
+
+# ---------------------------------------------------------------------------
+# _call_claude: retry and re-raise
+# ---------------------------------------------------------------------------
+
+
+def test_call_claude_raises_after_two_consecutive_failures():
+    """Both attempts fail — the second exception is re-raised (line 182)."""
+    client = _mock_client(RuntimeError("attempt 0"), RuntimeError("attempt 1"))
+    with pytest.raises(RuntimeError, match="attempt 1"):
+        _call_claude(client, "any prompt")
+
+
+def test_call_claude_succeeds_on_second_attempt():
+    r = json.dumps({"ok": True})
+    client = _mock_client(RuntimeError("transient"), r)
+    result = _call_claude(client, "prompt")
+    assert result == r
+
+
+def test_call_claude_raises_on_unexpected_block_type():
+    """Response with a non-TextBlock triggers ValueError (line 182)."""
+    mock_client = MagicMock()
+    bad_block = MagicMock(spec=[])  # not an anthropic.types.TextBlock
+    msg = MagicMock()
+    msg.content = [bad_block]
+    mock_client.messages.create.return_value = msg
+    with pytest.raises((ValueError, Exception)):
+        _call_claude(mock_client, "prompt")
+
+
+# ---------------------------------------------------------------------------
+# _parse_json_safe: regex fallback also fails to parse
+# ---------------------------------------------------------------------------
+
+
+def test_parse_json_fallback_finds_braces_but_still_invalid():
+    """Regex finds {...} but the content inside is not valid JSON (lines 202-203)."""
+    raw = "{ invalid: json content }"
+    assert _parse_json_safe(raw) == {}
+
+
+# ---------------------------------------------------------------------------
+# _find_test_files: dedup and stem-mismatch branches
+# ---------------------------------------------------------------------------
+
+
+def test_find_test_files_dedup_across_changed_files(tmp_path):
+    """Same test file found via two different source files; second hit is deduped (line 119)."""
+    (tmp_path / "test_a.py").write_text("def test_func(): pass\n")
+    # a.py has stem "a" → test_a.py matches; b.py also scans same dir → test_a.py already in found
+    f1 = make_file(path="a.py")
+    f2 = make_file(path="b.py")
+    result = _find_test_files([f1, f2], str(tmp_path))
+    assert result.count("test_a.py") == 1  # not duplicated
+
+
+def test_find_test_files_skips_unrelated_test_files(tmp_path):
+    """test_utils.py doesn't contain the stem 'models' — hits stem-mismatch continue (line 127)."""
+    (tmp_path / "test_utils.py").write_text("def test_helper(): pass\n")
+    f = make_file(path="models.py")
+    result = _find_test_files([f], str(tmp_path))
+    assert "test_utils.py" not in result

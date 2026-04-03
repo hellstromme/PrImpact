@@ -1,6 +1,9 @@
 """Unit tests for pr_impact/reporter.py."""
 
+import io
 import json
+
+from rich.console import Console
 
 from pr_impact.models import (
     AIAnalysis,
@@ -11,8 +14,16 @@ from pr_impact.models import (
     InterfaceChange,
     TestGap,
 )
-from pr_impact.reporter import render_json, render_markdown
+from pr_impact.reporter import render_json, render_markdown, render_terminal
 from tests.helpers import make_file, make_report
+
+
+def _capture_terminal(report, **kwargs) -> str:
+    """Render to a StringIO console and return the plain-text output."""
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, no_color=True)
+    render_terminal(report, console, **kwargs)
+    return buf.getvalue()
 
 # ---------------------------------------------------------------------------
 # render_markdown: header and structure
@@ -424,3 +435,186 @@ def test_render_json_empty_ai_analysis_sections():
     assert ai["assumptions"] == []
     assert ai["anomalies"] == []
     assert ai["test_gaps"] == []
+
+
+# ---------------------------------------------------------------------------
+# render_terminal: header and summary
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_contains_pr_title():
+    out = _capture_terminal(make_report(pr_title="fix: null pointer"))
+    assert "fix: null pointer" in out
+
+
+def test_terminal_contains_sha_range():
+    out = _capture_terminal(make_report(base_sha="aabbccdd1122", head_sha="eeff99887766"))
+    assert "aabbccd" in out
+    assert "eeff998" in out
+
+
+def test_terminal_summary_shown():
+    report = make_report(ai_analysis=AIAnalysis(summary="Everything looks fine."))
+    assert "Everything looks fine." in _capture_terminal(report)
+
+
+def test_terminal_no_summary_shows_placeholder():
+    report = make_report(ai_analysis=AIAnalysis())
+    assert "No summary available." in _capture_terminal(report)
+
+
+# ---------------------------------------------------------------------------
+# render_terminal: blast radius table
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_blast_radius_file_shown():
+    entry = BlastRadiusEntry(path="consumer.py", distance=1, imported_symbols=["foo"], churn_score=5.0)
+    out = _capture_terminal(make_report(blast_radius=[entry]))
+    assert "consumer.py" in out
+
+
+def test_terminal_blast_radius_empty_no_table():
+    out = _capture_terminal(make_report(blast_radius=[]))
+    assert "0 downstream" in out
+
+
+def test_terminal_churn_none_shows_dash():
+    entry = BlastRadiusEntry(path="x.py", distance=1, imported_symbols=[], churn_score=None)
+    out = _capture_terminal(make_report(blast_radius=[entry]))
+    assert "—" in out
+
+
+# ---------------------------------------------------------------------------
+# render_terminal: interface changes
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_interface_changes_section_shown():
+    ic = InterfaceChange(file="a.py", symbol="login", before="def login()", after="def login(user)", callers=[])
+    out = _capture_terminal(make_report(interface_changes=[ic]))
+    assert "login" in out
+    assert "INTERFACE CHANGES" in out
+
+
+def test_terminal_interface_changes_absent_when_empty():
+    out = _capture_terminal(make_report(interface_changes=[]))
+    assert "INTERFACE CHANGES" not in out
+
+
+def test_terminal_interface_change_callers_shown():
+    ic = InterfaceChange(file="a.py", symbol="foo", before="def foo()", after="def foo(x)", callers=["b.py"])
+    out = _capture_terminal(make_report(interface_changes=[ic]))
+    assert "b.py" in out
+
+
+# ---------------------------------------------------------------------------
+# render_terminal: decisions and assumptions
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_decisions_section_shown():
+    report = make_report(
+        ai_analysis=AIAnalysis(decisions=[Decision(description="use cache", rationale="speed", risk="stale")])
+    )
+    out = _capture_terminal(report)
+    assert "DECISIONS" in out
+    assert "use cache" in out
+
+
+def test_terminal_assumptions_section_shown():
+    report = make_report(
+        ai_analysis=AIAnalysis(assumptions=[Assumption(description="user is valid", location="auth.py:10", risk="crash")])
+    )
+    out = _capture_terminal(report)
+    assert "user is valid" in out
+
+
+def test_terminal_decisions_assumptions_absent_when_empty():
+    out = _capture_terminal(make_report(ai_analysis=AIAnalysis()))
+    assert "DECISIONS" not in out
+
+
+# ---------------------------------------------------------------------------
+# render_terminal: anomalies
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_anomalies_section_shown():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="Direct DB call", location="a.py:5", severity="high")])
+    )
+    out = _capture_terminal(report)
+    assert "ANOMALIES" in out
+    assert "Direct DB call" in out
+
+
+def test_terminal_anomaly_counts_shown():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[
+            Anomaly(description="x", location="a.py", severity="high"),
+            Anomaly(description="y", location="b.py", severity="medium"),
+            Anomaly(description="z", location="c.py", severity="low"),
+        ])
+    )
+    out = _capture_terminal(report)
+    assert "1 high" in out
+    assert "1 medium" in out
+    assert "1 low" in out
+
+
+def test_terminal_anomalies_absent_when_empty():
+    out = _capture_terminal(make_report(ai_analysis=AIAnalysis()))
+    assert "ANOMALIES" not in out
+
+
+# ---------------------------------------------------------------------------
+# render_terminal: test gaps
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_test_gaps_section_shown():
+    report = make_report(
+        ai_analysis=AIAnalysis(test_gaps=[TestGap(behaviour="empty password login", location="auth.py:login")])
+    )
+    out = _capture_terminal(report)
+    assert "TEST GAPS" in out
+    assert "empty password login" in out
+
+
+def test_terminal_test_gaps_absent_when_empty():
+    out = _capture_terminal(make_report(ai_analysis=AIAnalysis()))
+    assert "TEST GAPS" not in out
+
+
+# ---------------------------------------------------------------------------
+# render_terminal: footer with output paths
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_footer_shown_with_output_path():
+    out = _capture_terminal(make_report(), output="report.md")
+    assert "report.md" in out
+
+
+def test_terminal_footer_shown_with_json_path():
+    out = _capture_terminal(make_report(), json_output="report.json")
+    assert "report.json" in out
+
+
+def test_terminal_no_footer_when_no_outputs():
+    out = _capture_terminal(make_report())
+    assert "written to" not in out
+
+
+def test_terminal_blast_radius_distance_3_and_other():
+    """Cover the elif distance==3 (dim) and else (no style) row branches."""
+    entries = [
+        BlastRadiusEntry(path="dist1.py", distance=1, imported_symbols=[], churn_score=None),
+        BlastRadiusEntry(path="dist2.py", distance=2, imported_symbols=[], churn_score=None),
+        BlastRadiusEntry(path="dist3.py", distance=3, imported_symbols=[], churn_score=None),
+    ]
+    out = _capture_terminal(make_report(blast_radius=entries))
+    assert "dist1.py" in out
+    assert "dist2.py" in out
+    assert "dist3.py" in out

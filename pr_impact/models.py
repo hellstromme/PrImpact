@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 _LANGUAGE_MAP: dict[str, str] = {
     ".py": "python",
@@ -21,7 +22,7 @@ def resolve_language(path: str) -> str:
 @dataclass
 class ChangedSymbol:
     name: str
-    kind: str  # 'function' | 'class' | 'method' | 'variable' | 'export'
+    kind: Literal["file", "function", "class", "import"]
     change_type: str  # See classifier.py for full type list
     signature_before: str | None
     signature_after: str | None
