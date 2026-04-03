@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
 
@@ -208,6 +209,17 @@ def _log_response(label: str, raw: str) -> None:
         pass
 
 
+def _call_api(client: anthropic.Anthropic, prompt: str, label: str) -> dict:
+    """Call Claude, log the raw response, and parse JSON. Returns {} on any failure."""
+    try:
+        raw = _call_claude(client, prompt)
+        _log_response(label, raw)
+        return _parse_json_safe(raw)
+    except Exception as exc:
+        print(f"[pr-impact] AI call '{label}' failed: {exc}", file=sys.stderr)
+        return {}
+
+
 # --- Public interface ---
 
 
@@ -229,77 +241,79 @@ def run_ai_analysis(
     blast_sigs = _build_blast_radius_signatures(blast_radius, repo_path)
 
     # Call 1: summary, decisions, assumptions
-    try:
-        prompt1 = PROMPT_SUMMARY_DECISIONS_ASSUMPTIONS.format(
+    data1 = _call_api(
+        client,
+        PROMPT_SUMMARY_DECISIONS_ASSUMPTIONS.format(
             changed_files_diff=diffs_ctx,
             blast_radius_signatures=blast_sigs,
+        ),
+        "call1_summary",
+    )
+    result.summary = data1.get("summary", "")
+    result.decisions = [
+        Decision(
+            description=d.get("description", ""),
+            rationale=d.get("rationale", ""),
+            risk=d.get("risk", ""),
         )
-        raw1 = _call_claude(client, prompt1)
-        _log_response("call1_summary", raw1)
-        data1 = _parse_json_safe(raw1)
-        result.summary = data1.get("summary", "")
-        result.decisions = [
-            Decision(
-                description=d.get("description", ""),
-                rationale=d.get("rationale", ""),
-                risk=d.get("risk", ""),
-            )
-            for d in data1.get("decisions", [])
-            if isinstance(d, dict)
-        ]
-        result.assumptions = [
-            Assumption(
-                description=a.get("description", ""),
-                location=a.get("location", ""),
-                risk=a.get("risk", ""),
-            )
-            for a in data1.get("assumptions", [])
-            if isinstance(a, dict)
-        ]
-    except Exception:
-        pass
+        for d in data1.get("decisions", [])
+        if isinstance(d, dict)
+    ]
+    result.assumptions = [
+        Assumption(
+            description=a.get("description", ""),
+            location=a.get("location", ""),
+            risk=a.get("risk", ""),
+        )
+        for a in data1.get("assumptions", [])
+        if isinstance(a, dict)
+    ]
 
     # Call 2: anomaly detection
     try:
         neighbour_sigs = _find_neighbouring_signatures(changed_files, repo_path)
-        prompt2 = PROMPT_ANOMALY_DETECTION.format(
+    except Exception as exc:
+        print(f"[pr-impact] Neighbour signature collection failed: {exc}", file=sys.stderr)
+        neighbour_sigs = "(none)"
+    data2 = _call_api(
+        client,
+        PROMPT_ANOMALY_DETECTION.format(
             changed_files_diff=diffs_ctx,
             neighbouring_signatures=neighbour_sigs,
+        ),
+        "call2_anomalies",
+    )
+    result.anomalies = [
+        Anomaly(
+            description=a.get("description", ""),
+            location=a.get("location", ""),
+            severity=a.get("severity", "low"),
         )
-        raw2 = _call_claude(client, prompt2)
-        _log_response("call2_anomalies", raw2)
-        data2 = _parse_json_safe(raw2)
-        result.anomalies = [
-            Anomaly(
-                description=a.get("description", ""),
-                location=a.get("location", ""),
-                severity=a.get("severity", "low"),
-            )
-            for a in data2.get("anomalies", [])
-            if isinstance(a, dict)
-        ]
-    except Exception:
-        pass
+        for a in data2.get("anomalies", [])
+        if isinstance(a, dict)
+    ]
 
     # Call 3: test gap analysis
     try:
         test_ctx = _find_test_files(changed_files, repo_path)
-        prompt3 = PROMPT_TEST_GAP_ANALYSIS.format(
+    except Exception as exc:
+        print(f"[pr-impact] Test file collection failed: {exc}", file=sys.stderr)
+        test_ctx = "(no test files found)"
+    data3 = _call_api(
+        client,
+        PROMPT_TEST_GAP_ANALYSIS.format(
             changed_files_diff=diffs_ctx,
             test_files=test_ctx,
+        ),
+        "call3_test_gaps",
+    )
+    result.test_gaps = [
+        TestGap(
+            behaviour=t.get("behaviour", ""),
+            location=t.get("location", ""),
         )
-        raw3 = _call_claude(client, prompt3)
-        _log_response("call3_test_gaps", raw3)
-        data3 = _parse_json_safe(raw3)
-        result.test_gaps = [
-            TestGap(
-                behaviour=t.get("behaviour", ""),
-                location=t.get("location", ""),
-            )
-            for t in data3.get("test_gaps", [])
-            if isinstance(t, dict)
-        ]
-    except Exception:
-        pass
+        for t in data3.get("test_gaps", [])
+        if isinstance(t, dict)
+    ]
 
     return result

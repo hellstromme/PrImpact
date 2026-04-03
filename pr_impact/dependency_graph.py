@@ -9,16 +9,23 @@ from .models import BlastRadiusEntry, resolve_language
 
 # --- Import extraction patterns ---
 
+# Matches `import foo.bar` (absolute Python imports)
 _PY_IMPORT = re.compile(r"^import\s+([\w.]+)", re.MULTILINE)
+# Matches `from .foo import` and `from foo.bar import`, including relative (leading dots)
 _PY_FROM = re.compile(r"^from\s+(\.{0,3}[\w.]*)\s+import", re.MULTILINE)
 
+# Matches `import ... from '...'` and re-export forms like `export { x } from '...'`
 _JS_IMPORT_FROM = re.compile(
     r"""(?:import\s+.*?\s+from|export\s+\{[^}]*\}\s+from)\s+['"]([^'"]+)['"]"""
 )
+# Matches `require('...')` CommonJS require calls
 _JS_REQUIRE = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""")
+# Matches bare `import '...'` side-effect imports
 _JS_PLAIN_IMPORT = re.compile(r"""^import\s+['"]([^'"]+)['"]""", re.MULTILINE)
 
+# Matches C# `using Namespace;` statements
 _CS_USING = re.compile(r"^using\s+([\w.]+)\s*;", re.MULTILINE)
+# Matches C# `namespace Foo.Bar` declarations
 _CS_NAMESPACE = re.compile(r"^namespace\s+([\w.]+)", re.MULTILINE)
 
 
@@ -210,18 +217,11 @@ def get_blast_radius(
     for path, dist in visited.items():
         if dist == 0:
             continue
-        imported_symbols = get_imported_symbols(
-            os.path.join(repo_path, path) if repo_path else path,
-            # We need to find which changed file this entry imports;
-            # use the first changed file reachable (simplified: pass empty for now,
-            # populated properly in cli.py if needed)
-            "",
-        )
         entries.append(
             BlastRadiusEntry(
                 path=path,
                 distance=dist,
-                imported_symbols=imported_symbols,
+                imported_symbols=[],
                 churn_score=None,
             )
         )
