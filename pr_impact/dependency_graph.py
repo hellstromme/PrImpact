@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from collections import deque
@@ -28,8 +29,9 @@ _CS_USING = re.compile(r"^using\s+([\w.]+)\s*;", re.MULTILINE)
 # Matches C# `namespace Foo.Bar` declarations
 _CS_NAMESPACE = re.compile(r"^namespace\s+([\w.]+)", re.MULTILINE)
 
+# Group 1: fully-qualified class/package name; group 2: '.*' if wildcard import
 _JAVA_IMPORT = re.compile(
-    r"^import\s+(?:static\s+)?([\w]+(?:\.[\w]+)*)(?:\.\*)?;", re.MULTILINE
+    r"^import\s+(?:static\s+)?([\w]+(?:\.[\w]+)*)(\.\*)?;", re.MULTILINE
 )
 
 _GO_IMPORT_SINGLE = re.compile(r'^import\s+(?:\w+\s+)?"([^"]+)"', re.MULTILINE)
@@ -38,6 +40,9 @@ _GO_IMPORT_PATH = re.compile(r'"([^"]+)"')
 
 _RUBY_REQUIRE = re.compile(r"""^require\s+['"]([^'"]+)['"]""", re.MULTILINE)
 _RUBY_REQUIRE_REL = re.compile(r"""^require_relative\s+['"]([^'"]+)['"]""", re.MULTILINE)
+
+# Conventional Java source root prefixes tried in order (repo root first)
+_JAVA_SOURCE_ROOTS = ("", "src/main/java/", "src/java/", "src/")
 
 
 def _list_repo_files(repo_path: str, language_filter: list[str]) -> list[str]:
@@ -73,6 +78,47 @@ def _read_file(repo_path: str, rel_path: str) -> str:
         return ""
 
 
+def _find_go_module_name(repo_path: str, files: list[str]) -> str:
+    """Return the Go module name from go.mod, searching from repo root then subdirectories."""
+    content = _read_file(repo_path, "go.mod")
+    m = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
+    if m:
+        return m.group(1)
+    # Walk parent directories of tracked .go files for a nested go.mod
+    checked: set[str] = set()
+    for f in files:
+        if not f.endswith(".go"):
+            continue
+        d = os.path.dirname(f)
+        while d and d not in checked:
+            checked.add(d)
+            content = _read_file(repo_path, d + "/go.mod")
+            m = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
+            if m:
+                return m.group(1)
+            d = os.path.dirname(d)
+    return ""
+
+
+def _load_tsconfig_aliases(repo_path: str) -> tuple[str, dict[str, list[str]]]:
+    """Return (base_url, paths_map) from tsconfig.json, or ("", {}) on failure."""
+    for name in ("tsconfig.json", "tsconfig.base.json"):
+        raw = _read_file(repo_path, name)
+        if not raw:
+            continue
+        try:
+            # tsconfig allows JS-style comments and trailing commas — strip them
+            clean = re.sub(r"//[^\n]*", "", raw)
+            clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
+            clean = re.sub(r",\s*([}\]])", r"\1", clean)
+            data = json.loads(clean)
+            opts = data.get("compilerOptions", {})
+            return opts.get("baseUrl", ""), opts.get("paths", {})
+        except Exception:
+            pass
+    return "", {}
+
+
 def _resolve_python_module(module: str, source_file: str, all_files: set[str]) -> str | None:
     """Convert a Python module name to a repo-relative file path."""
     if module.startswith("."):
@@ -105,31 +151,54 @@ def _resolve_python_module(module: str, source_file: str, all_files: set[str]) -
     return None
 
 
-def _resolve_js_import(specifier: str, source_file: str, all_files: set[str]) -> str | None:
+def _probe_js_extensions(raw: str, all_files: set[str]) -> str | None:
+    """Try exact match then known JS/TS extensions and index fallbacks for a bare path."""
+    if raw in all_files:
+        return raw
+    for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
+        if raw + ext in all_files:
+            return raw + ext
+    for ext in (".ts", ".tsx", ".js", ".jsx"):
+        if raw + "/index" + ext in all_files:
+            return raw + "/index" + ext
+    return None
+
+
+def _resolve_js_import(
+    specifier: str,
+    source_file: str,
+    all_files: set[str],
+    ts_base_url: str = "",
+    ts_paths: dict[str, list[str]] | None = None,
+) -> str | None:
     """Convert a JS/TS import specifier to a repo-relative file path."""
     if not specifier.startswith("."):
+        # Try tsconfig paths aliases
+        for alias, targets in (ts_paths or {}).items():
+            if alias.endswith("/*"):
+                prefix = alias[:-2]
+                if specifier.startswith(prefix + "/"):
+                    suffix = specifier[len(prefix) + 1:]
+                    for target in targets:
+                        base = target.rstrip("/*").rstrip("/")
+                        r = _probe_js_extensions(base + "/" + suffix, all_files)
+                        if r:
+                            return r
+            elif specifier == alias:
+                for target in targets:
+                    r = _probe_js_extensions(target.rstrip("/*"), all_files)
+                    if r:
+                        return r
+        # Try baseUrl — treat specifier as relative to project root
+        if ts_base_url:
+            r = _probe_js_extensions(ts_base_url.rstrip("/") + "/" + specifier, all_files)
+            if r:
+                return r
         return None  # external package
 
     base_dir = os.path.dirname(source_file)
     raw = os.path.normpath(os.path.join(base_dir, specifier)).replace("\\", "/")
-
-    # Try exact match
-    if raw in all_files:
-        return raw
-
-    # Try adding known extensions
-    for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
-        candidate = raw + ext
-        if candidate in all_files:
-            return candidate
-
-    # Try index file
-    for ext in (".ts", ".tsx", ".js", ".jsx"):
-        candidate = raw + "/index" + ext
-        if candidate in all_files:
-            return candidate
-
-    return None
+    return _probe_js_extensions(raw, all_files)
 
 
 def _resolve_csharp_import(namespace: str, cs_namespace_map: dict[str, list[str]]) -> list[str]:
@@ -140,19 +209,31 @@ def _resolve_csharp_import(namespace: str, cs_namespace_map: dict[str, list[str]
 def _resolve_java_import(class_path: str, all_files: set[str]) -> str | None:
     """Convert a Java fully-qualified class name to a repo-relative .java file path.
 
-    For static imports (com.example.Foo.method) the last component may be a method
-    name rather than a class; try with and without it.
+    Tries conventional source roots (repo root, src/main/java/, etc.). For static
+    imports the last component may be a method name; also tries without it.
     """
-    candidate = class_path.replace(".", "/") + ".java"
-    if candidate in all_files:
-        return candidate
-    # Try dropping the last component (handles static imports)
+    rel = class_path.replace(".", "/") + ".java"
+    for root in _JAVA_SOURCE_ROOTS:
+        if (root + rel) in all_files:
+            return root + rel
+    # Static import fallback: drop last component (may be a method/field name)
     parts = class_path.rsplit(".", 1)
     if len(parts) == 2:
-        candidate2 = parts[0].replace(".", "/") + ".java"
-        if candidate2 in all_files:
-            return candidate2
+        rel2 = parts[0].replace(".", "/") + ".java"
+        for root in _JAVA_SOURCE_ROOTS:
+            if (root + rel2) in all_files:
+                return root + rel2
     return None
+
+
+def _resolve_java_wildcard(pkg_path: str, all_files: set[str]) -> list[str]:
+    """Return all .java files in the given package directory across all source roots."""
+    for root in _JAVA_SOURCE_ROOTS:
+        prefix = root + pkg_path.replace(".", "/") + "/"
+        matches = [f for f in all_files if f.startswith(prefix) and f.endswith(".java")]
+        if matches:
+            return matches
+    return []
 
 
 def _resolve_go_import(
@@ -161,7 +242,7 @@ def _resolve_go_import(
     """Resolve a Go import path to the .go source files in that package.
 
     Only internal packages (those sharing the module prefix) are resolved;
-    stdlib and third-party imports return an empty list.
+    stdlib, third-party, and vendored imports return an empty list.
     """
     if not module_name or not import_path.startswith(module_name):
         return []
@@ -171,7 +252,10 @@ def _resolve_go_import(
     prefix = rel + "/"
     return [
         f for f in all_files
-        if f.startswith(prefix) and f.endswith(".go") and not f.endswith("_test.go")
+        if f.startswith(prefix)
+        and f.endswith(".go")
+        and not f.endswith("_test.go")
+        and not f.startswith("vendor/")
     ]
 
 
@@ -189,16 +273,21 @@ def _resolve_ruby_require_relative(
 def _resolve_ruby_require(
     specifier: str, source_file: str, all_files: set[str]
 ) -> str | None:
-    """Resolve require — relative paths are resolved from source file; bare names
-    are tried as repo-root-relative. External gem names return None."""
+    """Resolve require — relative paths from source file; bare names tried at repo root
+    then lib/ convention. External gem names return None."""
     if not specifier.endswith(".rb"):
         specifier += ".rb"
     if specifier.startswith("."):
         base_dir = os.path.dirname(source_file)
         candidate = os.path.normpath(os.path.join(base_dir, specifier)).replace("\\", "/")
         return candidate if candidate in all_files else None
-    # Bare name — try as repo-root-relative (e.g. require 'lib/foo' → lib/foo.rb)
-    return specifier if specifier in all_files else None
+    # Bare name — try repo-root first, then lib/ convention
+    if specifier in all_files:
+        return specifier
+    lib_candidate = "lib/" + specifier
+    if lib_candidate in all_files:
+        return lib_candidate
+    return None
 
 
 def _extract_imports(
@@ -208,6 +297,8 @@ def _extract_imports(
     all_files: set[str],
     cs_namespace_map: dict[str, list[str]] | None = None,
     go_module_name: str = "",
+    ts_base_url: str = "",
+    ts_paths: dict[str, list[str]] | None = None,
 ) -> list[str]:
     resolved: list[str] = []
 
@@ -222,15 +313,15 @@ def _extract_imports(
                 resolved.append(r)
     elif language in ("javascript", "typescript"):
         for m in _JS_IMPORT_FROM.finditer(content):
-            r = _resolve_js_import(m.group(1), source_file, all_files)
+            r = _resolve_js_import(m.group(1), source_file, all_files, ts_base_url, ts_paths)
             if r:
                 resolved.append(r)
         for m in _JS_REQUIRE.finditer(content):
-            r = _resolve_js_import(m.group(1), source_file, all_files)
+            r = _resolve_js_import(m.group(1), source_file, all_files, ts_base_url, ts_paths)
             if r:
                 resolved.append(r)
         for m in _JS_PLAIN_IMPORT.finditer(content):
-            r = _resolve_js_import(m.group(1), source_file, all_files)
+            r = _resolve_js_import(m.group(1), source_file, all_files, ts_base_url, ts_paths)
             if r:
                 resolved.append(r)
     elif language == "csharp":
@@ -238,9 +329,12 @@ def _extract_imports(
             resolved.extend(_resolve_csharp_import(m.group(1), cs_namespace_map or {}))
     elif language == "java":
         for m in _JAVA_IMPORT.finditer(content):
-            r = _resolve_java_import(m.group(1), all_files)
-            if r:
-                resolved.append(r)
+            if m.group(2):  # wildcard import (group 2 = '.*')
+                resolved.extend(_resolve_java_wildcard(m.group(1), all_files))
+            else:
+                r = _resolve_java_import(m.group(1), all_files)
+                if r:
+                    resolved.append(r)
     elif language == "go":
         for m in _GO_IMPORT_SINGLE.finditer(content):
             resolved.extend(_resolve_go_import(m.group(1), go_module_name, all_files))
@@ -260,8 +354,6 @@ def _extract_imports(
     return list(set(resolved))
 
 
-
-
 def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, list[str]]:
     """Return forward graph: {file: [files it imports]}."""
     files = _list_repo_files(repo_path, language_filter)
@@ -277,20 +369,23 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
             for m in _CS_NAMESPACE.finditer(content):
                 cs_namespace_map.setdefault(m.group(1), []).append(rel_path)
 
-    # Pre-read Go module name from go.mod for internal import resolution
+    # Resolve Go module name — searches root then subdirectories for go.mod
     go_module_name = ""
     if "go" in language_filter:
-        go_mod = _read_file(repo_path, "go.mod")
-        mo = re.search(r"^module\s+(\S+)", go_mod, re.MULTILINE)
-        if mo:
-            go_module_name = mo.group(1)
+        go_module_name = _find_go_module_name(repo_path, files)
+
+    # Load TypeScript/JavaScript path aliases from tsconfig.json
+    ts_base_url, ts_paths = "", {}
+    if "typescript" in language_filter or "javascript" in language_filter:
+        ts_base_url, ts_paths = _load_tsconfig_aliases(repo_path)
 
     graph: dict[str, list[str]] = {}
     for rel_path in files:
         content = _read_file(repo_path, rel_path)
         lang = resolve_language(rel_path)
         imports = _extract_imports(
-            content, rel_path, lang, all_files, cs_namespace_map, go_module_name
+            content, rel_path, lang, all_files, cs_namespace_map, go_module_name,
+            ts_base_url, ts_paths,
         )
         graph[rel_path] = imports
 

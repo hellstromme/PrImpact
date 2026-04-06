@@ -5,11 +5,15 @@ from unittest.mock import patch
 
 from pr_impact.dependency_graph import (
     _extract_imports,
+    _find_go_module_name,
     _list_repo_files,
+    _load_tsconfig_aliases,
+    _probe_js_extensions,
     _read_file,
     _resolve_csharp_import,
     _resolve_go_import,
     _resolve_java_import,
+    _resolve_java_wildcard,
     _resolve_js_import,
     _resolve_python_module,
     _resolve_ruby_require,
@@ -697,3 +701,231 @@ def test_get_imported_symbols_go_aliased(tmp_path):
     f.write_text('import (\n    myutil "github.com/user/myapp/pkg/util"\n)\n', encoding="utf-8")
     result = get_imported_symbols(str(f), "pkg/util/helpers.go")
     assert "myutil" in result
+
+
+# ---------------------------------------------------------------------------
+# Java: source root detection (Unit 1)
+# ---------------------------------------------------------------------------
+
+
+def test_java_resolves_in_maven_source_root():
+    all_files = {"src/main/java/com/example/Foo.java"}
+    result = _resolve_java_import("com.example.Foo", all_files)
+    assert result == "src/main/java/com/example/Foo.java"
+
+
+def test_java_resolves_in_src_source_root():
+    all_files = {"src/com/example/Bar.java"}
+    result = _resolve_java_import("com.example.Bar", all_files)
+    assert result == "src/com/example/Bar.java"
+
+
+def test_java_repo_root_preferred_over_source_roots():
+    all_files = {"com/example/Foo.java", "src/main/java/com/example/Foo.java"}
+    result = _resolve_java_import("com.example.Foo", all_files)
+    assert result == "com/example/Foo.java"
+
+
+def test_java_static_import_with_source_root():
+    all_files = {"src/main/java/com/example/Foo.java"}
+    result = _resolve_java_import("com.example.Foo.staticMethod", all_files)
+    assert result == "src/main/java/com/example/Foo.java"
+
+
+# ---------------------------------------------------------------------------
+# Java: wildcard import resolution (Unit 1)
+# ---------------------------------------------------------------------------
+
+
+def test_java_wildcard_resolves_package_files():
+    all_files = {"com/example/Foo.java", "com/example/Bar.java", "com/other/Baz.java"}
+    result = _resolve_java_wildcard("com.example", all_files)
+    assert set(result) == {"com/example/Foo.java", "com/example/Bar.java"}
+
+
+def test_java_wildcard_with_maven_source_root():
+    all_files = {"src/main/java/com/example/Foo.java", "src/main/java/com/example/Bar.java"}
+    result = _resolve_java_wildcard("com.example", all_files)
+    assert set(result) == {
+        "src/main/java/com/example/Foo.java",
+        "src/main/java/com/example/Bar.java",
+    }
+
+
+def test_java_wildcard_no_match_returns_empty():
+    all_files = {"com/other/Baz.java"}
+    result = _resolve_java_wildcard("com.example", all_files)
+    assert result == []
+
+
+def test_extract_imports_java_wildcard():
+    content = "import com.example.*;\n"
+    all_files = {"com/example/Foo.java", "com/example/Bar.java"}
+    result = _extract_imports(content, "com/Main.java", "java", all_files)
+    assert set(result) == {"com/example/Foo.java", "com/example/Bar.java"}
+
+
+# ---------------------------------------------------------------------------
+# Go: vendor/ directory exclusion (Unit 2)
+# ---------------------------------------------------------------------------
+
+
+def test_go_vendor_files_excluded():
+    module = "github.com/user/myapp"
+    all_files = {
+        "pkg/util/helpers.go",
+        "vendor/pkg/util/helpers.go",
+    }
+    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, all_files)
+    assert "vendor/pkg/util/helpers.go" not in result
+    assert "pkg/util/helpers.go" in result
+
+
+# ---------------------------------------------------------------------------
+# Go: non-root go.mod discovery (Unit 3)
+# ---------------------------------------------------------------------------
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_find_go_module_name_at_root(mock_read):
+    mock_read.return_value = "module github.com/user/myapp\n"
+    result = _find_go_module_name("/repo", ["cmd/main.go"])
+    assert result == "github.com/user/myapp"
+    mock_read.assert_called_once_with("/repo", "go.mod")
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_find_go_module_name_in_subdirectory(mock_read):
+    def fake_read(repo, path):
+        if path == "go.mod":
+            return ""  # no root go.mod
+        if path == "services/auth/go.mod":
+            return "module github.com/user/auth\n"
+        return ""
+
+    mock_read.side_effect = fake_read
+    result = _find_go_module_name("/repo", ["services/auth/handler.go"])
+    assert result == "github.com/user/auth"
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_find_go_module_name_missing_returns_empty(mock_read):
+    mock_read.return_value = ""
+    result = _find_go_module_name("/repo", ["cmd/main.go"])
+    assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# Ruby: lib/ convention fallback (Unit 4)
+# ---------------------------------------------------------------------------
+
+
+def test_ruby_require_lib_convention_fallback():
+    all_files = {"lib/models/user.rb"}
+    result = _resolve_ruby_require("models/user", "bin/main.rb", all_files)
+    assert result == "lib/models/user.rb"
+
+
+def test_ruby_require_root_preferred_over_lib():
+    all_files = {"models/user.rb", "lib/models/user.rb"}
+    result = _resolve_ruby_require("models/user", "bin/main.rb", all_files)
+    assert result == "models/user.rb"
+
+
+# ---------------------------------------------------------------------------
+# TypeScript: tsconfig path alias resolution (Unit 5)
+# ---------------------------------------------------------------------------
+
+
+def test_probe_js_extensions_exact_match():
+    assert _probe_js_extensions("src/utils.ts", {"src/utils.ts"}) == "src/utils.ts"
+
+
+def test_probe_js_extensions_adds_ts():
+    assert _probe_js_extensions("src/utils", {"src/utils.ts"}) == "src/utils.ts"
+
+
+def test_probe_js_extensions_index_fallback():
+    assert (
+        _probe_js_extensions("src/components/Button", {"src/components/Button/index.tsx"})
+        == "src/components/Button/index.tsx"
+    )
+
+
+def test_probe_js_extensions_no_match_returns_none():
+    assert _probe_js_extensions("src/missing", set()) is None
+
+
+def test_resolve_js_import_wildcard_alias():
+    all_files = {"src/components/Button.tsx"}
+    ts_paths = {"@/*": ["src/*"]}
+    result = _resolve_js_import("@/components/Button", "app/page.ts", all_files, ts_paths=ts_paths)
+    assert result == "src/components/Button.tsx"
+
+
+def test_resolve_js_import_exact_alias():
+    all_files = {"src/config/index.ts"}
+    ts_paths = {"@config": ["src/config/index.ts"]}
+    result = _resolve_js_import("@config", "app/page.ts", all_files, ts_paths=ts_paths)
+    assert result == "src/config/index.ts"
+
+
+def test_resolve_js_import_base_url():
+    all_files = {"src/utils/format.ts"}
+    result = _resolve_js_import("utils/format", "app/page.ts", all_files, ts_base_url="src")
+    assert result == "src/utils/format.ts"
+
+
+def test_resolve_js_import_no_alias_no_baseurl_returns_none():
+    all_files = {"src/utils/format.ts"}
+    result = _resolve_js_import("utils/format", "app/page.ts", all_files)
+    assert result is None
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_parses_paths(mock_read):
+    mock_read.return_value = """{
+  "compilerOptions": {
+    "baseUrl": "src",
+    "paths": {
+      "@/*": ["src/*"],
+      "@utils": ["src/utils/index.ts"]
+    }
+  }
+}"""
+    base_url, paths = _load_tsconfig_aliases("/repo")
+    assert base_url == "src"
+    assert paths == {"@/*": ["src/*"], "@utils": ["src/utils/index.ts"]}
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_missing_returns_empty(mock_read):
+    mock_read.return_value = ""
+    base_url, paths = _load_tsconfig_aliases("/repo")
+    assert base_url == ""
+    assert paths == {}
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_malformed_returns_empty(mock_read):
+    mock_read.return_value = "{ this is not valid json !!!"
+    base_url, paths = _load_tsconfig_aliases("/repo")
+    assert base_url == ""
+    assert paths == {}
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_strips_comments(mock_read):
+    mock_read.return_value = """{
+  // tsconfig with comments
+  "compilerOptions": {
+    /* base url */
+    "baseUrl": "src",
+    "paths": {
+      "@/*": ["src/*"] // trailing comment
+    }
+  }
+}"""
+    base_url, paths = _load_tsconfig_aliases("/repo")
+    assert base_url == "src"
+    assert "@/*" in paths
