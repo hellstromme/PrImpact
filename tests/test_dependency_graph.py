@@ -1,14 +1,19 @@
 """Unit tests for pr_impact/dependency_graph.py."""
 
 import git
+from unittest.mock import patch
 
 from pr_impact.dependency_graph import (
     _extract_imports,
     _list_repo_files,
     _read_file,
     _resolve_csharp_import,
+    _resolve_go_import,
+    _resolve_java_import,
     _resolve_js_import,
     _resolve_python_module,
+    _resolve_ruby_require,
+    _resolve_ruby_require_relative,
     build_import_graph,
     get_blast_radius,
     get_imported_symbols,
@@ -479,3 +484,216 @@ def test_build_import_graph_python(tmp_path):
 def test_build_import_graph_returns_empty_on_invalid_repo():
     result = build_import_graph("/nonexistent_repo_path_xyz", ["python"])
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _resolve_java_import
+# ---------------------------------------------------------------------------
+
+
+def test_java_simple_class_import():
+    all_files = {"com/example/Foo.java"}
+    assert _resolve_java_import("com.example.Foo", all_files) == "com/example/Foo.java"
+
+
+def test_java_nested_package():
+    all_files = {"org/apache/commons/lang3/StringUtils.java"}
+    result = _resolve_java_import("org.apache.commons.lang3.StringUtils", all_files)
+    assert result == "org/apache/commons/lang3/StringUtils.java"
+
+
+def test_java_static_import_drops_method_component():
+    # import static com.example.Foo.bar -> class is Foo, method is bar
+    all_files = {"com/example/Foo.java"}
+    assert _resolve_java_import("com.example.Foo.bar", all_files) == "com/example/Foo.java"
+
+
+def test_java_wildcard_import_returns_none():
+    # import com.example.*; -> regex captures "com.example", no .java at that path
+    all_files = {"com/example/Foo.java"}
+    assert _resolve_java_import("com.example", all_files) is None
+
+
+def test_java_class_not_in_repo_returns_none():
+    assert _resolve_java_import("com.example.Missing", set()) is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_go_import
+# ---------------------------------------------------------------------------
+
+
+def test_go_local_package_resolves_to_files():
+    module = "github.com/user/myapp"
+    all_files = {"pkg/util/helpers.go", "pkg/util/format.go"}
+    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, all_files)
+    assert set(result) == {"pkg/util/helpers.go", "pkg/util/format.go"}
+
+
+def test_go_external_package_returns_empty():
+    module = "github.com/user/myapp"
+    all_files = {"pkg/util/helpers.go"}
+    assert _resolve_go_import("fmt", module, all_files) == []
+    assert _resolve_go_import("github.com/other/lib", module, all_files) == []
+
+
+def test_go_empty_module_name_returns_empty():
+    all_files = {"pkg/util/helpers.go"}
+    assert _resolve_go_import("github.com/user/myapp/pkg/util", "", all_files) == []
+
+
+def test_go_module_root_import_returns_empty():
+    module = "github.com/user/myapp"
+    all_files = {"main.go"}
+    assert _resolve_go_import("github.com/user/myapp", module, all_files) == []
+
+
+def test_go_test_files_excluded():
+    module = "github.com/user/myapp"
+    all_files = {"pkg/util/helpers.go", "pkg/util/helpers_test.go"}
+    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, all_files)
+    assert result == ["pkg/util/helpers.go"]
+
+
+# ---------------------------------------------------------------------------
+# _resolve_ruby_require_relative
+# ---------------------------------------------------------------------------
+
+
+def test_ruby_require_relative_no_extension():
+    all_files = {"lib/models/user.rb"}
+    result = _resolve_ruby_require_relative("models/user", "lib/app.rb", all_files)
+    assert result == "lib/models/user.rb"
+
+
+def test_ruby_require_relative_with_extension():
+    all_files = {"lib/helpers.rb"}
+    result = _resolve_ruby_require_relative("helpers.rb", "lib/app.rb", all_files)
+    assert result == "lib/helpers.rb"
+
+
+def test_ruby_require_relative_parent_traversal():
+    all_files = {"lib/shared.rb"}
+    result = _resolve_ruby_require_relative("../lib/shared", "app/main.rb", all_files)
+    assert result == "lib/shared.rb"
+
+
+def test_ruby_require_relative_not_found_returns_none():
+    result = _resolve_ruby_require_relative("missing", "lib/app.rb", set())
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_ruby_require
+# ---------------------------------------------------------------------------
+
+
+def test_ruby_require_relative_path_resolves():
+    all_files = {"lib/helpers.rb"}
+    result = _resolve_ruby_require("./helpers", "lib/app.rb", all_files)
+    assert result == "lib/helpers.rb"
+
+
+def test_ruby_require_bare_name_resolves_from_root():
+    all_files = {"lib/foo.rb"}
+    result = _resolve_ruby_require("lib/foo", "bin/main.rb", all_files)
+    assert result == "lib/foo.rb"
+
+
+def test_ruby_require_external_gem_returns_none():
+    result = _resolve_ruby_require("json", "lib/app.rb", set())
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _extract_imports: Java, Go, Ruby branches
+# ---------------------------------------------------------------------------
+
+
+def test_extract_imports_java():
+    content = "import com.example.Foo;\n"
+    all_files = {"com/example/Foo.java"}
+    result = _extract_imports(content, "com/example/Main.java", "java", all_files)
+    assert "com/example/Foo.java" in result
+
+
+def test_extract_imports_go_single():
+    content = 'import "github.com/user/myapp/pkg/util"\n'
+    all_files = {"pkg/util/helpers.go"}
+    result = _extract_imports(
+        content, "cmd/main.go", "go", all_files, go_module_name="github.com/user/myapp"
+    )
+    assert "pkg/util/helpers.go" in result
+
+
+def test_extract_imports_go_block():
+    content = 'import (\n    "github.com/user/myapp/pkg/util"\n    "fmt"\n)\n'
+    all_files = {"pkg/util/helpers.go"}
+    result = _extract_imports(
+        content, "cmd/main.go", "go", all_files, go_module_name="github.com/user/myapp"
+    )
+    assert "pkg/util/helpers.go" in result
+
+
+def test_extract_imports_ruby_require():
+    content = "require 'lib/models'\n"
+    all_files = {"lib/models.rb"}
+    result = _extract_imports(content, "app.rb", "ruby", all_files)
+    assert "lib/models.rb" in result
+
+
+def test_extract_imports_ruby_require_relative():
+    content = "require_relative 'models/user'\n"
+    all_files = {"lib/models/user.rb"}
+    result = _extract_imports(content, "lib/app.rb", "ruby", all_files)
+    assert "lib/models/user.rb" in result
+
+
+# ---------------------------------------------------------------------------
+# build_import_graph: Go module name pre-pass
+# ---------------------------------------------------------------------------
+
+
+@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.dependency_graph.git.Repo")
+def test_build_import_graph_go_reads_module(mock_repo, mock_read):
+    mock_repo.return_value.git.ls_files.return_value = "cmd/main.go\npkg/util/helpers.go"
+
+    def fake_read(repo, path):
+        if path == "go.mod":
+            return "module github.com/user/myapp\n"
+        if path == "cmd/main.go":
+            return 'import "github.com/user/myapp/pkg/util"\n'
+        return ""
+
+    mock_read.side_effect = fake_read
+    graph = build_import_graph("/repo", ["go"])
+    assert "pkg/util/helpers.go" in graph.get("cmd/main.go", [])
+
+
+# ---------------------------------------------------------------------------
+# get_imported_symbols: Java and Go
+# ---------------------------------------------------------------------------
+
+
+def test_get_imported_symbols_java(tmp_path):
+    f = tmp_path / "Main.java"
+    f.write_text("import com.example.Foo;\nimport static com.example.Bar.method;\n", encoding="utf-8")
+    result = get_imported_symbols(str(f), "com/example/Foo.java")
+    assert "Foo" in result
+    assert "method" in result  # static import captures the member name
+
+
+def test_get_imported_symbols_go_anonymous(tmp_path):
+    f = tmp_path / "main.go"
+    f.write_text('import (\n    "github.com/user/myapp/pkg/util"\n)\n', encoding="utf-8")
+    result = get_imported_symbols(str(f), "pkg/util/helpers.go")
+    assert "util" in result
+
+
+def test_get_imported_symbols_go_aliased(tmp_path):
+    f = tmp_path / "main.go"
+    # Named alias in a block import - matched by go_import_named pattern
+    f.write_text('import (\n    myutil "github.com/user/myapp/pkg/util"\n)\n', encoding="utf-8")
+    result = get_imported_symbols(str(f), "pkg/util/helpers.go")
+    assert "myutil" in result

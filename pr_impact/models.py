@@ -11,6 +11,9 @@ _LANGUAGE_MAP: dict[str, str] = {
     ".mjs": "javascript",
     ".cjs": "javascript",
     ".cs": "csharp",
+    ".java": "java",
+    ".go": "go",
+    ".rb": "ruby",
 }
 
 
