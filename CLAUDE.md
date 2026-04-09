@@ -9,24 +9,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-Design-complete, pre-implementation. All architecture is specified in `docs/`. No Python code has been written yet.
+v0.2 — complete. All v0.2 items are done:
+- Language expansion (Java, Go, Ruby) ✓
+- `--pr` GitHub native input ✓
+- CI/CD integration (GitHub Actions + GitLab CI template, `--fail-on-severity`) ✓
+- SARIF output (`--sarif`) ✓
+
+Next: v0.3 — Trust (malicious code detection).
 
 ## Commands
 
-Once the package is implemented:
-
 ```bash
-# Install dependencies
-pip install gitpython anthropic click rich
+# Install
+pip install -e .
 
-# Run the tool
+# Analyse a GitHub PR
+pr-impact analyse --repo /path/to/repo --pr 247
+
+# Analyse explicit SHAs
 pr-impact analyse --repo /path/to/repo --base abc1234 --head def5678
 
 # With file output
-pr-impact analyse --repo /path/to/repo --base abc1234 --head def5678 --output report.md --json report.json
+pr-impact analyse --repo /path/to/repo --pr 247 --output report.md --json report.json --sarif report.sarif
 
-# Required environment variable
+# Fail CI on high-severity anomalies
+pr-impact analyse --repo /path/to/repo --pr 247 --fail-on-severity high
+
+# Required environment variables
 export ANTHROPIC_API_KEY=...
+export GITHUB_TOKEN=...   # optional; needed for --pr on private repos
 ```
 
 ## Architecture
@@ -44,7 +55,8 @@ pr_impact/
   classifier.py        # Changed symbol classification by impact type (regex, no AST)
   ai_layer.py          # Three Claude API calls — the only network I/O
   prompts.py           # All prompt templates as string constants, no logic
-  reporter.py          # Renders final Markdown and JSON from ImpactReport
+  reporter.py          # Renders final Markdown, JSON, and SARIF from ImpactReport
+  github.py            # GitHub API helpers (detect remote, fetch PR, list PRs)
 ```
 
 ### Pipeline steps (in order, all in cli.py)
@@ -56,7 +68,7 @@ pr_impact/
 5. `classifier.get_interface_changes(changed_files, reverse_graph)` → `list[InterfaceChange]`
 6. `git_analysis.get_git_churn(...)` for each blast radius entry → populates `BlastRadiusEntry.churn_score` in place
 7. `ai_layer.run_ai_analysis(...)` → `AIAnalysis` (3 sequential API calls)
-8. `reporter.render_markdown()` + `reporter.render_json()` → output
+8. `reporter.render_markdown()` + `reporter.render_json()` + `reporter.render_sarif()` → output
 
 Steps 1–6 are deterministic and CPU-bound (target: <5s). Step 7 is the only network call.
 
@@ -89,6 +101,7 @@ Context priority order: full diffs (always, truncated at 8k tokens) → distance
 - **stdout clean** — Markdown output to stdout, progress/warnings to stderr
 - **No module cross-imports** — all modules import `models.py` but not each other
 
-### Supported languages (v0.1)
+### Supported languages
 
-Python (`.py`), TypeScript (`.ts`, `.tsx`), JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`), C# (`.cs`)
+Python (`.py`), TypeScript (`.ts`, `.tsx`), JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`),
+C# (`.cs`), Java (`.java`), Go (`.go`), Ruby (`.rb`)

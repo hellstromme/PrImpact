@@ -17,7 +17,7 @@ from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .models import AIAnalysis, ImpactReport, RefsResult
-from .reporter import render_json, render_markdown, render_terminal
+from .reporter import render_json, render_markdown, render_sarif, render_terminal
 
 stderr = Console(stderr=True)
 
@@ -125,14 +125,22 @@ def _warn_no_github_token() -> None:
     )
 
 
-def _write_outputs(report: "ImpactReport", output: str | None, json_output: str | None) -> None:
-    """Write Markdown and/or JSON report files if paths were given."""
+def _write_outputs(
+    report: "ImpactReport",
+    output: str | None,
+    json_output: str | None,
+    sarif_output: str | None,
+) -> None:
+    """Write Markdown, JSON, and/or SARIF report files if paths were given."""
     if output:
         with open(output, "w", encoding="utf-8") as fh:
             fh.write(render_markdown(report))
     if json_output:
         with open(json_output, "w", encoding="utf-8") as fh:
             fh.write(render_json(report))
+    if sarif_output:
+        with open(sarif_output, "w", encoding="utf-8") as fh:
+            fh.write(render_sarif(report))
 
 
 def _format_pr_title(number: int, raw_title: str | None) -> str:
@@ -381,6 +389,7 @@ def main() -> None:
 @click.option("--base", default=None, help="Base commit SHA (default: <head>~1)")
 @click.option("--output", default=None, help="Write Markdown report to this file")
 @click.option("--json", "json_output", default=None, help="Write JSON sidecar to this file")
+@click.option("--sarif", "sarif_output", default=None, help="Write SARIF 2.1.0 output to this file")
 @click.option(
     "--max-depth", default=3, show_default=True, help="Maximum BFS depth for blast radius"
 )
@@ -391,6 +400,7 @@ def analyse(
     head: str | None,
     output: str | None,
     json_output: str | None,
+    sarif_output: str | None,
     max_depth: int,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
@@ -457,8 +467,8 @@ def analyse(
         ai_analysis=ai_analysis,
     )
 
-    _write_outputs(report, output, json_output)
-    render_terminal(report, Console(), output, json_output)
+    _write_outputs(report, output, json_output, sarif_output)
+    render_terminal(report, Console(), output, json_output, sarif_output)
 
 
 if __name__ == "__main__":

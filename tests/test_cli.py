@@ -970,22 +970,30 @@ def test_warn_no_github_token_outputs_warning_text():
 
 def test_write_outputs_writes_markdown_file(tmp_path):
     out = str(tmp_path / "report.md")
-    _write_outputs(make_report(), out, None)
+    _write_outputs(make_report(), out, None, None)
     with open(out) as fh:
         assert fh.read().startswith("# PR Impact Report")
 
 
 def test_write_outputs_writes_json_file(tmp_path):
     out = str(tmp_path / "report.json")
-    _write_outputs(make_report(), None, out)
+    _write_outputs(make_report(), None, out, None)
     with open(out) as fh:
         data = json.loads(fh.read())
     assert "pr_title" in data
 
 
-def test_write_outputs_does_nothing_when_both_none(tmp_path, monkeypatch):
+def test_write_outputs_writes_sarif_file(tmp_path):
+    out = str(tmp_path / "report.sarif")
+    _write_outputs(make_report(), None, None, out)
+    with open(out) as fh:
+        data = json.loads(fh.read())
+    assert data["version"] == "2.1.0"
+
+
+def test_write_outputs_does_nothing_when_all_none(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    _write_outputs(make_report(), None, None)
+    _write_outputs(make_report(), None, None, None)
     assert list(tmp_path.iterdir()) == []
 
 

@@ -1,4 +1,5 @@
 import dataclasses
+import importlib.metadata
 import json
 from typing import NamedTuple
 
@@ -129,11 +130,89 @@ def render_json(report: ImpactReport) -> str:
     return json.dumps(dataclasses.asdict(report), indent=2, default=str)
 
 
+def render_sarif(report: ImpactReport) -> str:
+    """Render an ImpactReport as SARIF 2.1.0 JSON.
+
+    Anomalies map to results with level error/warning/note.
+    Test gaps map to results with level note under a separate rule.
+    """
+    try:
+        version = importlib.metadata.version("pr-impact")
+    except importlib.metadata.PackageNotFoundError:
+        version = "0.0.0"
+
+    _severity_to_level = {"high": "error", "medium": "warning", "low": "note"}
+
+    rules = []
+    results = []
+
+    if report.ai_analysis.anomalies:
+        rules.append({
+            "id": "primpact/anomaly",
+            "name": "Anomaly",
+            "shortDescription": {"text": "Anomaly detected in PR changes"},
+        })
+        for anomaly in report.ai_analysis.anomalies:
+            level = _severity_to_level.get(anomaly.severity, "note")
+            results.append({
+                "ruleId": "primpact/anomaly",
+                "level": level,
+                "message": {"text": anomaly.description},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": anomaly.location},
+                        }
+                    }
+                ],
+            })
+
+    if report.ai_analysis.test_gaps:
+        rules.append({
+            "id": "primpact/test-gap",
+            "name": "TestGap",
+            "shortDescription": {"text": "Behaviour not covered by tests"},
+        })
+        for gap in report.ai_analysis.test_gaps:
+            results.append({
+                "ruleId": "primpact/test-gap",
+                "level": "note",
+                "message": {"text": gap.behaviour},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": gap.location},
+                        }
+                    }
+                ],
+            })
+
+    sarif = {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "primpact",
+                        "version": version,
+                        "informationUri": "https://github.com/hellstromme/primpact",
+                        "rules": rules,
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
+    return json.dumps(sarif, indent=2)
+
+
 def render_terminal(
     report: ImpactReport,
     console: Console,
     output: str | None = None,
     json_output: str | None = None,
+    sarif_output: str | None = None,
 ) -> None:
     sha_range = f"{report.base_sha[:7]}..{report.head_sha[:7]}"
 
@@ -285,10 +364,12 @@ def render_terminal(
         console.print()
 
     # ── Footer ────────────────────────────────────────────────────────────────
-    if output or json_output:
+    if output or json_output or sarif_output:
         console.print(Rule(style="bright_blue"))
         if output:
             console.print(f"  [dim]Report written to[/dim]  [cyan]{output}[/cyan]")
         if json_output:
             console.print(f"  [dim]JSON written to[/dim]   [cyan]{json_output}[/cyan]")
+        if sarif_output:
+            console.print(f"  [dim]SARIF written to[/dim]  [cyan]{sarif_output}[/cyan]")
         console.print(Rule(style="bright_blue"))

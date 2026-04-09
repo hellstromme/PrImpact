@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  security-events: write
 
 jobs:
   analyse:
@@ -39,7 +40,8 @@ jobs:
             --repo . \
             --pr ${{ github.event.pull_request.number }} \
             --output pr_impact_report.md \
-            --json pr_impact_report.json
+            --json pr_impact_report.json \
+            --sarif pr_impact_report.sarif
 
       - name: Post report as PR comment
         if: steps.analysis.outcome == 'success'
@@ -78,6 +80,13 @@ jobs:
             echo "::warning::PrImpact found ${HIGH_COUNT} high-severity anomaly/anomalies — review the report before merging"
           fi
 
+      - name: Upload SARIF to GitHub Security tab
+        if: steps.analysis.outcome == 'success'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: pr_impact_report.sarif
+          category: primpact
+
       - name: Upload report artefacts
         if: always() && steps.analysis.outcome != 'skipped'
         uses: actions/upload-artifact@v4
@@ -86,5 +95,6 @@ jobs:
           path: |
             pr_impact_report.md
             pr_impact_report.json
+            pr_impact_report.sarif
           retention-days: 30
           if-no-files-found: ignore
