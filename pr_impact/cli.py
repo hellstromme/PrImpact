@@ -25,6 +25,9 @@ stderr = Console(stderr=True)
 _FALLBACK_BASE = "HEAD~1"
 _FALLBACK_HEAD = "HEAD"
 
+# Severity ordering for --fail-on-severity threshold comparison
+_SEVERITY_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3}
+
 
 _TITLE_ART = """\
   :::::::::  :::::::::  ::::::::::: ::::    ::::  :::::::::     :::      ::::::::  :::::::::::
@@ -384,6 +387,13 @@ def main() -> None:
 @click.option(
     "--max-depth", default=3, show_default=True, help="Maximum BFS depth for blast radius"
 )
+@click.option(
+    "--fail-on-severity",
+    default="none",
+    show_default=True,
+    type=click.Choice(["none", "low", "medium", "high"]),
+    help="Exit 1 if any anomaly meets or exceeds this severity level",
+)
 def analyse(
     repo: str,
     pr_number: int | None,
@@ -392,6 +402,7 @@ def analyse(
     output: str | None,
     json_output: str | None,
     max_depth: int,
+    fail_on_severity: str,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
@@ -459,6 +470,19 @@ def analyse(
 
     _write_outputs(report, output, json_output)
     render_terminal(report, Console(), output, json_output)
+
+    if fail_on_severity != "none":
+        threshold = _SEVERITY_ORDER[fail_on_severity]
+        breaching = [
+            a for a in report.ai_analysis.anomalies
+            if _SEVERITY_ORDER.get(a.severity, 0) >= threshold
+        ]
+        if breaching:
+            stderr.print(
+                f"[bold red]Exiting 1:[/bold red] {len(breaching)} anomaly/anomalies "
+                f"at or above --fail-on-severity={fail_on_severity}"
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":

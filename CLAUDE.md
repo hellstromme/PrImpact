@@ -9,24 +9,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-Design-complete, pre-implementation. All architecture is specified in `docs/`. No Python code has been written yet.
+v0.2 — active development. v0.1 MVP is complete. v0.2 language expansion (Java, Go, Ruby),
+`--pr` GitHub native input, and CI/CD integration (GitHub Actions + GitLab CI template,
+`--fail-on-severity`) are done. SARIF output is the remaining v0.2 item.
 
 ## Commands
 
-Once the package is implemented:
-
 ```bash
-# Install dependencies
-pip install gitpython anthropic click rich
+# Install
+pip install -e .
 
-# Run the tool
+# Analyse a GitHub PR
+pr-impact analyse --repo /path/to/repo --pr 247
+
+# Analyse explicit SHAs
 pr-impact analyse --repo /path/to/repo --base abc1234 --head def5678
 
 # With file output
-pr-impact analyse --repo /path/to/repo --base abc1234 --head def5678 --output report.md --json report.json
+pr-impact analyse --repo /path/to/repo --pr 247 --output report.md --json report.json
 
-# Required environment variable
+# Fail CI on high-severity anomalies
+pr-impact analyse --repo /path/to/repo --pr 247 --fail-on-severity high
+
+# Required environment variables
 export ANTHROPIC_API_KEY=...
+export GITHUB_TOKEN=...   # optional; needed for --pr on private repos
 ```
 
 ## Architecture
@@ -45,6 +52,7 @@ pr_impact/
   ai_layer.py          # Three Claude API calls — the only network I/O
   prompts.py           # All prompt templates as string constants, no logic
   reporter.py          # Renders final Markdown and JSON from ImpactReport
+  github.py            # GitHub API helpers (detect remote, fetch PR, list PRs)
 ```
 
 ### Pipeline steps (in order, all in cli.py)
@@ -89,6 +97,7 @@ Context priority order: full diffs (always, truncated at 8k tokens) → distance
 - **stdout clean** — Markdown output to stdout, progress/warnings to stderr
 - **No module cross-imports** — all modules import `models.py` but not each other
 
-### Supported languages (v0.1)
+### Supported languages
 
-Python (`.py`), TypeScript (`.ts`, `.tsx`), JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`), C# (`.cs`)
+Python (`.py`), TypeScript (`.ts`, `.tsx`), JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`),
+C# (`.cs`), Java (`.java`), Go (`.go`), Ruby (`.rb`)

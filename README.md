@@ -1,6 +1,6 @@
 # PrImpact
 
-Analyse the impact of a code change between two commits. Given a base and head SHA, PrImpact builds a blast radius graph, classifies changed symbols, and runs three AI calls to produce a Markdown report covering summary, decisions, assumptions, anomalies, and test gaps.
+Analyse the impact of a code change. Given a PR number or two commit SHAs, PrImpact builds a blast radius graph, classifies changed symbols, and runs three AI calls to produce a Markdown report covering summary, decisions, assumptions, anomalies, and test gaps.
 
 ## Requirements
 
@@ -16,20 +16,28 @@ pip install -e .
 
 ## Usage
 
+### From a GitHub PR number
+
 ```bash
-python -m pr_impact.cli analyse \
-  --repo /path/to/repo \
-  --base <base-sha> \
-  --head <head-sha>
+pr-impact analyse --repo /path/to/repo --pr 247
 ```
 
-Write output to files instead of stdout:
+Requires `GITHUB_TOKEN` for private repositories (public repos work without it).
+
+### From explicit commit SHAs
 
 ```bash
-python -m pr_impact.cli analyse \
+pr-impact analyse --repo /path/to/repo --base abc1234 --head def5678
+```
+
+If neither `--pr` nor `--base`/`--head` are given, PrImpact analyses `HEAD~1 → HEAD`.
+
+### Write output to files
+
+```bash
+pr-impact analyse \
   --repo /path/to/repo \
-  --base <base-sha> \
-  --head <head-sha> \
+  --pr 247 \
   --output report.md \
   --json report.json
 ```
@@ -39,16 +47,26 @@ python -m pr_impact.cli analyse \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--repo` | required | Path to the local git repository |
-| `--base` | required | Base commit SHA |
-| `--head` | required | Head commit SHA |
-| `--output` | stdout | Write Markdown report to this file |
+| `--pr` | — | GitHub PR number (resolves SHAs automatically) |
+| `--base` | `HEAD~1` | Base commit SHA (ignored if `--pr` is given) |
+| `--head` | `HEAD` | Head commit SHA (ignored if `--pr` is given) |
+| `--output` | none | Write Markdown report to this file |
 | `--json` | none | Write JSON sidecar to this file |
 | `--max-depth` | 3 | BFS depth for blast radius (cap at 3 recommended) |
+| `--fail-on-severity` | `none` | Exit 1 if any anomaly meets or exceeds this level (`low`/`medium`/`high`) |
 
-## Environment variable
+## Environment variables
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=sk-ant-...   # required
+export GITHUB_TOKEN=ghp-...           # optional; required for private repos with --pr
+```
+
+Both can also be set in `~/.pr_impact/config.toml`:
+
+```toml
+anthropic_api_key = "sk-ant-..."
+github_token = "ghp-..."
 ```
 
 ## Output
@@ -62,6 +80,32 @@ The Markdown report contains:
 - **Test Gaps** — behaviours that are changed but not covered by existing tests
 
 Progress and warnings are written to stderr. The Markdown report goes to stdout (or `--output`).
+
+## Supported languages
+
+Python, TypeScript, JavaScript, C#, Java, Go, Ruby
+
+## CI/CD integration
+
+### GitHub Actions
+
+Add `.github/workflows/pr-impact.yml` to your repository — see the template at
+[`.github/workflows/pr-impact.yml`](.github/workflows/pr-impact.yml).
+
+The workflow runs on every non-draft PR, posts the report as a collapsible PR comment,
+uploads `pr_impact_report.md` and `pr_impact_report.json` as artifacts, and exits 1 if
+any high-severity anomaly is found.
+
+Required secrets: `ANTHROPIC_API_KEY`. `GITHUB_TOKEN` is provided automatically by
+Actions.
+
+### GitLab CI
+
+See the template at [`ci/gitlab-ci-template.yml`](ci/gitlab-ci-template.yml). Copy the
+`primpact` job into your `.gitlab-ci.yml`.
+
+Required CI/CD variables: `ANTHROPIC_API_KEY`, `GITLAB_TOKEN` (a project/group access
+token with `api` scope).
 
 ## Development
 
