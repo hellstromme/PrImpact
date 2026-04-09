@@ -130,6 +130,18 @@ def render_json(report: ImpactReport) -> str:
     return json.dumps(dataclasses.asdict(report), indent=2, default=str)
 
 
+def _location_to_uri(location: str) -> str | None:
+    """Extract a valid relative file path URI from an AI-generated location string.
+
+    The AI returns freetext like 'pr_impact/reporter.py, line 2' or
+    'pr_impact/cli.py analyse()'. Extract just the path portion.
+    Returns None if no recognisable file path is found.
+    """
+    import re
+    m = re.match(r"^([\w./\-]+\.\w+)", location)
+    return m.group(1) if m else None
+
+
 def render_sarif(report: ImpactReport) -> str:
     """Render an ImpactReport as SARIF 2.1.0 JSON.
 
@@ -154,18 +166,17 @@ def render_sarif(report: ImpactReport) -> str:
         })
         for anomaly in report.ai_analysis.anomalies:
             level = _severity_to_level.get(anomaly.severity, "note")
-            results.append({
+            uri = _location_to_uri(anomaly.location)
+            result: dict = {
                 "ruleId": "primpact/anomaly",
                 "level": level,
                 "message": {"text": anomaly.description},
-                "locations": [
-                    {
-                        "physicalLocation": {
-                            "artifactLocation": {"uri": anomaly.location},
-                        }
-                    }
-                ],
-            })
+            }
+            if uri:
+                result["locations"] = [
+                    {"physicalLocation": {"artifactLocation": {"uri": uri}}}
+                ]
+            results.append(result)
 
     if report.ai_analysis.test_gaps:
         rules.append({
@@ -174,18 +185,17 @@ def render_sarif(report: ImpactReport) -> str:
             "shortDescription": {"text": "Behaviour not covered by tests"},
         })
         for gap in report.ai_analysis.test_gaps:
-            results.append({
+            uri = _location_to_uri(gap.location)
+            result = {
                 "ruleId": "primpact/test-gap",
                 "level": "note",
                 "message": {"text": gap.behaviour},
-                "locations": [
-                    {
-                        "physicalLocation": {
-                            "artifactLocation": {"uri": gap.location},
-                        }
-                    }
-                ],
-            })
+            }
+            if uri:
+                result["locations"] = [
+                    {"physicalLocation": {"artifactLocation": {"uri": uri}}}
+                ]
+            results.append(result)
 
     sarif = {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
