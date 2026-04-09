@@ -133,14 +133,23 @@ def _write_outputs(
 ) -> None:
     """Write Markdown, JSON, and/or SARIF report files if paths were given."""
     if output:
-        with open(output, "w", encoding="utf-8") as fh:
-            fh.write(render_markdown(report))
+        try:
+            with open(output, "w", encoding="utf-8") as fh:
+                fh.write(render_markdown(report))
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Could not write report to {output}: {e}")
     if json_output:
-        with open(json_output, "w", encoding="utf-8") as fh:
-            fh.write(render_json(report))
+        try:
+            with open(json_output, "w", encoding="utf-8") as fh:
+                fh.write(render_json(report))
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Could not write JSON to {json_output}: {e}")
     if sarif_output:
-        with open(sarif_output, "w", encoding="utf-8") as fh:
-            fh.write(render_sarif(report))
+        try:
+            with open(sarif_output, "w", encoding="utf-8") as fh:
+                fh.write(render_sarif(report))
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Could not write SARIF to {sarif_output}: {e}")
 
 
 def _format_pr_title(number: int, raw_title: str | None) -> str:

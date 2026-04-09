@@ -1,6 +1,7 @@
 import dataclasses
 import importlib.metadata
 import json
+import re
 from typing import NamedTuple
 
 from rich import box as _rich_box
@@ -130,16 +131,40 @@ def render_json(report: ImpactReport) -> str:
     return json.dumps(dataclasses.asdict(report), indent=2, default=str)
 
 
-def _location_to_uri(location: str) -> str | None:
-    """Extract a valid relative file path URI from an AI-generated location string.
+def _parse_location(location: str) -> dict | None:
+    """Parse an AI-generated location string into a SARIF location dict.
 
-    The AI returns freetext like 'pr_impact/reporter.py, line 2' or
-    'pr_impact/cli.py analyse()'. Extract just the path portion.
-    Returns None if no recognisable file path is found.
+    Handles two forms:
+    - "path/to/file.py:12"        → region.startLine set to 12
+    - "path/to/file.py:func_name" → logicalLocations entry with that name
+    - "path/to/file.py, ..."      → URI only, best-effort via regex fallback
+
+    Returns None if no recognisable file path can be extracted.
     """
-    import re
-    m = re.match(r"^([\w./\-]+\.\w+)", location)
-    return m.group(1) if m else None
+    if ":" in location:
+        path, _, remainder = location.partition(":")
+        path = path.strip()
+        remainder = remainder.strip()
+    else:
+        m = re.match(r"^([\w./\-]+\.\w+)", location)
+        if not m:
+            return None
+        path = m.group(1)
+        remainder = ""
+
+    if not re.match(r"^[\w./\-]+\.\w+$", path):
+        return None
+
+    physical_loc: dict = {"artifactLocation": {"uri": path}}
+    loc: dict = {"physicalLocation": physical_loc}
+
+    if remainder:
+        try:
+            physical_loc["region"] = {"startLine": int(remainder)}
+        except ValueError:
+            loc["logicalLocations"] = [{"name": remainder}]
+
+    return loc
 
 
 def render_sarif(report: ImpactReport) -> str:
@@ -166,16 +191,14 @@ def render_sarif(report: ImpactReport) -> str:
         })
         for anomaly in report.ai_analysis.anomalies:
             level = _severity_to_level.get(anomaly.severity, "note")
-            uri = _location_to_uri(anomaly.location)
+            loc = _parse_location(anomaly.location)
             result: dict = {
                 "ruleId": "primpact/anomaly",
                 "level": level,
                 "message": {"text": anomaly.description},
             }
-            if uri:
-                result["locations"] = [
-                    {"physicalLocation": {"artifactLocation": {"uri": uri}}}
-                ]
+            if loc:
+                result["locations"] = [loc]
             results.append(result)
 
     if report.ai_analysis.test_gaps:
@@ -185,16 +208,14 @@ def render_sarif(report: ImpactReport) -> str:
             "shortDescription": {"text": "Behaviour not covered by tests"},
         })
         for gap in report.ai_analysis.test_gaps:
-            uri = _location_to_uri(gap.location)
+            loc = _parse_location(gap.location)
             result = {
                 "ruleId": "primpact/test-gap",
                 "level": "note",
                 "message": {"text": gap.behaviour},
             }
-            if uri:
-                result["locations"] = [
-                    {"physicalLocation": {"artifactLocation": {"uri": uri}}}
-                ]
+            if loc:
+                result["locations"] = [loc]
             results.append(result)
 
     sarif = {

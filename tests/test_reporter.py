@@ -737,6 +737,26 @@ def test_sarif_anomaly_location_in_physical_location():
     assert uri == "src/auth.py"
 
 
+def test_sarif_anomaly_location_colon_line():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="src/auth.py:12", severity="high")])
+    )
+    parsed = json.loads(render_sarif(report))
+    loc = parsed["runs"][0]["results"][0]["locations"][0]
+    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "src/auth.py"
+    assert loc["physicalLocation"]["region"]["startLine"] == 12
+
+
+def test_sarif_anomaly_location_colon_symbol():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="src/auth.py:my_func", severity="high")])
+    )
+    parsed = json.loads(render_sarif(report))
+    loc = parsed["runs"][0]["results"][0]["locations"][0]
+    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "src/auth.py"
+    assert loc["logicalLocations"][0]["name"] == "my_func"
+
+
 def test_sarif_multiple_anomalies_all_present():
     anomalies = [
         Anomaly(description="a1", location="f1.py", severity="high"),
