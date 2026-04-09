@@ -1223,3 +1223,20 @@ def test_fail_on_severity_medium_threshold_skips_low_anomaly(runner):
             env=_ENV,
         )
     assert result.exit_code == 0
+
+
+def test_fail_on_severity_low_exits_1_on_low_anomaly(runner):
+    """--fail-on-severity low exits 1 when a low-severity anomaly is present."""
+    patches = _base_patches()
+    patches[-1] = patch(
+        "pr_impact.cli.run_ai_analysis",
+        return_value=AIAnalysis(summary="s", anomalies=[_LOW_ANOMALY]),
+    )
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
+             "--fail-on-severity", "low"],
+            env=_ENV,
+        )
+    assert result.exit_code == 1

@@ -72,7 +72,7 @@ if no GitHub remote is detected. Supports interactive PR selection in a terminal
 
 GitHub Actions workflow (`.github/workflows/pr-impact.yml`) and GitLab CI template
 (`ci/gitlab-ci-template.yml`) that:
-- Run Primpact on every non-draft PR / MR
+- Run Primpact on every PR / MR (no draft filtering in CI template)
 - Post the Markdown report as a collapsible PR comment (upserts on re-run)
 - Fail the step if any anomaly meets `--fail-on-severity high` (configurable)
 - Upload `pr_impact_report.md` and `pr_impact_report.json` as build artifacts
