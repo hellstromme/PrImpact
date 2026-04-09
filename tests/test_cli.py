@@ -1123,7 +1123,9 @@ def test_get_github_token_returns_none_on_unresolved_env_var(monkeypatch, tmp_pa
 def test_print_banner_uses_dev_when_package_version_unavailable():
     """Lines 43-44: importlib.metadata.version raises → ver falls back to 'dev'."""
     with (
-        patch("pr_impact.cli.stderr"),
+        patch("pr_impact.cli.stderr") as mock_stderr,
         patch("importlib.metadata.version", side_effect=Exception("not installed")),
     ):
-        _print_banner()  # must not raise
+        _print_banner()
+        panel = mock_stderr.print.call_args[0][0]
+        assert "vdev" in panel.renderable.plain
