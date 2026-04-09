@@ -1,7 +1,9 @@
 """Unit tests for pr_impact/reporter.py."""
 
+import importlib.metadata
 import io
 import json
+from unittest.mock import patch
 
 from rich.console import Console
 
@@ -14,7 +16,7 @@ from pr_impact.models import (
     InterfaceChange,
     TestGap,
 )
-from pr_impact.reporter import _fmt_churn, _sev, _sev_color, render_json, render_markdown, render_sarif, render_terminal
+from pr_impact.reporter import _fmt_churn, _parse_location, _sev, _sev_color, render_json, render_markdown, render_sarif, render_terminal
 from tests.helpers import make_file, make_report
 
 
@@ -779,3 +781,61 @@ def test_sarif_anomaly_and_gap_both_present():
     assert len(results) == 2
     rule_ids = {r["ruleId"] for r in results}
     assert rule_ids == {"primpact/anomaly", "primpact/test-gap"}
+
+
+def test_sarif_rules_array_contains_both_rules():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            anomalies=[Anomaly(description="x", location="a.py", severity="high")],
+            test_gaps=[TestGap(behaviour="y", location="b.py")],
+        )
+    )
+    parsed = json.loads(render_sarif(report))
+    rule_ids = {r["id"] for r in parsed["runs"][0]["tool"]["driver"]["rules"]}
+    assert rule_ids == {"primpact/anomaly", "primpact/test-gap"}
+
+
+def test_sarif_unrecognised_severity_maps_to_note():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="a.py", severity="critical")])
+    )
+    parsed = json.loads(render_sarif(report))
+    assert parsed["runs"][0]["results"][0]["level"] == "note"
+
+
+def test_sarif_no_locations_when_parse_location_returns_none():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="no file here", severity="low")])
+    )
+    parsed = json.loads(render_sarif(report))
+    assert "locations" not in parsed["runs"][0]["results"][0]
+
+
+def test_sarif_version_fallback_when_package_not_found():
+    with patch("pr_impact.reporter.importlib.metadata.version", side_effect=importlib.metadata.PackageNotFoundError):
+        parsed = json.loads(render_sarif(make_report()))
+    assert parsed["runs"][0]["tool"]["driver"]["version"] == "0.0.0"
+
+
+# ---------------------------------------------------------------------------
+# _parse_location — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_parse_location_returns_none_for_plain_text():
+    assert _parse_location("no file here") is None
+
+
+def test_parse_location_returns_none_for_path_without_extension():
+    # colon present but path part has no dot-extension
+    assert _parse_location("nodotpath:12") is None
+
+
+# ---------------------------------------------------------------------------
+# render_terminal — SARIF footer
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_footer_shows_sarif_path():
+    out = _capture_terminal(make_report(), sarif_output="report.sarif")
+    assert "report.sarif" in out

@@ -239,6 +239,21 @@ def test_analyse_json_flag_writes_valid_json(runner):
         assert "pr_title" in data
 
 
+def test_analyse_sarif_flag_writes_valid_sarif(runner):
+    patches = _base_patches()
+    with runner.isolated_filesystem():
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+            result = runner.invoke(
+                main,
+                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--sarif", "out.sarif"],
+                env=_ENV,
+            )
+        assert result.exit_code == 0
+        with open("out.sarif") as fh:
+            data = json.loads(fh.read())
+        assert data["version"] == "2.1.0"
+
+
 def test_analyse_max_depth_passed_to_blast_radius(runner):
     patches = _base_patches()
     with (
@@ -995,6 +1010,31 @@ def test_write_outputs_does_nothing_when_all_none(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_outputs(make_report(), None, None, None)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_write_outputs_markdown_error_does_not_raise(tmp_path):
+    bad_path = str(tmp_path / "missing_dir" / "report.md")
+    with patch("pr_impact.cli.stderr") as mock_stderr:
+        _write_outputs(make_report(), bad_path, None, None)
+    assert mock_stderr.print.called
+    assert "Warning" in mock_stderr.print.call_args[0][0]
+    assert bad_path in mock_stderr.print.call_args[0][0]
+
+
+def test_write_outputs_json_error_does_not_raise(tmp_path):
+    bad_path = str(tmp_path / "missing_dir" / "report.json")
+    with patch("pr_impact.cli.stderr") as mock_stderr:
+        _write_outputs(make_report(), None, bad_path, None)
+    assert mock_stderr.print.called
+    assert bad_path in mock_stderr.print.call_args[0][0]
+
+
+def test_write_outputs_sarif_error_does_not_raise(tmp_path):
+    bad_path = str(tmp_path / "missing_dir" / "report.sarif")
+    with patch("pr_impact.cli.stderr") as mock_stderr:
+        _write_outputs(make_report(), None, None, bad_path)
+    assert mock_stderr.print.called
+    assert bad_path in mock_stderr.print.call_args[0][0]
 
 
 # ---------------------------------------------------------------------------
