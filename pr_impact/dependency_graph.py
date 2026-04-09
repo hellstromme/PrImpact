@@ -125,22 +125,81 @@ def _find_go_module_for_file(
         d = parent
 
 
+def _strip_ts_dot_slash(p: str) -> str:
+    """Strip a leading './' from a tsconfig path string; bare '.' becomes ''."""
+    if p == ".":
+        return ""
+    if p.startswith("./"):
+        return p[2:]
+    return p
+
+
+def _parse_tsconfig(
+    repo_path: str, rel_path: str, seen: set[str]
+) -> tuple[str, dict[str, list[str]]]:
+    """Parse one tsconfig file, follow 'extends', and return (base_url, paths_map).
+
+    Child compilerOptions override values inherited from the extended config.
+    Cycles in the extends chain are silently broken via *seen*.
+    """
+    if rel_path in seen:
+        return "", {}
+    seen.add(rel_path)
+
+    raw = _read_file(repo_path, rel_path)
+    if not raw:
+        return "", {}
+
+    try:
+        # tsconfig allows JS-style comments and trailing commas — strip them
+        clean = re.sub(r"//[^\n]*", "", raw)
+        clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
+        clean = re.sub(r",\s*([}\]])", r"\1", clean)
+        data = json.loads(clean)
+    except Exception:
+        return "", {}
+
+    # Inherit from extended config first (parent is the base)
+    base_url: str = ""
+    paths: dict[str, list[str]] = {}
+    extends = data.get("extends", "")
+    if extends:
+        config_dir = os.path.dirname(rel_path)
+        if extends.startswith("."):
+            ext_path = os.path.normpath(
+                os.path.join(config_dir, extends) if config_dir else extends
+            ).replace("\\", "/")
+        else:
+            ext_path = extends
+        if not ext_path.endswith(".json"):
+            ext_path += ".json"
+        base_url, paths = _parse_tsconfig(repo_path, ext_path, seen)
+
+    # Child compilerOptions override inherited values; strip leading './' from paths
+    opts = data.get("compilerOptions", {})
+    if "baseUrl" in opts:
+        base_url = _strip_ts_dot_slash(opts["baseUrl"])
+    if "paths" in opts:
+        paths = {
+            _strip_ts_dot_slash(alias): [_strip_ts_dot_slash(t) for t in targets]
+            for alias, targets in opts["paths"].items()
+        }
+
+    return base_url, paths
+
+
 def _load_tsconfig_aliases(repo_path: str) -> tuple[str, dict[str, list[str]]]:
-    """Return (base_url, paths_map) from tsconfig.json, or ("", {}) on failure."""
+    """Return (base_url, paths_map) from tsconfig.json (or tsconfig.base.json).
+
+    Follows 'extends' chains recursively so aliases defined in a base config are
+    inherited.  tsconfig.json is preferred over tsconfig.base.json.  Leading './'
+    is stripped from all returned path strings so callers receive plain
+    repo-relative values (e.g. './src/*' → 'src/*', '.' → '').
+    """
+    seen: set[str] = set()
     for name in ("tsconfig.json", "tsconfig.base.json"):
-        raw = _read_file(repo_path, name)
-        if not raw:
-            continue
-        try:
-            # tsconfig allows JS-style comments and trailing commas — strip them
-            clean = re.sub(r"//[^\n]*", "", raw)
-            clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
-            clean = re.sub(r",\s*([}\]])", r"\1", clean)
-            data = json.loads(clean)
-            opts = data.get("compilerOptions", {})
-            return opts.get("baseUrl", ""), opts.get("paths", {})
-        except Exception:
-            pass
+        if _read_file(repo_path, name):
+            return _parse_tsconfig(repo_path, name, seen)
     return "", {}
 
 

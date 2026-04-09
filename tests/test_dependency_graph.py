@@ -963,3 +963,88 @@ def test_load_tsconfig_aliases_strips_comments(mock_read):
     base_url, paths = _load_tsconfig_aliases("/repo")
     assert base_url == "src"
     assert "@/*" in paths
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_follows_extends(mock_read):
+    """Paths defined only in the extended config are inherited by the child."""
+    def fake_read(repo, path):
+        if path == "tsconfig.json":
+            return '{"extends": "./tsconfig.base.json", "compilerOptions": {"baseUrl": "src"}}'
+        if path == "tsconfig.base.json":
+            return '{"compilerOptions": {"paths": {"@/*": ["src/*"]}}}'
+        return ""
+
+    mock_read.side_effect = fake_read
+    base_url, paths = _load_tsconfig_aliases("/repo")
+    assert base_url == "src"
+    assert paths == {"@/*": ["src/*"]}
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_child_overrides_parent(mock_read):
+    """Child compilerOptions take precedence over inherited values."""
+    def fake_read(repo, path):
+        if path == "tsconfig.json":
+            return '{"extends": "./tsconfig.base.json", "compilerOptions": {"baseUrl": "app"}}'
+        if path == "tsconfig.base.json":
+            return '{"compilerOptions": {"baseUrl": "src", "paths": {"@/*": ["src/*"]}}}'
+        return ""
+
+    mock_read.side_effect = fake_read
+    base_url, paths = _load_tsconfig_aliases("/repo")
+    assert base_url == "app"          # child wins
+    assert paths == {"@/*": ["src/*"]}  # inherited from parent
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_normalizes_dot_slash_base_url(mock_read):
+    """Leading './' and bare '.' in baseUrl are stripped to repo-relative form."""
+    def fake_read(repo, path):
+        if path == "tsconfig.json":
+            return '{"compilerOptions": {"baseUrl": "./src"}}'
+        return ""
+
+    mock_read.side_effect = fake_read
+    base_url, _ = _load_tsconfig_aliases("/repo")
+    assert base_url == "src"
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_normalizes_dot_base_url(mock_read):
+    """A bare '.' baseUrl (repo root) is returned as an empty string."""
+    def fake_read(repo, path):
+        if path == "tsconfig.json":
+            return '{"compilerOptions": {"baseUrl": "."}}'
+        return ""
+
+    mock_read.side_effect = fake_read
+    base_url, _ = _load_tsconfig_aliases("/repo")
+    assert base_url == ""
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_normalizes_dot_slash_path_targets(mock_read):
+    """Leading './' on path targets is stripped so callers get plain paths."""
+    def fake_read(repo, path):
+        if path == "tsconfig.json":
+            return '{"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}'
+        return ""
+
+    mock_read.side_effect = fake_read
+    _, paths = _load_tsconfig_aliases("/repo")
+    assert paths == {"@/*": ["src/*"]}
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_load_tsconfig_aliases_cycle_does_not_loop(mock_read):
+    """A circular extends chain terminates without error."""
+    def fake_read(repo, path):
+        if path == "tsconfig.json":
+            return '{"extends": "./tsconfig.json", "compilerOptions": {"baseUrl": "src"}}'
+        return ""
+
+    mock_read.side_effect = fake_read
+    base_url, paths = _load_tsconfig_aliases("/repo")
+    assert base_url == "src"
+    assert paths == {}
