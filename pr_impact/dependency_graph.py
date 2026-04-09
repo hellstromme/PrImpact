@@ -311,10 +311,18 @@ def _resolve_java_import(class_path: str, all_files: set[str]) -> str | None:
 
 
 def _resolve_java_wildcard(pkg_path: str, all_files: set[str]) -> list[str]:
-    """Return all .java files in the given package directory across all source roots."""
+    """Return .java files directly inside the given package directory (not subpackages).
+
+    Java's `import pkg.*` only imports from the immediate package, not nested ones.
+    """
     for root in _JAVA_SOURCE_ROOTS:
         prefix = root + pkg_path.replace(".", "/") + "/"
-        matches = [f for f in all_files if f.startswith(prefix) and f.endswith(".java")]
+        matches = [
+            f for f in all_files
+            if f.startswith(prefix)
+            and f.endswith(".java")
+            and "/" not in f[len(prefix):]
+        ]
         if matches:
             return matches
     return []
@@ -423,7 +431,12 @@ def _extract_imports(
     elif language == "java":
         for m in _JAVA_IMPORT.finditer(content):
             if m.group(2):  # wildcard import (group 2 = '.*')
-                resolved.extend(_resolve_java_wildcard(m.group(1), all_files))
+                # Try as a class first (handles `import static com.example.Util.*`)
+                r = _resolve_java_import(m.group(1), all_files)
+                if r:
+                    resolved.append(r)
+                else:
+                    resolved.extend(_resolve_java_wildcard(m.group(1), all_files))
             else:
                 r = _resolve_java_import(m.group(1), all_files)
                 if r:
@@ -472,6 +485,8 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
 
     graph: dict[str, list[str]] = {}
     for rel_path in files:
+        if rel_path.endswith("_test.go"):
+            continue
         content = _read_file(repo_path, rel_path)
         lang = resolve_language(rel_path)
         go_module_name, go_module_root = "", ""

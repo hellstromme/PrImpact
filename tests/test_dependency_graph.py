@@ -677,6 +677,24 @@ def test_build_import_graph_go_reads_module(mock_repo, mock_read):
     assert "pkg/util/helpers.go" in graph.get("cmd/main.go", [])
 
 
+@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.dependency_graph.git.Repo")
+def test_build_import_graph_go_skips_test_files(mock_repo, mock_read):
+    """_test.go files must not appear as nodes in the dependency graph."""
+    mock_repo.return_value.git.ls_files.return_value = (
+        "cmd/main.go\npkg/util/helpers.go\npkg/util/helpers_test.go"
+    )
+
+    def fake_read(repo, path):
+        if path == "go.mod":
+            return "module github.com/user/myapp\n"
+        return ""
+
+    mock_read.side_effect = fake_read
+    graph = build_import_graph("/repo", ["go"])
+    assert "pkg/util/helpers_test.go" not in graph
+
+
 # ---------------------------------------------------------------------------
 # get_imported_symbols: Java and Go
 # ---------------------------------------------------------------------------
@@ -760,8 +778,34 @@ def test_java_wildcard_no_match_returns_empty():
     assert result == []
 
 
+def test_java_wildcard_excludes_subpackages():
+    """import com.example.* must not pull in files from nested packages."""
+    all_files = {
+        "com/example/Foo.java",
+        "com/example/sub/Bar.java",   # subpackage — must be excluded
+    }
+    result = _resolve_java_wildcard("com.example", all_files)
+    assert result == ["com/example/Foo.java"]
+
+
 def test_extract_imports_java_wildcard():
     content = "import com.example.*;\n"
+    all_files = {"com/example/Foo.java", "com/example/Bar.java"}
+    result = _extract_imports(content, "com/Main.java", "java", all_files)
+    assert set(result) == {"com/example/Foo.java", "com/example/Bar.java"}
+
+
+def test_extract_imports_java_static_wildcard_resolves_class():
+    """import static com.example.Util.* should resolve the class file, not a directory."""
+    content = "import static com.example.Util.*;\n"
+    all_files = {"com/example/Util.java"}
+    result = _extract_imports(content, "com/Main.java", "java", all_files)
+    assert result == ["com/example/Util.java"]
+
+
+def test_extract_imports_java_static_wildcard_falls_back_to_package():
+    """If the wildcard target is not a class, fall back to package wildcard resolution."""
+    content = "import static com.example.*;\n"
     all_files = {"com/example/Foo.java", "com/example/Bar.java"}
     result = _extract_imports(content, "com/Main.java", "java", all_files)
     assert set(result) == {"com/example/Foo.java", "com/example/Bar.java"}
