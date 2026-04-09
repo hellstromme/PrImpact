@@ -1,5 +1,7 @@
 import dataclasses
+import importlib.metadata
 import json
+import re
 from typing import NamedTuple
 
 from rich import box as _rich_box
@@ -129,11 +131,119 @@ def render_json(report: ImpactReport) -> str:
     return json.dumps(dataclasses.asdict(report), indent=2, default=str)
 
 
+def _parse_location(location: str) -> dict | None:
+    """Parse an AI-generated location string into a SARIF location dict.
+
+    Handles two forms:
+    - "path/to/file.py:12"        → region.startLine set to 12
+    - "path/to/file.py:func_name" → logicalLocations entry with that name
+    - "path/to/file.py, ..."      → URI only, best-effort via regex fallback
+
+    Returns None if no recognisable file path can be extracted.
+    """
+    if ":" in location:
+        path, _, remainder = location.partition(":")
+        path = path.strip()
+        remainder = remainder.strip()
+    else:
+        m = re.match(r"^([\w./\-]+\.\w+)", location)
+        if not m:
+            return None
+        path = m.group(1)
+        remainder = ""
+
+    if not re.match(r"^[\w./\-]+\.\w+$", path):
+        return None
+
+    physical_loc: dict = {"artifactLocation": {"uri": path}}
+    loc: dict = {"physicalLocation": physical_loc}
+
+    if remainder:
+        try:
+            physical_loc["region"] = {"startLine": int(remainder)}
+        except ValueError:
+            loc["logicalLocations"] = [{"name": remainder}]
+
+    return loc
+
+
+def render_sarif(report: ImpactReport) -> str:
+    """Render an ImpactReport as SARIF 2.1.0 JSON.
+
+    Anomalies map to results with level error/warning/note.
+    Test gaps map to results with level note under a separate rule.
+    """
+    try:
+        version = importlib.metadata.version("pr-impact")
+    except importlib.metadata.PackageNotFoundError:
+        version = "0.0.0"
+
+    _severity_to_level = {"high": "error", "medium": "warning", "low": "note"}
+
+    rules = []
+    results = []
+
+    if report.ai_analysis.anomalies:
+        rules.append({
+            "id": "primpact/anomaly",
+            "name": "Anomaly",
+            "shortDescription": {"text": "Anomaly detected in PR changes"},
+        })
+        for anomaly in report.ai_analysis.anomalies:
+            level = _severity_to_level.get(anomaly.severity, "note")
+            loc = _parse_location(anomaly.location)
+            result: dict = {
+                "ruleId": "primpact/anomaly",
+                "level": level,
+                "message": {"text": anomaly.description},
+            }
+            if loc:
+                result["locations"] = [loc]
+            results.append(result)
+
+    if report.ai_analysis.test_gaps:
+        rules.append({
+            "id": "primpact/test-gap",
+            "name": "TestGap",
+            "shortDescription": {"text": "Behaviour not covered by tests"},
+        })
+        for gap in report.ai_analysis.test_gaps:
+            loc = _parse_location(gap.location)
+            result = {
+                "ruleId": "primpact/test-gap",
+                "level": "note",
+                "message": {"text": gap.behaviour},
+            }
+            if loc:
+                result["locations"] = [loc]
+            results.append(result)
+
+    sarif = {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "primpact",
+                        "version": version,
+                        "informationUri": "https://github.com/hellstromme/primpact",
+                        "rules": rules,
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
+    return json.dumps(sarif, indent=2)
+
+
 def render_terminal(
     report: ImpactReport,
     console: Console,
     output: str | None = None,
     json_output: str | None = None,
+    sarif_output: str | None = None,
 ) -> None:
     sha_range = f"{report.base_sha[:7]}..{report.head_sha[:7]}"
 
@@ -285,10 +395,12 @@ def render_terminal(
         console.print()
 
     # ── Footer ────────────────────────────────────────────────────────────────
-    if output or json_output:
+    if output or json_output or sarif_output:
         console.print(Rule(style="bright_blue"))
         if output:
             console.print(f"  [dim]Report written to[/dim]  [cyan]{output}[/cyan]")
         if json_output:
             console.print(f"  [dim]JSON written to[/dim]   [cyan]{json_output}[/cyan]")
+        if sarif_output:
+            console.print(f"  [dim]SARIF written to[/dim]  [cyan]{sarif_output}[/cyan]")
         console.print(Rule(style="bright_blue"))
