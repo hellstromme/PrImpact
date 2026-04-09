@@ -37,6 +37,10 @@ primpact:
     # Post the report as a collapsible MR note (upsert: update if already posted)
     - |
       [ -f pr_impact_report.md ] || exit 0
+      if [ -z "${GITLAB_TOKEN:-}" ]; then
+        echo "WARNING: GITLAB_TOKEN is not set — skipping MR note posting." >&2
+        exit 0
+      fi
       MARKER="<!-- pr-impact-report -->"
       NOTE_BODY="${MARKER}
       <details>

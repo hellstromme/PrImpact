@@ -60,7 +60,7 @@ make a confident go/no-go decision on whether to look closer — in under ten mi
 Replace `--base` / `--head` with `--pr` flag that resolves directly from the
 GitHub API. Primpact fetches the PR metadata and commit range itself.
 
-```
+```bash
 pr-impact analyse --repo /path/to/repo --pr 247
 ```
 
