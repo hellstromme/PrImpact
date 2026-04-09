@@ -78,26 +78,51 @@ def _read_file(repo_path: str, rel_path: str) -> str:
         return ""
 
 
-def _find_go_module_name(repo_path: str, files: list[str]) -> str:
-    """Return the Go module name from go.mod, searching from repo root then subdirectories."""
-    content = _read_file(repo_path, "go.mod")
-    m = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
-    if m:
-        return m.group(1)
-    # Walk parent directories of tracked .go files for a nested go.mod
-    checked: set[str] = set()
-    for f in files:
-        if not f.endswith(".go"):
-            continue
-        d = os.path.dirname(f)
-        while d and d not in checked:
-            checked.add(d)
-            content = _read_file(repo_path, d + "/go.mod")
-            m = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
-            if m:
-                return m.group(1)
-            d = os.path.dirname(d)
-    return ""
+def _find_go_module_for_file(
+    repo_path: str,
+    source_file: str,
+    cache: dict[str, tuple[str, str]] | None = None,
+) -> tuple[str, str]:
+    """Walk up from source_file's directory to find the nearest go.mod.
+
+    Returns (module_name, module_root) where module_root is the repo-relative
+    directory containing go.mod (empty string when go.mod is at the repo root).
+    Returns ("", "") if no go.mod is found.
+
+    cache maps repo-relative directory -> (module_name, module_root) so that
+    files sharing the same module pay the I/O cost only once.
+    """
+    if cache is None:
+        cache = {}
+
+    d = os.path.dirname(source_file)
+    visited: list[str] = []
+
+    while True:
+        if d in cache:
+            result = cache[d]
+            for v in visited:
+                cache[v] = result
+            return result
+
+        visited.append(d)
+
+        mod_rel = (d + "/go.mod") if d else "go.mod"
+        content = _read_file(repo_path, mod_rel)
+        m = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
+        if m:
+            result = (m.group(1), d)
+            for v in visited:
+                cache[v] = result
+            return result
+
+        parent = os.path.dirname(d)
+        if parent == d or not d:
+            # Reached repo root without finding go.mod
+            for v in visited:
+                cache[v] = ("", "")
+            return ("", "")
+        d = parent
 
 
 def _load_tsconfig_aliases(repo_path: str) -> tuple[str, dict[str, list[str]]]:
@@ -237,19 +262,27 @@ def _resolve_java_wildcard(pkg_path: str, all_files: set[str]) -> list[str]:
 
 
 def _resolve_go_import(
-    import_path: str, module_name: str, all_files: set[str]
+    import_path: str,
+    module_name: str,
+    module_root: str,
+    all_files: set[str],
 ) -> list[str]:
     """Resolve a Go import path to the .go source files in that package.
 
     Only internal packages (those sharing the module prefix) are resolved;
     stdlib, third-party, and vendored imports return an empty list.
+
+    module_root is the repo-relative directory that contains the go.mod file
+    (empty string when go.mod lives at the repo root).  Package directories are
+    located at <module_root>/<suffix-after-module-name>/.
     """
     if not module_name or not import_path.startswith(module_name):
         return []
-    rel = import_path[len(module_name):].lstrip("/")
-    if not rel:
+    suffix = import_path[len(module_name):].lstrip("/")
+    if not suffix:
         return []  # importing the module root — not a useful edge
-    prefix = rel + "/"
+    pkg_dir = (module_root + "/" + suffix) if module_root else suffix
+    prefix = pkg_dir + "/"
     return [
         f for f in all_files
         if f.startswith(prefix)
@@ -297,6 +330,7 @@ def _extract_imports(
     all_files: set[str],
     cs_namespace_map: dict[str, list[str]] | None = None,
     go_module_name: str = "",
+    go_module_root: str = "",
     ts_base_url: str = "",
     ts_paths: dict[str, list[str]] | None = None,
 ) -> list[str]:
@@ -337,10 +371,10 @@ def _extract_imports(
                     resolved.append(r)
     elif language == "go":
         for m in _GO_IMPORT_SINGLE.finditer(content):
-            resolved.extend(_resolve_go_import(m.group(1), go_module_name, all_files))
+            resolved.extend(_resolve_go_import(m.group(1), go_module_name, go_module_root, all_files))
         for block in _GO_IMPORT_BLOCK.finditer(content):
             for path_m in _GO_IMPORT_PATH.finditer(block.group(1)):
-                resolved.extend(_resolve_go_import(path_m.group(1), go_module_name, all_files))
+                resolved.extend(_resolve_go_import(path_m.group(1), go_module_name, go_module_root, all_files))
     elif language == "ruby":
         for m in _RUBY_REQUIRE.finditer(content):
             r = _resolve_ruby_require(m.group(1), source_file, all_files)
@@ -369,10 +403,8 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
             for m in _CS_NAMESPACE.finditer(content):
                 cs_namespace_map.setdefault(m.group(1), []).append(rel_path)
 
-    # Resolve Go module name — searches root then subdirectories for go.mod
-    go_module_name = ""
-    if "go" in language_filter:
-        go_module_name = _find_go_module_name(repo_path, files)
+    # Per-file Go module lookup; cache avoids repeated go.mod reads for the same module
+    go_module_cache: dict[str, tuple[str, str]] = {}
 
     # Load TypeScript/JavaScript path aliases from tsconfig.json
     ts_base_url, ts_paths = "", {}
@@ -383,9 +415,14 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
     for rel_path in files:
         content = _read_file(repo_path, rel_path)
         lang = resolve_language(rel_path)
+        go_module_name, go_module_root = "", ""
+        if lang == "go":
+            go_module_name, go_module_root = _find_go_module_for_file(
+                repo_path, rel_path, go_module_cache
+            )
         imports = _extract_imports(
-            content, rel_path, lang, all_files, cs_namespace_map, go_module_name,
-            ts_base_url, ts_paths,
+            content, rel_path, lang, all_files, cs_namespace_map,
+            go_module_name, go_module_root, ts_base_url, ts_paths,
         )
         graph[rel_path] = imports
 

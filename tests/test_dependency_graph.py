@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from pr_impact.dependency_graph import (
     _extract_imports,
-    _find_go_module_name,
+    _find_go_module_for_file,
     _list_repo_files,
     _load_tsconfig_aliases,
     _probe_js_extensions,
@@ -530,32 +530,32 @@ def test_java_class_not_in_repo_returns_none():
 def test_go_local_package_resolves_to_files():
     module = "github.com/user/myapp"
     all_files = {"pkg/util/helpers.go", "pkg/util/format.go"}
-    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, all_files)
+    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, "", all_files)
     assert set(result) == {"pkg/util/helpers.go", "pkg/util/format.go"}
 
 
 def test_go_external_package_returns_empty():
     module = "github.com/user/myapp"
     all_files = {"pkg/util/helpers.go"}
-    assert _resolve_go_import("fmt", module, all_files) == []
-    assert _resolve_go_import("github.com/other/lib", module, all_files) == []
+    assert _resolve_go_import("fmt", module, "", all_files) == []
+    assert _resolve_go_import("github.com/other/lib", module, "", all_files) == []
 
 
 def test_go_empty_module_name_returns_empty():
     all_files = {"pkg/util/helpers.go"}
-    assert _resolve_go_import("github.com/user/myapp/pkg/util", "", all_files) == []
+    assert _resolve_go_import("github.com/user/myapp/pkg/util", "", "", all_files) == []
 
 
 def test_go_module_root_import_returns_empty():
     module = "github.com/user/myapp"
     all_files = {"main.go"}
-    assert _resolve_go_import("github.com/user/myapp", module, all_files) == []
+    assert _resolve_go_import("github.com/user/myapp", module, "", all_files) == []
 
 
 def test_go_test_files_excluded():
     module = "github.com/user/myapp"
     all_files = {"pkg/util/helpers.go", "pkg/util/helpers_test.go"}
-    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, all_files)
+    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, "", all_files)
     assert result == ["pkg/util/helpers.go"]
 
 
@@ -625,7 +625,8 @@ def test_extract_imports_go_single():
     content = 'import "github.com/user/myapp/pkg/util"\n'
     all_files = {"pkg/util/helpers.go"}
     result = _extract_imports(
-        content, "cmd/main.go", "go", all_files, go_module_name="github.com/user/myapp"
+        content, "cmd/main.go", "go", all_files,
+        go_module_name="github.com/user/myapp", go_module_root="",
     )
     assert "pkg/util/helpers.go" in result
 
@@ -634,7 +635,8 @@ def test_extract_imports_go_block():
     content = 'import (\n    "github.com/user/myapp/pkg/util"\n    "fmt"\n)\n'
     all_files = {"pkg/util/helpers.go"}
     result = _extract_imports(
-        content, "cmd/main.go", "go", all_files, go_module_name="github.com/user/myapp"
+        content, "cmd/main.go", "go", all_files,
+        go_module_name="github.com/user/myapp", go_module_root="",
     )
     assert "pkg/util/helpers.go" in result
 
@@ -776,7 +778,7 @@ def test_go_vendor_files_excluded():
         "pkg/util/helpers.go",
         "vendor/pkg/util/helpers.go",
     }
-    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, all_files)
+    result = _resolve_go_import("github.com/user/myapp/pkg/util", module, "", all_files)
     assert "vendor/pkg/util/helpers.go" not in result
     assert "pkg/util/helpers.go" in result
 
@@ -787,32 +789,64 @@ def test_go_vendor_files_excluded():
 
 
 @patch("pr_impact.dependency_graph._read_file")
-def test_find_go_module_name_at_root(mock_read):
-    mock_read.return_value = "module github.com/user/myapp\n"
-    result = _find_go_module_name("/repo", ["cmd/main.go"])
-    assert result == "github.com/user/myapp"
-    mock_read.assert_called_once_with("/repo", "go.mod")
+def test_find_go_module_for_file_at_root(mock_read):
+    def fake_read(repo, path):
+        if path == "go.mod":
+            return "module github.com/user/myapp\n"
+        return ""  # no go.mod in subdirectories
+
+    mock_read.side_effect = fake_read
+    module_name, module_root = _find_go_module_for_file("/repo", "cmd/main.go")
+    assert module_name == "github.com/user/myapp"
+    assert module_root == ""  # go.mod is at repo root
 
 
 @patch("pr_impact.dependency_graph._read_file")
-def test_find_go_module_name_in_subdirectory(mock_read):
+def test_find_go_module_for_file_in_subdirectory(mock_read):
     def fake_read(repo, path):
-        if path == "go.mod":
-            return ""  # no root go.mod
         if path == "services/auth/go.mod":
             return "module github.com/user/auth\n"
         return ""
 
     mock_read.side_effect = fake_read
-    result = _find_go_module_name("/repo", ["services/auth/handler.go"])
-    assert result == "github.com/user/auth"
+    module_name, module_root = _find_go_module_for_file("/repo", "services/auth/handler.go")
+    assert module_name == "github.com/user/auth"
+    assert module_root == "services/auth"
 
 
 @patch("pr_impact.dependency_graph._read_file")
-def test_find_go_module_name_missing_returns_empty(mock_read):
+def test_find_go_module_for_file_missing_returns_empty(mock_read):
     mock_read.return_value = ""
-    result = _find_go_module_name("/repo", ["cmd/main.go"])
-    assert result == ""
+    module_name, module_root = _find_go_module_for_file("/repo", "cmd/main.go")
+    assert module_name == ""
+    assert module_root == ""
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_find_go_module_for_file_cache_reuse(mock_read):
+    """Second call for a file in the same directory must not re-read go.mod."""
+    mock_read.return_value = "module github.com/user/myapp\n"
+    cache: dict = {}
+    _find_go_module_for_file("/repo", "cmd/main.go", cache)
+    call_count_after_first = mock_read.call_count
+    _find_go_module_for_file("/repo", "cmd/server.go", cache)
+    assert mock_read.call_count == call_count_after_first  # no extra reads
+
+
+@patch("pr_impact.dependency_graph._read_file")
+def test_find_go_module_for_file_nested_preferred_over_root(mock_read):
+    """A nested go.mod must take precedence over a root-level one."""
+    def fake_read(repo, path):
+        if path == "services/auth/go.mod":
+            return "module github.com/user/auth\n"
+        if path == "go.mod":
+            return "module github.com/user/monorepo\n"
+        return ""
+
+    mock_read.side_effect = fake_read
+    module_name, module_root = _find_go_module_for_file("/repo", "services/auth/handler.go")
+    assert module_name == "github.com/user/auth"
+    assert module_root == "services/auth"
 
 
 # ---------------------------------------------------------------------------
