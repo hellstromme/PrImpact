@@ -97,7 +97,7 @@ with no local tool installation.
 
 ---
 
-## v0.3 — Trust (Malicious Code Detection)
+## v0.3 — Trust (Malicious Code Detection) ✅ Complete
 
 **Theme:** Surface code that should not be there.
 
@@ -150,7 +150,7 @@ CodeQL). It adds a complementary layer: **contextual and behavioural analysis**,
 asking not just "is this pattern present" but "is this pattern surprising *in this
 codebase and this PR*?"
 
-**Layer 1 — Pattern signals (deterministic)**
+**Layer 1 — Pattern signals (deterministic)** ✅
 
 Regex and AST-based detection of high-signal patterns in the diff:
 
@@ -167,7 +167,7 @@ Regex and AST-based detection of high-signal patterns in the diff:
 These are scored, not binary. A `subprocess` call in a build script is expected.
 The same call added to a payment processing module is a high-severity signal.
 
-**Layer 2 — Contextual scoring (AI-assisted)**
+**Layer 2 — Contextual scoring (AI-assisted)** ✅
 
 The pattern signals are fed to the AI layer with a dedicated prompt. The model's
 job is to assess whether each signal is consistent with the purpose and existing
@@ -178,7 +178,7 @@ a `subprocess` call. Primpact can tell you "this `subprocess` call was added to 
 authentication module and there are no other shell invocations in that module or its
 neighbours."
 
-**Layer 3 — Dependency integrity (for package manifest changes)**
+**Layer 3 — Dependency integrity (for package manifest changes)** ✅
 
 When a PR modifies `package.json`, `requirements.txt`, `pyproject.toml`,
 `Gemfile`, etc.:
@@ -244,6 +244,11 @@ The recommended posture: run Primpact alongside, not instead of, semgrep or band
 They catch different things. Primpact's value is contextual; theirs is comprehensive.
 
 ---
+
+**v0.3 additional deliverable:** Agent verdict analysis (`--verdict` / `--verdict-json`).
+A dedicated prompt (`PROMPT_VERDICT`) classifies all findings as BLOCKERS (agent-fixable
+code defects) or OBSERVATIONS (design commentary for humans). Exit code 2 when blockers
+are present, enabling structured agentic iteration loops.
 
 **v0.3 success criterion:** A HIGH signal from Primpact, on a codebase the team
 knows well, should prompt the reviewer to ask a question they would not have thought
@@ -363,6 +368,7 @@ Move beyond per-PR analysis to continuous monitoring:
 | Malicious pattern signals | | | ✓ | ✓ | ✓ | ✓ |
 | Dependency integrity checks | | | ✓ | ✓ | ✓ | ✓ |
 | Contextual security scoring | | | ✓ | ✓ | ✓ | ✓ |
+| Agent verdict analysis | | | ✓ | ✓ | ✓ | ✓ |
 | AST-based analysis | | | | ✓ | ✓ | ✓ |
 | Historical pattern learning | | | | ✓ | ✓ | ✓ |
 | Web UI | | | | | ✓ | ✓ |

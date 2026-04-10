@@ -1,6 +1,6 @@
 # Primpact — Architecture Document
 
-**Version:** 0.2  
+**Version:** 0.3  
 **Status:** Current  
 **Last updated:** 2026-04-10
 
@@ -22,6 +22,7 @@
    - 5.7 [reporter.py — Output Rendering](#57-reporterpy--output-rendering)
    - 5.8 [github.py — GitHub API Helpers](#58-githubpy--github-api-helpers)
    - 5.9 [models.py — Shared Data Types](#59-modelspy--shared-data-types)
+   - 5.10 [security.py — Security Signal Detection](#510-securitypy--security-signal-detection)
 6. [Pipeline Orchestration](#6-pipeline-orchestration)
 7. [External Interfaces](#7-external-interfaces)
 8. [Context Budget Strategy](#8-context-budget-strategy)
@@ -93,11 +94,12 @@ pr_impact/
   git_analysis.py      # Git interaction — diffs, file contents, commit history
   dependency_graph.py  # Regex-based import graph builder and blast radius BFS
   classifier.py        # Changed symbol classification by impact type
-  ai_layer.py          # Claude API calls — summary, decisions, anomalies, test gaps
+  ai_layer.py          # Claude API calls — summary, decisions, anomalies, test gaps, security scoring
   prompts.py           # All prompt templates (separated from logic)
   reporter.py          # Assembles and renders the final Markdown, JSON, and SARIF reports
   github.py            # GitHub API helpers — PR resolution, remote detection, PR listing
   models.py            # Shared dataclasses used across all modules
+  security.py          # Deterministic security signal detection and dependency integrity checks
 ```
 
 ---
@@ -162,6 +164,60 @@ class InterfaceChange:
     callers: list[str]      # Files that import this symbol
 ```
 
+### `SecuritySignal`
+
+A security pattern detected in the diff, AI-scored for contextual risk.
+
+```python
+@dataclass
+class SecuritySignal:
+    description: str
+    file_path: str
+    line_number: int | None
+    signal_type: str   # "network_call" | "credential" | "encoded_payload" | "dynamic_exec" | "shell_invoke" | "suspicious_import"
+    severity: str      # "high" | "medium" | "low"
+    why_unusual: str
+    suggested_action: str
+```
+
+### `DependencyIssue`
+
+An issue detected in a package manifest change (typosquat, version pin change, or known CVE).
+
+```python
+@dataclass
+class DependencyIssue:
+    package_name: str
+    issue_type: str   # "typosquat" | "version_change" | "vulnerability"
+    description: str
+    severity: str     # "high" | "medium" | "low"
+```
+
+### `VerdictBlocker`
+
+A specific, agent-fixable defect identified by the verdict prompt.
+
+```python
+@dataclass
+class VerdictBlocker:
+    category: str   # "test_gap" | "security_signal" | "dependency_issue" | "anomaly"
+    description: str
+    location: str
+```
+
+### `Verdict`
+
+The output of the optional `--verdict` analysis call.
+
+```python
+@dataclass
+class Verdict:
+    status: str              # "clean" | "has_blockers"
+    agent_should_continue: bool
+    rationale: str
+    blockers: list[VerdictBlocker]
+```
+
 ### `AIAnalysis`
 
 The structured output from the Claude API layer.
@@ -174,6 +230,7 @@ class AIAnalysis:
     assumptions: list[Assumption]
     anomalies: list[Anomaly]
     test_gaps: list[TestGap]
+    security_signals: list[SecuritySignal]  # AI-scored; populated by call 4 when signals detected
 ```
 
 ### `Decision`
@@ -253,6 +310,7 @@ class ImpactReport:
     blast_radius: list[BlastRadiusEntry]
     interface_changes: list[InterfaceChange]
     ai_analysis: AIAnalysis
+    dependency_issues: list[DependencyIssue]  # Deterministic; populated before any AI call
 ```
 
 ---
@@ -417,19 +475,24 @@ Classifies each changed file and symbol by impact type. Uses regex against diff 
 
 ### 5.5 `ai_layer.py` — Claude API Integration
 
-Makes three Claude API calls per analysis run. Handles context budget management. This is the only module that performs network I/O.
+Makes three or four Claude API calls per analysis run. Handles context budget management. This is the only module that performs network I/O.
 
-#### `run_ai_analysis(changed_files, blast_radius, repo_path) -> AIAnalysis`
+#### `run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals=None) -> AIAnalysis`
 
-Assembles context for each prompt, makes three API calls in sequence, parses the JSON responses, and returns a populated `AIAnalysis` object.
+Assembles context for each prompt, makes API calls in sequence, parses the JSON responses, and returns a populated `AIAnalysis` object.
 
-The three calls map to the three prompts in `prompts.py`:
+| Call | Prompt | Output fields | When |
+|---|---|---|---|
+| 1 | Summary + Decisions + Assumptions | `AIAnalysis.summary`, `.decisions`, `.assumptions` | Always |
+| 2 | Anomaly Detection | `AIAnalysis.anomalies` | Always |
+| 3 | Test Gap Analysis | `AIAnalysis.test_gaps` | Always |
+| 4 | Security Signal Scoring | `AIAnalysis.security_signals` | Only when `pattern_signals` is non-empty |
 
-| Call | Prompt | Output fields |
-|---|---|---|
-| 1 | Summary + Decisions + Assumptions | `AIAnalysis.summary`, `.decisions`, `.assumptions` |
-| 2 | Anomaly Detection | `AIAnalysis.anomalies` |
-| 3 | Test Gap Analysis | `AIAnalysis.test_gaps` |
+Call 4 takes the raw pattern signals from `security.py` and asks the model to assess each in the context of the file's stated purpose and existing patterns, adjusting severity and adding contextual explanation. If the AI call fails or returns unexpected JSON, `security_signals` falls back to the raw `pattern_signals`.
+
+#### `run_verdict_analysis(ai_analysis, dependency_issues) -> Verdict`
+
+A separate, optional call made after the main pipeline (only when `--verdict` or `--verdict-json` is given). Uses `PROMPT_VERDICT` to classify findings as BLOCKERS (agent-fixable defects) or OBSERVATIONS (design commentary for humans). Returns a `Verdict` with `agent_should_continue` set to `True` only when actionable blockers exist.
 
 #### Context assembly
 
@@ -439,7 +502,8 @@ For each prompt call, context is assembled in this priority order:
 2. **Signatures (not implementations) of blast radius files at distance 1** — always included
 3. **Signatures of blast radius files at distance 2** — included if token budget permits
 4. **Test files for changed modules** — for prompt 3 only
-5. **Signatures of up to 5 neighbouring files** (same directory as each changed file) — for prompt 2 (anomaly detection)
+5. **Signatures of up to 5 neighbouring files** (same directory as each changed file) — for prompt 2 (anomaly detection); also includes signatures of changed files *before* the PR to establish baseline patterns
+6. **Pattern signals + file context (before-signatures of affected files)** — for prompt 4 (security scoring) only
 
 A "signature" is defined as: all import statements, all function and class definitions with their decorators, but not the function body. This is extracted with regex. It gives the model enough context to reason about design fit without burning tokens on implementation detail.
 
@@ -576,6 +640,37 @@ Defines all dataclasses listed in section 4. No logic. Imported by every other m
 
 ---
 
+### 5.10 `security.py` — Security Signal Detection
+
+Deterministic, regex-based security analysis. No network I/O except the optional OSV lookup. Called by `cli.py` before the AI layer; its output is passed to `ai_layer.run_ai_analysis` for contextual scoring.
+
+#### `detect_pattern_signals(changed_files) -> list[SecuritySignal]`
+
+Scans added lines in each changed file's diff against a table of high-signal patterns:
+
+| Signal type | Examples |
+|---|---|
+| `network_call` | Hardcoded IP addresses, `requests.get`, `fetch()`, `socket.connect`, `net.Dial` |
+| `credential` | Strings assigned to variables named `api_key`, `password`, `token`, etc. |
+| `encoded_payload` | `base64.b64decode`, `atob()`, `Buffer.from(x, 'hex')` |
+| `dynamic_exec` | `eval()`, `exec()`, `new Function()`, `subprocess` with `shell=True` |
+| `shell_invoke` | `os.system`, `subprocess.run`, `child_process.exec`, `os/exec.Command` |
+| `suspicious_import` | New imports of `socket`, `ctypes`, `child_process`, `dgram`, `pty` |
+
+Severity is downgraded automatically when the same pattern already existed in the file before the PR, or when the file is in an infrastructure path (`build/`, `deploy/`, `scripts/`, etc.).
+
+#### `check_dependency_integrity(changed_files, osv_check=False) -> list[DependencyIssue]`
+
+Checks changes to package manifest files (`requirements.txt`, `pyproject.toml`, `package.json`, `Gemfile`, `go.mod`):
+
+- **Typosquat detection** — computes Levenshtein distance between new package names and a curated list of top packages per ecosystem. Flags names within edit distance ≤ 2 of a popular package.
+- **Version change flagging** — identifies packages present in both removed and added lines (i.e., version pin changed). Flagged as `low` severity for reviewer awareness.
+- **OSV vulnerability lookup** — when `osv_check=True` (enabled by `--check-osv`), queries the OSV API (`api.osv.dev`) for known CVEs in newly added packages. Disabled by default to avoid unintended network calls.
+
+Per-file failures are skipped silently; unexpected top-level errors propagate to `cli.py` which logs a warning.
+
+---
+
 ## 6. Pipeline Orchestration
 
 The pipeline runs as eight sequential steps inside `cli.py`. Steps 1–6 are deterministic; step 7 is the only network call.
@@ -600,16 +695,25 @@ Step 5  classifier.get_interface_changes(changed_files, reverse_graph)
 Step 6  git_analysis.get_git_churn(repo_path, entry.path) for each BlastRadiusEntry
           → populates BlastRadiusEntry.churn_score in place
 
-Step 7  ai_layer.run_ai_analysis(changed_files, blast_radius, repo_path)
-          → AIAnalysis
+Step 6a security.detect_pattern_signals(changed_files)
+          → list[SecuritySignal] (deterministic regex scan)
+
+Step 6b security.check_dependency_integrity(changed_files, osv_check)
+          → list[DependencyIssue]
+
+Step 7  ai_layer.run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals)
+          → AIAnalysis (3 API calls; 4 when pattern_signals is non-empty)
 
 Step 8  reporter.render_markdown(report) + reporter.render_json(report) + reporter.render_sarif(report)
           → str (Markdown), str (JSON), str (SARIF)
+
+Optional  ai_layer.run_verdict_analysis(ai_analysis, dependency_issues)
+          → Verdict  (only when --verdict or --verdict-json is given; 1 additional API call)
 ```
 
 The `ImpactReport` is assembled in `cli.py` after step 7, combining all outputs from steps 1–7 before passing to step 8.
 
-**Performance target:** Steps 1–6 complete in under 5 seconds on a typical repository. Step 7 is network-bound and depends on Claude API response time.
+**Performance target:** Steps 1–6b complete in under 5 seconds on a typical repository. Step 7 is network-bound and depends on Claude API response time.
 
 ---
 
@@ -725,6 +829,9 @@ startup; its values are applied only if the corresponding env var is not already
 | `--sarif` | (none) | Write SARIF 2.1.0 report to this file path |
 | `--max-depth` | `3` | Maximum BFS depth for blast radius calculation |
 | `--fail-on-severity` | `none` | Exit 1 if any anomaly meets or exceeds this level (`low`/`medium`/`high`) |
+| `--check-osv` | off | Query the OSV API for CVEs in newly added dependencies (requires network) |
+| `--verdict` | off | Run agent verdict analysis after the main pipeline; exit 2 if blockers found |
+| `--verdict-json` | (none) | Write verdict JSON to this file path (implies `--verdict`) |
 
 If neither `--output` nor `--json` is provided, the Markdown report is printed to `stdout`.
 
@@ -801,10 +908,13 @@ If neither `--output` nor `--json` is provided, the Markdown report is printed t
 - Config file (`~/.pr_impact/config.toml`)
 - Interactive PR selection in terminal sessions
 
-### Deferred to v0.3
+### Delivered in v0.3
 
-- Malicious code detection (pattern signals + contextual AI scoring + dependency integrity checks)
-- Dependency manifest analysis (`package.json`, `requirements.txt`, `pyproject.toml`)
+- Malicious pattern signal detection (`security.py`) — regex scan of added diff lines
+- Contextual AI security scoring — 4th API call (`PROMPT_SECURITY_SIGNALS`) when signals detected
+- Dependency integrity checks — typosquat detection, version-change flagging, optional OSV CVE lookup
+- Agent verdict analysis — `PROMPT_VERDICT` / `--verdict` / `--verdict-json` for agentic loop control
+- SARIF output extended to include `primpact/security-signal` and `primpact/dependency-issue` rules
 
 ### Deferred to v0.4
 
