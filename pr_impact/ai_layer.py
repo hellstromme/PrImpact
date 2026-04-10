@@ -195,6 +195,27 @@ def _find_neighbouring_signatures(
     return "\n\n".join(parts) if parts else "(none)"
 
 
+def _build_changed_files_before_signatures(changed_files: list[ChangedFile]) -> str:
+    """Return import/declaration signatures from the before-state of each changed file.
+
+    Anomaly detection excludes changed files from the neighbour set, so on large PRs
+    that touch many files in one package the 'established patterns' context is nearly
+    empty.  Providing the before-signatures of the changed files themselves gives
+    Claude evidence of what patterns already existed — e.g. that cli.py already
+    imported from classifier, dependency_graph, git_analysis etc. before this PR,
+    establishing that direct module calls from the orchestration layer are the norm.
+    """
+    parts: list[str] = []
+    for f in changed_files:
+        if not f.content_before:
+            continue
+        lang = resolve_language(f.path)
+        sigs = _extract_signatures(f.content_before, lang)
+        if sigs:
+            parts.append(f"### {f.path} (before this PR)\n{sigs}")
+    return "\n\n".join(parts) if parts else "(none)"
+
+
 # --- API call ---
 
 
@@ -334,6 +355,7 @@ def run_ai_analysis(
     ]
 
     # Call 2: anomaly detection
+    before_sigs = _build_changed_files_before_signatures(changed_files)
     try:
         neighbour_sigs = _find_neighbouring_signatures(changed_files, repo_path)
     except Exception as exc:
@@ -343,6 +365,7 @@ def run_ai_analysis(
         client,
         PROMPT_ANOMALY_DETECTION.format(
             changed_files_diff=diffs_ctx,
+            changed_files_before_signatures=before_sigs,
             neighbouring_signatures=neighbour_sigs,
         ),
         "call2_anomalies",

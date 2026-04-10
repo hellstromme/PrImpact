@@ -12,6 +12,7 @@ import pytest
 
 from pr_impact.ai_layer import (
     _build_blast_radius_signatures,
+    _build_changed_files_before_signatures,
     _build_diffs_context,
     _build_security_signals_context,
     _call_claude,
@@ -594,6 +595,70 @@ def test_neighbouring_sigs_skips_empty_neighbour_files(tmp_path):
     result = _find_neighbouring_signatures([f], str(tmp_path))
     assert "empty.py" not in result
     assert "real.py" in result
+
+
+# ---------------------------------------------------------------------------
+# _build_changed_files_before_signatures
+# ---------------------------------------------------------------------------
+
+
+def test_build_changed_files_before_sigs_extracts_imports_and_defs():
+    """Before-signatures include import and def lines from content_before."""
+    f = make_file(
+        path="cli.py",
+        before="from .classifier import classify\nfrom .security import detect\ndef _run_pipeline(): pass\n",
+    )
+    result = _build_changed_files_before_signatures([f])
+    assert "cli.py (before this PR)" in result
+    assert "from .classifier import classify" in result
+    assert "from .security import detect" in result
+    assert "def _run_pipeline" in result
+
+
+def test_build_changed_files_before_sigs_skips_empty_before():
+    """Files with no content_before (new files) are omitted."""
+    f = make_file(path="new_module.py", before="")
+    result = _build_changed_files_before_signatures([f])
+    assert result == "(none)"
+
+
+def test_build_changed_files_before_sigs_skips_files_with_no_extractable_sigs():
+    """Files whose before-content has no import/def lines produce no entry."""
+    f = make_file(path="data.py", before="x = 1\ny = 2\n")
+    result = _build_changed_files_before_signatures([f])
+    assert result == "(none)"
+
+
+def test_build_changed_files_before_sigs_multiple_files():
+    """Multiple changed files each get their own section."""
+    f1 = make_file(path="a.py", before="from .x import foo\n")
+    f2 = make_file(path="b.py", before="from .y import bar\n")
+    result = _build_changed_files_before_signatures([f1, f2])
+    assert "a.py (before this PR)" in result
+    assert "b.py (before this PR)" in result
+    assert "from .x import foo" in result
+    assert "from .y import bar" in result
+
+
+def test_run_ai_analysis_call2_includes_before_signatures(monkeypatch, tmp_path):
+    """Call 2 prompt includes before-signatures so Claude can see established patterns."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    empty = json.dumps({"anomalies": []})
+    client = _mock_client(
+        json.dumps({"summary": "", "decisions": [], "assumptions": []}),
+        empty,   # call 2
+        json.dumps({"test_gaps": []}),
+    )
+    # File has a distinctive before-import that should appear in the prompt
+    f = make_file(
+        path="cli.py",
+        before="from .classifier import classify_changed_file\ndef _run_pipeline(): pass\n",
+    )
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_ai_analysis([f], [], str(tmp_path))
+    # call 2 is the second messages.create call (index 1)
+    call2_prompt = client.messages.create.call_args_list[1][1]["messages"][0]["content"]
+    assert "from .classifier import classify_changed_file" in call2_prompt
 
 
 # ---------------------------------------------------------------------------

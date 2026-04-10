@@ -38,11 +38,17 @@ the conventions visible in the surrounding codebase.
 
 You will be given:
 - The diff for each changed file
-- Examples of the established patterns in nearby files (signatures and import structure)
+- The import/declaration signatures of the changed files before this PR — use these
+  to understand what patterns were already established inside those files
+- Examples of the established patterns in nearby unchanged files (signatures and import structure)
 
 Identify deviations that a reviewer should be aware of. Do not flag style differences.
 Flag things that suggest the change may not fit the architecture — unusual coupling,
 bypassed abstractions, patterns used in a context where they are not normally used.
+
+IMPORTANT: If the before-signatures of a changed file already show the same pattern
+(e.g. the same kind of import or the same calling convention), treat that pattern as
+established and do not flag additions that follow it.
 
 Respond in JSON:
 {{
@@ -55,10 +61,13 @@ Respond in JSON:
   ]
 }}
 
-Changed files:
+Changed files (diff):
 {changed_files_diff}
 
-Established patterns in neighbouring files:
+Signatures of changed files before this PR:
+{changed_files_before_signatures}
+
+Established patterns in neighbouring unchanged files:
 {neighbouring_signatures}
 """
 
