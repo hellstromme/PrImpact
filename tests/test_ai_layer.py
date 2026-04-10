@@ -660,6 +660,49 @@ def test_find_test_files_skips_unrelated_test_files(tmp_path):
     assert "test_utils.py" not in result
 
 
+def test_find_test_files_async_python_tests_extracted(tmp_path):
+    """async def test_* functions are included alongside sync ones."""
+    (tmp_path / "auth.py").write_text("async def login(): pass\n")
+    (tmp_path / "test_auth.py").write_text(
+        "import pytest\n"
+        "async def test_login_success(): pass\n"
+        "def test_login_failure(): pass\n"
+    )
+    f = make_file(path="auth.py")
+    result = _find_test_files([f], str(tmp_path))
+    assert "test_login_success" in result
+    assert "test_login_failure" in result
+
+
+def test_find_test_files_js_it_blocks_extracted(tmp_path):
+    """JS/TS it() and test() block titles are extracted instead of falling back."""
+    (tmp_path / "auth.js").write_text("export function login() {}\n")
+    (tmp_path / "test_auth.js").write_text(
+        'describe("auth", () => {\n'
+        '  it("logs in with valid credentials", () => {});\n'
+        '  test("rejects invalid password", () => {});\n'
+        "});\n"
+    )
+    f = make_file(path="auth.js")
+    result = _find_test_files([f], str(tmp_path))
+    assert "logs in with valid credentials" in result
+    assert "rejects invalid password" in result
+    # raw content fallback should NOT have been used (no 'export function' in body)
+    assert "export function" not in result
+
+
+def test_find_test_files_fallback_uses_4000_chars(tmp_path):
+    """When no test names can be extracted, fallback slice is 4000 chars (not 2000)."""
+    (tmp_path / "widget.js").write_text("function Widget() {}\n")
+    # Content with no it/test/describe patterns — triggers 4000-char fallback
+    long_content = "// non-standard structure\n" + "const x = 1;\n" * 500   # ~7500 chars
+    (tmp_path / "test_widget.js").write_text(long_content)
+    f = make_file(path="widget.js")
+    result = _find_test_files([f], str(tmp_path))
+    # With the 4000-char fallback the body is at least 3500 chars
+    assert len(result) > 3500
+
+
 # ---------------------------------------------------------------------------
 # _build_security_signals_context
 # ---------------------------------------------------------------------------

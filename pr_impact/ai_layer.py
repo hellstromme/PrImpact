@@ -144,16 +144,18 @@ def _find_test_files(changed_files: list[ChangedFile], repo_path: str) -> str:
                 content = _read_file_safe(entry.path)
                 if not content:
                     continue
-                # Extract test function names rather than raw content.
-                # A large test file (1000+ lines, 30k chars) would be truncated
-                # at 4000 chars, hiding tests appended later in the file.
-                # Function names give Claude a complete picture of coverage
-                # in ~1-2k chars regardless of file size.
-                test_names = re.findall(r"^\s*def (test_\w+)", content, re.MULTILINE)
+                # Extract test names for a complete coverage picture.
+                # Python: match sync and async test functions (async def test_* is common in pytest-asyncio).
+                py_names = re.findall(r"^\s*(?:async\s+)?def (test_\w+)", content, re.MULTILINE)
+                # JS/TS: extract it/test/describe block titles.
+                js_names = re.findall(
+                    r"""\b(?:it|test|describe)\s*\(\s*["'`]([^"'`\n]+)["'`]""", content
+                )
+                test_names = py_names + js_names
                 if test_names:
                     body = "\n".join(test_names)
                 else:
-                    body = content[:2000]   # non-standard structure — fall back to partial content
+                    body = content[:4000]   # non-standard structure — fall back to partial content
                 found[entry.name] = f"### {entry.path}\n{body}"
 
     return "\n\n".join(found.values()) if found else "(no test files found)"
