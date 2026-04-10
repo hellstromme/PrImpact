@@ -9,13 +9,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-v0.2 — complete. All v0.2 items are done:
-- Language expansion (Java, Go, Ruby) ✓
-- `--pr` GitHub native input ✓
-- CI/CD integration (GitHub Actions + GitLab CI template, `--fail-on-severity`) ✓
-- SARIF output (`--sarif`) ✓
+v0.3 — complete. All v0.3 items are done:
+- Language expansion (Java, Go, Ruby) ✓ (v0.2)
+- `--pr` GitHub native input ✓ (v0.2)
+- CI/CD integration (GitHub Actions + GitLab CI template, `--fail-on-severity`) ✓ (v0.2)
+- SARIF output (`--sarif`) ✓ (v0.2)
+- Malicious pattern signal detection (`security.py:detect_pattern_signals`) ✓
+- Contextual AI security scoring (4th API call via `PROMPT_SECURITY_SIGNALS`) ✓
+- Dependency integrity checks (`--check-osv`, typosquat detection, OSV lookup) ✓
+- Agent verdict analysis (`--verdict`, `--verdict-json`) ✓
 
-Next: v0.3 — Trust (malicious code detection).
+Next: v0.4 — Depth (AST-based analysis, richer anomaly detection).
 
 ## Commands
 
@@ -35,6 +39,12 @@ pr-impact analyse --repo /path/to/repo --pr 247 --output report.md --json report
 # Fail CI on high-severity anomalies
 pr-impact analyse --repo /path/to/repo --pr 247 --fail-on-severity high
 
+# Check new dependencies against OSV vulnerability database
+pr-impact analyse --repo /path/to/repo --pr 247 --check-osv
+
+# Run agent verdict analysis (exit 2 if blockers found)
+pr-impact analyse --repo /path/to/repo --pr 247 --verdict --verdict-json verdict.json
+
 # Required environment variables
 export ANTHROPIC_API_KEY=...
 export GITHUB_TOKEN=...   # optional; needed for --pr on private repos
@@ -53,10 +63,11 @@ pr_impact/
   git_analysis.py      # All git interaction (gitpython) — diffs, content, churn
   dependency_graph.py  # Regex-based import graph + BFS blast radius calculation
   classifier.py        # Changed symbol classification by impact type (regex, no AST)
-  ai_layer.py          # Three Claude API calls — the only network I/O
+  ai_layer.py          # 3–4 Claude API calls — the only network I/O
   prompts.py           # All prompt templates as string constants, no logic
   reporter.py          # Renders final Markdown, JSON, and SARIF from ImpactReport
   github.py            # GitHub API helpers (detect remote, fetch PR, list PRs)
+  security.py          # Deterministic security signal detection + dependency integrity checks
 ```
 
 ### Pipeline steps (in order, all in cli.py)
@@ -67,10 +78,12 @@ pr_impact/
 4. `classifier.classify_changed_file(file)` for each file → populates `ChangedFile.changed_symbols` in place
 5. `classifier.get_interface_changes(changed_files, reverse_graph)` → `list[InterfaceChange]`
 6. `git_analysis.get_git_churn(...)` for each blast radius entry → populates `BlastRadiusEntry.churn_score` in place
-7. `ai_layer.run_ai_analysis(...)` → `AIAnalysis` (3 sequential API calls)
+6a. `security.detect_pattern_signals(changed_files)` → `list[SecuritySignal]` (deterministic regex scan)
+6b. `security.check_dependency_integrity(changed_files)` → `list[DependencyIssue]`
+7. `ai_layer.run_ai_analysis(...)` → `AIAnalysis` (3 API calls; 4 when security signals present)
 8. `reporter.render_markdown()` + `reporter.render_json()` + `reporter.render_sarif()` → output
 
-Steps 1–6 are deterministic and CPU-bound (target: <5s). Step 7 is the only network call.
+Steps 1–6b are deterministic and CPU-bound (target: <5s). Step 7 is the only network call.
 
 ### Key data models (`models.py`)
 
@@ -79,15 +92,19 @@ Steps 1–6 are deterministic and CPU-bound (target: <5s). Step 7 is the only ne
 - `ChangedSymbol` — name, kind, `change_type` (see classifier), before/after signatures
 - `BlastRadiusEntry` — path, distance (BFS hops), imported symbols, churn score
 - `InterfaceChange` — public symbol with changed signature + list of caller files
-- `AIAnalysis` — summary, decisions, assumptions, anomalies, test gaps
+- `AIAnalysis` — summary, decisions, assumptions, anomalies, test gaps, security signals
+- `SecuritySignal` — description, file path, line number, signal type, severity, why unusual, suggested action
+- `DependencyIssue` — package name, issue type (typosquat/version_change/vulnerability), description, severity
+- `Verdict` — status, `agent_should_continue` bool, rationale, list of `VerdictBlocker`
 
-### AI layer (3 calls per run)
+### AI layer (3–4 calls per run)
 
 | Call | Prompt | Context included |
 |------|--------|-----------------|
 | 1 | Summary + Decisions + Assumptions | Diffs + blast radius signatures |
-| 2 | Anomaly Detection | Diffs + neighbouring file signatures |
+| 2 | Anomaly Detection | Diffs + before-signatures + neighbouring file signatures |
 | 3 | Test Gap Analysis | Diffs + existing test files |
+| 4 | Security Signal Scoring | Pattern signals + diffs + file context (only when signals detected) |
 
 Model: `claude-sonnet-4-5`. Prompts are in `prompts.py` (iterable independently of logic).
 

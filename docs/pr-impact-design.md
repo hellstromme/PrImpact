@@ -537,4 +537,4 @@ this use case.
 - Performance impact modelling
 - Roadmap / backlog integration (deferred to v2.0)
 - Web UI or dashboard (deferred to v1.0)
-- Malicious code detection (deferred to v0.3)
+- Malicious code detection (delivered in v0.3 — see `security.py` and `PROMPT_SECURITY_SIGNALS`)

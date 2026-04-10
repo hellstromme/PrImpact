@@ -55,6 +55,9 @@ pr-impact analyse \
 | `--sarif` | none | Write SARIF 2.1.0 report to this file |
 | `--max-depth` | 3 | BFS depth for blast radius (cap at 3 recommended) |
 | `--fail-on-severity` | `none` | Exit 1 if any anomaly meets or exceeds this level (`low`/`medium`/`high`) |
+| `--check-osv` | off | Query the OSV vulnerability database for new dependencies (requires network) |
+| `--verdict` | off | Run agent verdict analysis; exit 2 if actionable blockers are found |
+| `--verdict-json` | none | Write verdict JSON to this file (implies `--verdict`) |
 
 ## Environment variables
 
@@ -79,6 +82,8 @@ The Markdown report contains:
 - **Decisions and Assumptions** — design choices inferred from the diff, with rationale and risks
 - **Anomalies** — patterns that are inconsistent with the surrounding codebase
 - **Test Gaps** — behaviours that are changed but not covered by existing tests
+- **Security Signals** — suspicious patterns detected in the diff, scored by AI for context (only when signals are found)
+- **Dependency Issues** — new packages that resemble known typosquats, version pin changes, or known CVEs (only when manifest files changed)
 
 Progress and warnings are written to stderr. The Markdown report goes to stdout (or `--output`).
 
