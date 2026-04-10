@@ -17,7 +17,7 @@ dependencies = [
     "tree-sitter-typescript>=0.23.2,<0.26",
     "tree-sitter-java>=0.23.2,<0.26",
     "tree-sitter-go>=0.23.2,<0.26",
-    "tree-sitter-ruby>=0.23.2,<0.26",
+    "tree-sitter-ruby>=0.23.0,<0.26",
     "tree-sitter-c-sharp>=0.23.2,<0.26",
 ]
 
