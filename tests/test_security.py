@@ -7,6 +7,7 @@ import pytest
 
 from pr_impact.security import (
     _added_lines,
+    _detect_version_changes,
     _is_infra_file,
     _is_typosquat,
     _levenshtein,
@@ -366,3 +367,237 @@ def test_check_requirements_txt_variant():
     f = make_file("requirements-dev.txt", diff=diff)
     issues = check_dependency_integrity([f])
     assert any(i.issue_type == "typosquat" for i in issues)
+
+
+def test_check_vulnerability_detected_when_osv_returns_results():
+    diff = "@@ -1 +1,2 @@\n requests==2.28.0\n+newpkg==1.0.0\n"
+    f = make_file("requirements.txt", diff=diff)
+    with patch("pr_impact.security._osv_check", return_value=["GHSA-1234"]):
+        issues = check_dependency_integrity([f], osv_check=True)
+    vuln_issues = [i for i in issues if i.issue_type == "vulnerability"]
+    assert vuln_issues
+    assert "GHSA-1234" in vuln_issues[0].description
+    assert vuln_issues[0].severity == "high"
+
+
+def test_check_version_change_has_low_severity():
+    diff = "@@ -1 +1 @@\n-requests==2.27.0\n+requests==2.28.1\n"
+    f = make_file("requirements.txt", diff=diff)
+    issues = check_dependency_integrity([f])
+    version_issues = [i for i in issues if i.issue_type == "version_change"]
+    assert version_issues
+    assert all(i.severity == "low" for i in version_issues)
+
+
+# ---------------------------------------------------------------------------
+# detect_pattern_signals — language-specific patterns
+# ---------------------------------------------------------------------------
+
+
+def test_detects_js_fetch_call():
+    f = make_file("src/api.js", diff=_make_diff("const res = fetch('https://api.example.com')"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "network_call" for s in signals)
+
+
+def test_detects_axios_call():
+    f = make_file("src/client.ts", diff=_make_diff("axios.post('/endpoint', data)"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "network_call" for s in signals)
+
+
+def test_detects_ruby_net_http():
+    f = make_file("lib/client.rb", diff=_make_diff("response = Net::HTTP.get(uri)"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "network_call" for s in signals)
+
+
+def test_detects_go_http_get():
+    f = make_file("pkg/client.go", diff=_make_diff('resp, err := http.Get("https://api.example.com")'))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "network_call" for s in signals)
+
+
+def test_detects_credential_case_insensitive():
+    f = make_file("src/config.py", diff=_make_diff('API_KEY = "sk-very-long-secret-value"'))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "credential" for s in signals)
+
+
+def test_detects_atob_encoded_payload():
+    f = make_file("src/utils.js", diff=_make_diff("const data = atob(encodedString)"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "encoded_payload" for s in signals)
+
+
+def test_detects_hex_buffer():
+    f = make_file("src/crypto.js", diff=_make_diff("Buffer.from(payload, 'hex')"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "encoded_payload" for s in signals)
+
+
+def test_detects_new_function_dynamic_exec():
+    f = make_file("src/handler.js", diff=_make_diff("const fn = new Function('return 42')"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "dynamic_exec" for s in signals)
+
+
+def test_detects_compile_exec_dynamic():
+    f = make_file("src/plugin.py", diff=_make_diff("code = compile(src, '<string>', 'exec')"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "dynamic_exec" for s in signals)
+
+
+def test_detects_child_process_exec():
+    f = make_file("src/runner.js", diff=_make_diff("child_process.exec(cmd, callback)"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "shell_invoke" for s in signals)
+
+
+def test_detects_python_socket_suspicious_import():
+    f = make_file("src/auth.py", diff=_make_diff("import socket"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "suspicious_import" for s in signals)
+
+
+def test_detects_js_child_process_require():
+    f = make_file("src/handler.js", diff=_make_diff("const { exec } = require('child_process')"))
+    signals = detect_pattern_signals([f])
+    assert any(s.signal_type == "suspicious_import" for s in signals)
+
+
+def test_why_unusual_mentions_existing_pattern_when_present_before():
+    f = make_file(
+        "src/api.py",
+        diff=_make_diff("subprocess.run(['ls'])"),
+        before="import subprocess\nsubprocess.run(['make'])\n",
+    )
+    signals = detect_pattern_signals([f])
+    shell_signals = [s for s in signals if s.signal_type == "shell_invoke"]
+    assert shell_signals
+    assert "before" in shell_signals[0].why_unusual.lower() or "exists" in shell_signals[0].why_unusual.lower()
+
+
+def test_detect_signals_per_file_exception_skipped():
+    """A bad file is skipped; valid files are still processed."""
+    bad_file = MagicMock()
+    bad_file.path = "src/bad.py"
+    bad_file.diff = None  # causes _added_lines to fail
+    good = make_file("src/auth.py", diff=_make_diff("os.system('whoami')"))
+    signals = detect_pattern_signals([bad_file, good])
+    assert any(s.signal_type == "shell_invoke" for s in signals)
+
+
+# ---------------------------------------------------------------------------
+# _added_lines — line number tracking
+# ---------------------------------------------------------------------------
+
+
+def test_added_lines_line_numbers_start_from_chunk_header():
+    diff = "@@ -10,3 +20,4 @@\n context\n+new line\n context\n"
+    lines = _added_lines(diff)
+    assert lines  # line numbers should reflect new-file numbering starting at 20
+    # First context line = 20, +new line = 21
+    assert lines[0][0] == 21
+
+
+def test_added_lines_multiple_hunks_correct_numbering():
+    diff = "@@ -1 +1 @@\n+first add\n@@ -10 +11 @@\n+second add\n"
+    lines = _added_lines(diff)
+    assert len(lines) == 2
+    assert lines[0][0] == 1
+    assert lines[1][0] == 11
+
+
+def test_added_lines_context_lines_increment_counter():
+    diff = "@@ -1,4 +1,4 @@\n context\n context\n+added here\n context\n"
+    lines = _added_lines(diff)
+    assert lines
+    # 2 context lines before the addition: start at 1, after 2 context lines = line 3
+    assert lines[0][0] == 3
+
+
+# ---------------------------------------------------------------------------
+# _parse_new_packages — format variants
+# ---------------------------------------------------------------------------
+
+
+def test_parse_pyproject_toml_dependency():
+    diff = '@@ -1 +1,2 @@\n [project]\n+evil-lib = ">=1.0"\n'
+    pkgs = _parse_new_packages(diff, "pypi")
+    assert "evil-lib" in pkgs
+
+
+def test_parse_go_mod_require():
+    diff = "@@ -1 +1,2 @@\n module example.com\n+\tgithub.com/evil/pkg v1.2.3\n"
+    pkgs = _parse_new_packages(diff, "go")
+    assert any("evil" in p for p in pkgs)
+
+
+def test_parse_skips_comment_lines():
+    diff = "@@ -1 +1,2 @@\n requests==2.28.0\n+# this is a comment\n"
+    pkgs = _parse_new_packages(diff, "pypi")
+    assert "# this is a comment" not in pkgs
+    assert not any(p.startswith("#") for p in pkgs)
+
+
+def test_parse_filters_very_short_package_names():
+    diff = "@@ -1 +1,2 @@\n requests==2.28.0\n+a==1.0\n"
+    pkgs = _parse_new_packages(diff, "pypi")
+    # "a" has length 1, should be filtered (length < 2)
+    assert "a" not in pkgs
+
+
+# ---------------------------------------------------------------------------
+# _detect_version_changes
+# ---------------------------------------------------------------------------
+
+
+def test_detect_version_changes_returns_sorted_list():
+    diff = "@@ -1,3 +1,3 @@\n-requests==2.27.0\n+requests==2.28.1\n-flask==2.0.0\n+flask==2.1.0\n"
+    result = _detect_version_changes(diff, "pypi")
+    assert result == sorted(result)
+    assert "requests" in result
+    assert "flask" in result
+
+
+def test_detect_version_changes_ignores_unchanged_packages():
+    diff = "@@ -1,2 +1,2 @@\n-requests==2.27.0\n+requests==2.28.1\n numpy==1.24.0\n"
+    result = _detect_version_changes(diff, "pypi")
+    assert "requests" in result
+    assert "numpy" not in result  # unchanged (context line, not - or +)
+
+
+def test_detect_version_changes_returns_empty_for_new_only_packages():
+    diff = "@@ -1 +1,2 @@\n requests==2.28.0\n+newpkg==1.0.0\n"
+    result = _detect_version_changes(diff, "pypi")
+    # newpkg only in added lines, not in removed → not a version change
+    assert "newpkg" not in result
+
+
+def test_detect_version_changes_unknown_ecosystem():
+    result = _detect_version_changes("+whatever\n", "unknown")
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _osv_check — error paths
+# ---------------------------------------------------------------------------
+
+
+def test_osv_check_returns_empty_on_malformed_json():
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"not valid json {"
+    mock_response.__enter__ = lambda self: self
+    mock_response.__exit__ = MagicMock(return_value=False)
+    with patch("pr_impact.security.urllib.request.urlopen", return_value=mock_response):
+        result = _osv_check("any-pkg", "pypi")
+    assert result == []
+
+
+def test_osv_check_returns_empty_on_http_error():
+    import urllib.error
+    with patch("pr_impact.security.urllib.request.urlopen",
+               side_effect=urllib.error.HTTPError(None, 500, "Server Error", {}, None)):
+        result = _osv_check("any-pkg", "pypi")
+    assert result == []

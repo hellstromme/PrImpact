@@ -13,6 +13,7 @@ import pytest
 from pr_impact.ai_layer import (
     _build_blast_radius_signatures,
     _build_diffs_context,
+    _build_security_signals_context,
     _call_claude,
     _extract_signatures,
     _find_neighbouring_signatures,
@@ -21,8 +22,22 @@ from pr_impact.ai_layer import (
     _parse_json_safe,
     run_ai_analysis,
 )
-from pr_impact.models import BlastRadiusEntry, ChangedFile
+from pr_impact.models import BlastRadiusEntry, ChangedFile, SecuritySignal
 from tests.helpers import make_file
+
+
+def _make_security_signal(**kwargs) -> SecuritySignal:
+    defaults = dict(
+        description="New shell invoke",
+        file_path="src/auth.py",
+        line_number=10,
+        signal_type="shell_invoke",
+        severity="high",
+        why_unusual="No prior shell calls.",
+        suggested_action="Confirm intent.",
+    )
+    defaults.update(kwargs)
+    return SecuritySignal(**defaults)
 
 # _DIFF_CHAR_LIMIT = 8_000 tokens * 4 chars/token = 32_000 chars
 _LIMIT = 32_000
@@ -656,3 +671,184 @@ def test_find_test_files_skips_unrelated_test_files(tmp_path):
     f = make_file(path="models.py")
     result = _find_test_files([f], str(tmp_path))
     assert "test_utils.py" not in result
+
+
+# ---------------------------------------------------------------------------
+# _build_security_signals_context
+# ---------------------------------------------------------------------------
+
+
+def test_security_context_empty_signals_returns_none_placeholder():
+    signals_text, _ = _build_security_signals_context([], [])
+    assert signals_text == "(none)"
+
+
+def test_security_context_signal_with_line_number_formatted():
+    sig = _make_security_signal(line_number=42)
+    signals_text, _ = _build_security_signals_context([sig], [])
+    assert "line 42" in signals_text
+    assert "HIGH" in signals_text
+    assert "shell_invoke" in signals_text
+
+
+def test_security_context_signal_without_line_number_omits_line_info():
+    sig = _make_security_signal(line_number=None)
+    signals_text, _ = _build_security_signals_context([sig], [])
+    assert "line" not in signals_text
+
+
+def test_security_context_extracts_signatures_from_content_before():
+    f = make_file(path="src/auth.py", before="def login(): pass\n")
+    sig = _make_security_signal(file_path="src/auth.py")
+    _, file_ctx = _build_security_signals_context([sig], [f])
+    assert "src/auth.py" in file_ctx
+    assert "def login" in file_ctx
+
+
+def test_security_context_no_prior_content_returns_placeholder():
+    f = make_file(path="new_file.py", before="")
+    _, file_ctx = _build_security_signals_context([_make_security_signal()], [f])
+    assert file_ctx == "(no prior content)"
+
+
+def test_security_context_multiple_signals_all_included():
+    sigs = [
+        _make_security_signal(signal_type="shell_invoke", severity="high"),
+        _make_security_signal(signal_type="network_call", severity="medium"),
+    ]
+    signals_text, _ = _build_security_signals_context(sigs, [])
+    assert "shell_invoke" in signals_text
+    assert "network_call" in signals_text
+
+
+# ---------------------------------------------------------------------------
+# run_ai_analysis — 4th call (security signals)
+# ---------------------------------------------------------------------------
+
+
+def test_run_ai_analysis_skips_4th_call_when_pattern_signals_none(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=None)
+    assert client.messages.create.call_count == 3
+    assert result.security_signals == []
+
+
+def test_run_ai_analysis_skips_4th_call_when_pattern_signals_empty(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[])
+    assert client.messages.create.call_count == 3
+    assert result.security_signals == []
+
+
+def test_run_ai_analysis_makes_4th_call_when_signals_present(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([{
+        "description": "AI-enriched signal",
+        "file_path": "src/auth.py",
+        "line_number": 10,
+        "signal_type": "shell_invoke",
+        "severity": "high",
+        "why_unusual": "No prior shells.",
+        "suggested_action": "Ask author.",
+    }])
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
+    assert client.messages.create.call_count == 4
+    assert len(result.security_signals) == 1
+    assert result.security_signals[0].description == "AI-enriched signal"
+    assert result.security_signals[0].severity == "high"
+
+
+def test_run_ai_analysis_parses_signals_from_dict_with_signals_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps({"signals": [{
+        "description": "wrapped", "file_path": "f.py", "line_number": 1,
+        "signal_type": "network_call", "severity": "medium",
+        "why_unusual": "unusual", "suggested_action": "check",
+    }]})
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
+    assert len(result.security_signals) == 1
+    assert result.security_signals[0].description == "wrapped"
+
+
+def test_run_ai_analysis_parses_signals_from_dict_with_security_signals_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps({"security_signals": [{
+        "description": "nested", "file_path": "f.py", "line_number": 5,
+        "signal_type": "credential", "severity": "high",
+        "why_unusual": "unusual", "suggested_action": "check",
+    }]})
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
+    assert len(result.security_signals) == 1
+    assert result.security_signals[0].signal_type == "credential"
+
+
+def test_run_ai_analysis_falls_back_to_raw_signals_on_empty_response(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([])  # empty list → fall back
+    client = _mock_client(r1, r2, r3, r4)
+    raw_sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[raw_sig])
+    assert result.security_signals == [raw_sig]
+
+
+def test_run_ai_analysis_falls_back_to_raw_signals_on_unexpected_shape(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps({})  # dict with no signals key → fall back
+    client = _mock_client(r1, r2, r3, r4)
+    raw_sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[raw_sig])
+    assert result.security_signals == [raw_sig]
+
+
+def test_run_ai_analysis_non_int_line_number_becomes_none(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([{
+        "description": "sig", "file_path": "f.py",
+        "line_number": "not-an-int",  # non-int → should become None
+        "signal_type": "eval", "severity": "high",
+        "why_unusual": "u", "suggested_action": "s",
+    }])
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
+    assert result.security_signals[0].line_number is None

@@ -1024,3 +1024,93 @@ def test_json_includes_dependency_issues():
     issues = data["dependency_issues"]
     assert len(issues) == 1
     assert issues[0]["package_name"] == "requets"
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — SARIF location detail
+# ---------------------------------------------------------------------------
+
+
+def test_sarif_security_signal_includes_location_for_file_path():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    assert "locations" in results[0]
+    assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "src/auth/session.py"
+
+
+def test_sarif_security_signal_includes_line_number_when_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    region = results[0]["locations"][0]["physicalLocation"].get("region", {})
+    assert region.get("startLine") == 47
+
+
+def test_sarif_security_signal_no_location_when_empty_file_path():
+    sig = _make_signal()
+    sig.file_path = ""
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    assert "locations" not in results[0]
+
+
+def test_sarif_security_signal_medium_maps_to_warning():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("medium")]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results[0]["level"] == "warning"
+
+
+def test_sarif_security_signal_low_maps_to_note():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("low")]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results[0]["level"] == "note"
+
+
+def test_sarif_dependency_issue_high_maps_to_error():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/dependency-issue"]
+    assert results
+    assert results[0]["level"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_terminal detail
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_security_signals_shows_severity_counts():
+    signals = [
+        _make_signal("high"),
+        _make_signal("medium"),
+        _make_signal("low"),
+    ]
+    report = make_report(ai_analysis=AIAnalysis(security_signals=signals))
+    out = _capture_terminal(report)
+    assert "1 high" in out
+    assert "1 medium" in out
+    assert "1 low" in out
+
+
+def test_terminal_security_signals_shows_disclaimer():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "Not a security audit" in out or "not a security audit" in out.lower()
+
+
+def test_terminal_security_signals_shows_line_number():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert ":47" in out
+
+
+def test_terminal_security_signals_absent_when_both_empty():
+    report = make_report(ai_analysis=AIAnalysis(), dependency_issues=[])
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" not in out

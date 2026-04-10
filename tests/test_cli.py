@@ -1291,3 +1291,115 @@ def test_fail_on_severity_low_exits_1_on_low_anomaly(runner):
             env=_ENV,
         )
     assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# _run_pipeline — security steps
+# ---------------------------------------------------------------------------
+
+
+def test_run_pipeline_detect_signals_failure_continues():
+    """detect_pattern_signals raising is non-fatal — continues with empty list."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("scan error")),
+        patches[7],
+    ):
+        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    # pipeline completed; dep is from check_dependency_integrity mock (returns [])
+    assert dep == []
+
+
+def test_run_pipeline_check_integrity_failure_continues():
+    """check_dependency_integrity raising is non-fatal — continues with empty list."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("dep error")),
+    ):
+        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert dep == []
+
+
+def test_run_pipeline_dependency_issues_returned_as_sixth_element():
+    from pr_impact.models import DependencyIssue
+    dep_issue = DependencyIssue(package_name="evil-pkg", issue_type="typosquat",
+                                description="suspicious", severity="high")
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    patches[7] = patch("pr_impact.cli.check_dependency_integrity", return_value=[dep_issue])
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert dep == [dep_issue]
+
+
+def test_run_pipeline_progress_shows_4_calls_when_signals_present():
+    """When detect_pattern_signals returns signals, progress message says 4 API calls."""
+    from pr_impact.models import SecuritySignal
+    sig = SecuritySignal(description="x", file_path="f.py", line_number=1,
+                         signal_type="shell_invoke", severity="high",
+                         why_unusual="u", suggested_action="s")
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    patches[6] = patch("pr_impact.cli.detect_pattern_signals", return_value=[sig])
+    mock_progress = MagicMock()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _run_pipeline(".", MagicMock(), refs, 3, mock_progress)
+    descriptions = [str(c) for c in mock_progress.update.call_args_list]
+    assert any("4" in d for d in descriptions)
+
+
+def test_run_pipeline_progress_shows_3_calls_when_no_signals():
+    """When detect_pattern_signals returns [], progress message says 3 API calls."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    mock_progress = MagicMock()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _run_pipeline(".", MagicMock(), refs, 3, mock_progress)
+    descriptions = [str(c) for c in mock_progress.update.call_args_list]
+    assert any("3" in d for d in descriptions)
+
+
+# ---------------------------------------------------------------------------
+# analyse command — dependency_issues passed to ImpactReport
+# ---------------------------------------------------------------------------
+
+
+def test_analyse_dependency_issues_in_report(runner):
+    """dependency_issues from the pipeline end up in the ImpactReport."""
+    from pr_impact.models import DependencyIssue
+    dep_issue = DependencyIssue(package_name="requets", issue_type="typosquat",
+                                description="similar to requests", severity="high")
+    patches = _base_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patch("pr_impact.cli.check_dependency_integrity", return_value=[dep_issue]),
+    ):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+    # Dep issue should appear in the terminal output (Security Signals section)
+    assert "requets" in result.output
