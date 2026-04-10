@@ -1224,3 +1224,34 @@ def test_verdict_clean_no_blockers_section_when_empty():
 def test_verdict_agent_verdict_rule_present():
     out = _capture_verdict(_make_verdict())
     assert "AGENT VERDICT" in out
+
+
+def test_markdown_security_signal_omits_why_unusual_when_empty():
+    sig = _make_signal()
+    sig.why_unusual = ""
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    md = render_markdown(report)
+    assert "Why this is unusual" not in md
+
+
+def test_markdown_security_signal_omits_suggested_action_when_empty():
+    sig = _make_signal()
+    sig.suggested_action = ""
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    md = render_markdown(report)
+    assert "Suggested action" not in md
+
+
+def test_sarif_security_signal_message_includes_why_unusual():
+    sig = _make_signal()
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    assert "No prior network access" in results[0]["message"]["text"]
+
+
+def test_terminal_security_signal_shows_why_unusual():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "No prior network access" in out

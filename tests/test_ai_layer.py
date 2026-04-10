@@ -1104,3 +1104,62 @@ def test_run_verdict_prompt_includes_anomaly_count(monkeypatch):
     prompt = client.messages.create.call_args[1]["messages"][0]["content"]
     assert "1" in prompt   # anomaly_count=1 appears in the prompt
     assert "x" in prompt   # anomaly description included
+
+
+def test_run_verdict_empty_anomalies_formats_as_none(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    report = make_report()  # default report has no anomalies in ai_analysis
+    from pr_impact.models import AIAnalysis
+    report = make_report(ai_analysis=AIAnalysis())
+    client = _mock_client(_verdict_response())
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_verdict_analysis(report)
+    prompt = client.messages.create.call_args[1]["messages"][0]["content"]
+    assert "(none)" in prompt
+
+
+def test_run_verdict_empty_test_gaps_formats_as_none(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from pr_impact.models import AIAnalysis
+    report = make_report(ai_analysis=AIAnalysis())
+    client = _mock_client(_verdict_response())
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_verdict_analysis(report)
+    prompt = client.messages.create.call_args[1]["messages"][0]["content"]
+    assert "(none)" in prompt
+
+
+def test_run_verdict_empty_security_signals_formats_as_none(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from pr_impact.models import AIAnalysis
+    report = make_report(ai_analysis=AIAnalysis(), dependency_issues=[])
+    client = _mock_client(_verdict_response())
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_verdict_analysis(report)
+    prompt = client.messages.create.call_args[1]["messages"][0]["content"]
+    assert "(none)" in prompt
+
+
+def test_run_verdict_empty_dependency_issues_formats_as_none(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from pr_impact.models import AIAnalysis
+    report = make_report(ai_analysis=AIAnalysis(), dependency_issues=[])
+    client = _mock_client(_verdict_response())
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_verdict_analysis(report)
+    prompt = client.messages.create.call_args[1]["messages"][0]["content"]
+    assert "(none)" in prompt
+
+
+def test_run_verdict_missing_blockers_key_produces_empty_list(monkeypatch):
+    """Dict response with no 'blockers' key → blockers defaults to empty list."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(json.dumps({
+        "status": "clean",
+        "agent_should_continue": False,
+        "rationale": "Fine.",
+        # 'blockers' key absent
+    }))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert verdict.blockers == []

@@ -1606,3 +1606,19 @@ def test_verdict_not_called_without_flag(runner):
             env=_ENV,
         )
     mock_v.assert_not_called()
+
+
+def test_analyse_check_osv_passes_flag_to_check_dependency_integrity(runner):
+    """--check-osv flag is forwarded as osv_check=True to check_dependency_integrity."""
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            patch("pr_impact.cli.detect_pattern_signals", return_value=[]), \
+            patch("pr_impact.cli.check_dependency_integrity", return_value=[]) as mock_dep:
+        runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--check-osv"],
+            env=_ENV,
+        )
+    mock_dep.assert_called_once()
+    _, kwargs = mock_dep.call_args
+    assert kwargs.get("osv_check") is True
