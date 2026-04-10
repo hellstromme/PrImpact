@@ -1068,13 +1068,13 @@ def test_run_verdict_api_failure_returns_clean(monkeypatch):
     assert verdict.agent_should_continue is False
 
 
-def test_run_verdict_non_dict_response_returns_clean(monkeypatch):
-    """Non-dict JSON (e.g. bare string) → clean fallback."""
+def test_run_verdict_non_dict_response_raises(monkeypatch):
+    """Non-dict JSON (e.g. bare string) → ValueError so cli.py can handle gracefully."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     client = _mock_client(json.dumps("unexpected"))
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
-        verdict = run_verdict_analysis(make_report())
-    assert verdict.agent_should_continue is False
+        with pytest.raises(ValueError, match="not a JSON object"):
+            run_verdict_analysis(make_report())
 
 
 def test_run_verdict_non_dict_blockers_skipped(monkeypatch):

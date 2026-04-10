@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import os
 import sys
 from collections import defaultdict
@@ -544,8 +546,6 @@ def analyse(
             sys.exit(1)
 
     if run_verdict or verdict_output is not None:
-        import dataclasses
-        import json as _json
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -563,7 +563,7 @@ def analyse(
 
         if verdict_output is not None:
             Path(verdict_output).write_text(
-                _json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
+                json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
             )
             stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
 

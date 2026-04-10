@@ -111,6 +111,10 @@ class AIAnalysis:
     assumptions: list[Assumption] = field(default_factory=list)
     anomalies: list[Anomaly] = field(default_factory=list)
     test_gaps: list[TestGap] = field(default_factory=list)
+    # security_signals lives here (not on ImpactReport) because it is the output
+    # of the 4th Claude API call — AI-scored and context-adjusted findings.
+    # dependency_issues lives on ImpactReport because it is deterministic output
+    # from security.py, produced before any AI call.
     security_signals: list[SecuritySignal] = field(default_factory=list)
 
 

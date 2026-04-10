@@ -4,8 +4,13 @@ Two public functions:
   detect_pattern_signals(changed_files)   → list[SecuritySignal]
   check_dependency_integrity(changed_files) → list[DependencyIssue]
 
-Both catch their own exceptions and return empty lists on failure.
-No imports from other pr_impact modules except models.py.
+Both catch their own per-file exceptions and return empty lists on failure so
+that a bad file never aborts the full pipeline.
+
+Network I/O (OSV vulnerability lookup) uses stdlib urllib.request deliberately —
+adding requests as a hard dependency for an opt-in feature would be wrong.
+github.py uses PyGitHub/requests because that dependency is already present for
+the --pr flag. OSV lookup is behind --check-osv and must not require new deps.
 """
 
 import json

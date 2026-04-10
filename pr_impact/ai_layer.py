@@ -409,8 +409,8 @@ def run_ai_analysis(
 def run_verdict_analysis(report: ImpactReport) -> Verdict:
     """Run the verdict API call against a completed ImpactReport.
 
-    Returns a Verdict with agent_should_continue=False (clean) on any API failure,
-    so an agent loop always terminates safely when the network is unavailable.
+    Raises ValueError when the API key is missing or the response cannot be parsed
+    as a verdict dict. The caller (cli.py) is responsible for graceful degradation.
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -466,9 +466,8 @@ def run_verdict_analysis(report: ImpactReport) -> Verdict:
 
     data = _call_api(client, prompt, "call_verdict")
 
-    # Graceful degradation: any parse failure → clean verdict so the loop terminates
     if not isinstance(data, dict):
-        return Verdict(status="clean", agent_should_continue=False, rationale="Verdict parse failed — defaulting to clean.")
+        raise ValueError(f"Verdict response was not a JSON object (got {type(data).__name__})")
 
     blockers = [
         VerdictBlocker(
