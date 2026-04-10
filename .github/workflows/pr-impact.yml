@@ -9,6 +9,8 @@ jobs:
     name: Analyse PR impact
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
+    outputs:
+      artifact_id: ${{ steps.upload_artifacts.outputs.artifact-id }}
     permissions:
       actions: read
       contents: read
@@ -77,6 +79,7 @@ jobs:
           fi
 
       - name: Upload report artefacts
+        id: upload_artifacts
         if: always() && steps.analysis.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
@@ -94,6 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       needs.analyse.result == 'success' &&
+      needs.analyse.outputs.artifact_id != '' &&
       github.repository == github.event.pull_request.head.repo.full_name
     permissions:
       security-events: write
