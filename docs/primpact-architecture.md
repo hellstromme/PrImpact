@@ -1,8 +1,8 @@
 # Primpact — Architecture Document
 
-**Version:** 0.1 (MVP)  
-**Status:** Design complete, pre-implementation  
-**Last updated:** 2026-03-29
+**Version:** 0.2  
+**Status:** Current  
+**Last updated:** 2026-04-10
 
 ---
 
@@ -20,7 +20,8 @@
    - 5.5 [ai_layer.py — Claude API Integration](#55-ai_layerpy--claude-api-integration)
    - 5.6 [prompts.py — Prompt Templates](#56-promptspy--prompt-templates)
    - 5.7 [reporter.py — Output Rendering](#57-reporterpy--output-rendering)
-   - 5.8 [models.py — Shared Data Types](#58-modelspy--shared-data-types)
+   - 5.8 [github.py — GitHub API Helpers](#58-githubpy--github-api-helpers)
+   - 5.9 [models.py — Shared Data Types](#59-modelspy--shared-data-types)
 6. [Pipeline Orchestration](#6-pipeline-orchestration)
 7. [External Interfaces](#7-external-interfaces)
 8. [Context Budget Strategy](#8-context-budget-strategy)
@@ -94,7 +95,8 @@ pr_impact/
   classifier.py        # Changed symbol classification by impact type
   ai_layer.py          # Claude API calls — summary, decisions, anomalies, test gaps
   prompts.py           # All prompt templates (separated from logic)
-  reporter.py          # Assembles and renders the final Markdown and JSON report
+  reporter.py          # Assembles and renders the final Markdown, JSON, and SARIF reports
+  github.py            # GitHub API helpers — PR resolution, remote detection, PR listing
   models.py            # Shared dataclasses used across all modules
 ```
 
@@ -112,7 +114,7 @@ Represents a single file that was modified between `base_sha` and `head_sha`.
 @dataclass
 class ChangedFile:
     path: str
-    language: str           # 'python' | 'typescript' | 'javascript' | 'csharp' | 'unknown'
+    language: str           # 'python' | 'typescript' | 'javascript' | 'csharp' | 'java' | 'go' | 'ruby' | 'unknown'
     diff: str               # Raw unified diff
     content_before: str     # Full file content at base_sha
     content_after: str      # Full file content at head_sha
@@ -221,6 +223,20 @@ class TestGap:
     location: str           # File and function
 ```
 
+### `RefsResult`
+
+Resolved commit references plus optional PR metadata, returned by the GitHub PR resolution
+logic before pipeline execution.
+
+```python
+@dataclass
+class RefsResult:
+    base_sha: str
+    head_sha: str
+    pr_title: str           # PR title if resolved from GitHub; empty string otherwise
+    pr_number: int | None   # PR number if resolved from --pr flag; None otherwise
+```
+
 ### `ImpactReport`
 
 The top-level model that aggregates all analysis results.
@@ -250,21 +266,26 @@ Uses `click` for argument parsing. Owns the pipeline orchestration loop. Prints 
 ```
 pr-impact analyse \
   --repo /path/to/repo \
-  --base abc1234 \
-  --head def5678 \
+  [--pr 247 | --base abc1234 --head def5678] \
   [--output report.md] \
   [--json report.json] \
-  [--max-depth 3]
+  [--sarif report.sarif] \
+  [--max-depth 3] \
+  [--fail-on-severity high]
 ```
 
 #### Responsibilities
 
 - Parse and validate CLI arguments
+- Load config from `~/.pr_impact/config.toml` if present (sets `ANTHROPIC_API_KEY` and/or `GITHUB_TOKEN` if not already in env)
+- Resolve commit refs: if `--pr` is given, call `github.fetch_pr()` to get base/head SHAs; if in an interactive terminal with no explicit refs, list open PRs for the user to pick; otherwise fall back to `HEAD~1..HEAD`
 - Call each pipeline step in order (see section 6)
 - Write Markdown to `stdout` by default; write to `--output` file if specified
 - Write JSON sidecar to `--json` file if specified
+- Write SARIF 2.1.0 report to `--sarif` file if specified
 - Display progress output via `rich` to `stderr`
 - Fail fast with a clear error message if `ANTHROPIC_API_KEY` is not set
+- Exit with code 1 if `--fail-on-severity` threshold is met by any anomaly
 
 ---
 
@@ -292,6 +313,12 @@ Uses `gitpython`. Responsible for all interaction with the local git repository.
 - Retrieve author information from the commits
 - Returns a best-effort dict; failures in this function must not break the main pipeline
 
+#### `ensure_commits_present(repo_path, base_sha, head_sha)`
+
+- Checks whether both SHAs are present in the local git history
+- If either is missing, attempts to fetch from the configured remote
+- Logs a warning to `stderr` if the fetch fails; does not raise
+
 ---
 
 ### 5.3 `dependency_graph.py` — Import Graph
@@ -313,6 +340,20 @@ Builds an import graph for the whole codebase using regex-based import extractio
 
 **C#:**
 - `using Namespace;` (resolved via a pre-built namespace→files map; a namespace may span multiple files)
+
+**Java:**
+- `import fully.qualified.Class;`
+- `import fully.qualified.*;` (wildcard imports)
+- Source roots resolved via Maven (`src/main/java`) and Gradle conventions
+
+**Go:**
+- Standard `import` blocks (single and grouped)
+- Module-path resolution via `go.mod` to map import paths to local file paths
+- `vendor/` directory excluded from graph
+
+**Ruby:**
+- `require 'name'` and `require_relative 'path'`
+- Falls back to `lib/` directory convention for gem-style layouts
 
 #### `build_import_graph(repo_path, language_filter) -> dict[str, list[str]]`
 
@@ -487,9 +528,45 @@ Downstream risk: N files across N dependency hops
 
 Serialises the full `ImpactReport` dataclass to JSON. Used as the machine-readable sidecar for downstream tooling.
 
+#### `render_sarif(report: ImpactReport) -> str`
+
+Serialises anomalies and test gaps to SARIF 2.1.0 format for ingestion by GitHub Advanced
+Security, Azure DevOps, SonarQube, and similar tools. Anomalies map to SARIF results with
+level `error` (high), `warning` (medium), or `note` (low). Test gaps map to `note`-level
+results. Location strings of the form `file.py:12` or `file.py:function_name` are parsed
+to populate SARIF physical locations.
+
+#### `render_terminal(report: ImpactReport, console, ...) -> None`
+
+Renders a Rich-formatted summary to the terminal (stderr). Uses panels, tables, and
+severity emoji (🔴 high, 🟡 medium, 🔵 low). Called by `cli.py` after the pipeline
+completes; does not affect the file outputs.
+
 ---
 
-### 5.8 `models.py` — Shared Data Types
+### 5.8 `github.py` — GitHub API Helpers
+
+Handles all GitHub API interaction. No other module calls the GitHub API directly.
+
+#### `detect_github_remote(remotes) -> tuple[str, str] | None`
+
+- Inspects git remote URLs to detect a GitHub-hosted origin
+- Returns `(owner, repo)` tuple if found; `None` if no GitHub remote is configured
+
+#### `fetch_pr(owner, repo, number, token) -> RefsResult`
+
+- Calls the GitHub REST API to retrieve PR metadata
+- Returns a `RefsResult` with `base_sha`, `head_sha`, `pr_title`, and `pr_number`
+- Requires a valid `GITHUB_TOKEN` for private repositories
+
+#### `fetch_open_prs(owner, repo, token) -> list[dict]`
+
+- Lists open pull requests for the repository
+- Used by `cli.py` for interactive PR selection in a terminal session
+
+---
+
+### 5.9 `models.py` — Shared Data Types
 
 Defines all dataclasses listed in section 4. No logic. Imported by every other module. This is the single source of truth for the data contract between pipeline stages.
 
@@ -522,8 +599,8 @@ Step 6  git_analysis.get_git_churn(repo_path, entry.path) for each BlastRadiusEn
 Step 7  ai_layer.run_ai_analysis(changed_files, blast_radius, repo_path)
           → AIAnalysis
 
-Step 8  reporter.render_markdown(report) + reporter.render_json(report)
-          → str (Markdown), str (JSON)
+Step 8  reporter.render_markdown(report) + reporter.render_json(report) + reporter.render_sarif(report)
+          → str (Markdown), str (JSON), str (SARIF)
 ```
 
 The `ImpactReport` is assembled in `cli.py` after step 7, combining all outputs from steps 1–7 before passing to step 8.
@@ -540,7 +617,15 @@ The `ImpactReport` is assembled in `cli.py` after step 7, combining all outputs 
 
 ### Claude API
 
-`ai_layer.py` makes HTTPS POST requests to the Anthropic API at `https://api.anthropic.com/v1/messages`. Authentication is via the `ANTHROPIC_API_KEY` environment variable. The tool makes exactly three API calls per successful run. All calls are made sequentially; there is no parallelism in v0.1.
+`ai_layer.py` makes HTTPS POST requests to the Anthropic API at `https://api.anthropic.com/v1/messages`. Authentication is via the `ANTHROPIC_API_KEY` environment variable. The tool makes exactly three API calls per successful run. All calls are made sequentially.
+
+### GitHub API
+
+`github.py` makes HTTPS requests to `https://api.github.com` when `--pr` is used or when
+listing open PRs for interactive selection. Authentication is via the `GITHUB_TOKEN`
+environment variable (or config file). Public repositories work without a token; private
+repositories require one. No calls are made if neither `--pr` nor interactive PR selection
+is triggered.
 
 ---
 
@@ -611,17 +696,31 @@ All dependencies are available on PyPI. Python 3.11 or later is required for `st
 | Variable | Required | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API key for Claude API calls. The tool fails fast if not set. |
+| `GITHUB_TOKEN` | No | GitHub personal access token. Required for `--pr` on private repos. |
+
+Both can be set in `~/.pr_impact/config.toml` as an alternative to environment variables:
+
+```toml
+anthropic_api_key = "sk-ant-..."
+github_token = "ghp-..."
+```
+
+Environment variables take precedence over the config file. The config file is read once at
+startup; its values are applied only if the corresponding env var is not already set.
 
 ### CLI flags
 
 | Flag | Default | Description |
 |---|---|---|
 | `--repo` | (required) | Path to the local git repository |
-| `--base` | (required) | Base commit SHA |
-| `--head` | (required) | Head commit SHA |
+| `--pr` | (none) | GitHub PR number; resolves base/head SHAs automatically |
+| `--base` | `HEAD~1` | Base commit SHA (ignored if `--pr` is given) |
+| `--head` | `HEAD` | Head commit SHA (ignored if `--pr` is given) |
 | `--output` | (none) | Write Markdown report to this file path |
 | `--json` | (none) | Write JSON sidecar to this file path |
+| `--sarif` | (none) | Write SARIF 2.1.0 report to this file path |
 | `--max-depth` | `3` | Maximum BFS depth for blast radius calculation |
+| `--fail-on-severity` | `none` | Exit 1 if any anomaly meets or exceeds this level (`low`/`medium`/`high`) |
 
 If neither `--output` nor `--json` is provided, the Markdown report is printed to `stdout`.
 
@@ -688,12 +787,15 @@ If neither `--output` nor `--json` is provided, the Markdown report is printed t
 - Churn scores do not account for file renames in git history
 - No support for monorepos with multiple `package.json` or `pyproject.toml` files
 
-### Deferred to v0.2
+### Delivered in v0.2
 
-- Native GitHub/GitLab PR input via `--pr` flag (currently requires manual SHAs)
-- GitHub Actions integration for automatic PR commenting
+- Native GitHub PR input via `--pr` flag
+- GitHub Actions and GitLab CI integration templates
 - Support for Java, Go, and Ruby import graphs
-- SARIF output format (`--sarif` flag)
+- SARIF 2.1.0 output (`--sarif` flag)
+- `--fail-on-severity` threshold flag
+- Config file (`~/.pr_impact/config.toml`)
+- Interactive PR selection in terminal sessions
 
 ### Deferred to v0.3
 

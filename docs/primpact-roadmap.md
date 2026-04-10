@@ -86,7 +86,7 @@ Added import graph support for:
 
 C# (`using` statements, namespace graph) was added in v0.1.
 
-### ⏳ Structured SARIF output
+### ✅ Structured SARIF output
 
 SARIF is the standard format for static analysis results in GitHub, Azure DevOps,
 and many security tools. Adding a `--sarif` output flag means Primpact results can

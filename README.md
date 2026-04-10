@@ -52,6 +52,7 @@ pr-impact analyse \
 | `--head` | `HEAD` | Head commit SHA (ignored if `--pr` is given) |
 | `--output` | none | Write Markdown report to this file |
 | `--json` | none | Write JSON sidecar to this file |
+| `--sarif` | none | Write SARIF 2.1.0 report to this file |
 | `--max-depth` | 3 | BFS depth for blast radius (cap at 3 recommended) |
 | `--fail-on-severity` | `none` | Exit 1 if any anomaly meets or exceeds this level (`low`/`medium`/`high`) |
 
