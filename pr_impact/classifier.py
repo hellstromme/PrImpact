@@ -1,5 +1,6 @@
 import re
 
+from .ast_extractor import ASTSymbol, extract_symbols
 from .models import ChangedFile, ChangedSymbol, InterfaceChange
 
 # --- Signature extraction patterns ---
@@ -80,6 +81,25 @@ def _extract_ts_defs(content: str) -> dict[str, str]:
     return defs
 
 
+def _ast_defs_to_sig_map(ast_symbols: list[ASTSymbol], language: str) -> dict[str, str]:
+    """Convert AST symbols to the {name: signature_str} format expected by classify_changed_file."""
+    defs: dict[str, str] = {}
+    for sym in ast_symbols:
+        if sym.signature:
+            defs[sym.name] = sym.signature
+        elif sym.kind == "class":
+            defs[sym.name] = f"class {sym.name}"
+        elif language == "python":
+            param_str = ", ".join(sym.params)
+            ret = f" -> {sym.return_type}" if sym.return_type else ""
+            defs[sym.name] = f"def {sym.name}({param_str}){ret}"
+        else:
+            param_str = ", ".join(sym.params)
+            ret = f": {sym.return_type}" if sym.return_type else ""
+            defs[sym.name] = f"function {sym.name}({param_str}){ret}"
+    return defs
+
+
 def _is_exported_python(name: str, content: str) -> bool:
     """Heuristic: not prefixed with _ and appears in __all__ if defined, else true."""
     if name.startswith("_"):
@@ -150,14 +170,27 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
         file.changed_symbols = symbols
         return symbols
 
-    # --- Extract definitions ---
+    # --- Extract definitions (AST-first, regex fallback) ---
+    ast_after: list | None = None  # Populated below for supported languages
     if file.language == "python":
-        defs_before = _extract_python_defs(file.content_before)
-        defs_after = _extract_python_defs(file.content_after)
+        ast_before = extract_symbols(file.content_before, "python")
+        ast_after = extract_symbols(file.content_after, "python")
+        if ast_before is not None and ast_after is not None:
+            defs_before = _ast_defs_to_sig_map(ast_before, "python")
+            defs_after = _ast_defs_to_sig_map(ast_after, "python")
+        else:
+            defs_before = _extract_python_defs(file.content_before)
+            defs_after = _extract_python_defs(file.content_after)
         _exported = _is_exported_python
     elif file.language in ("javascript", "typescript"):
-        defs_before = _extract_ts_defs(file.content_before)
-        defs_after = _extract_ts_defs(file.content_after)
+        ast_before = extract_symbols(file.content_before, file.language)
+        ast_after = extract_symbols(file.content_after, file.language)
+        if ast_before is not None and ast_after is not None:
+            defs_before = _ast_defs_to_sig_map(ast_before, file.language)
+            defs_after = _ast_defs_to_sig_map(ast_after, file.language)
+        else:
+            defs_before = _extract_ts_defs(file.content_before)
+            defs_after = _extract_ts_defs(file.content_after)
         _exported = _is_exported_ts
     else:
         file.changed_symbols = symbols
@@ -165,6 +198,11 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
 
     touched = _names_touched_in_diff(file.diff)
     all_names = set(defs_before) | set(defs_after)
+
+    # Build fast lookup from AST symbols (for richer fields)
+    _ast_by_name_after: dict[str, ASTSymbol] = {}
+    if ast_after is not None:
+        _ast_by_name_after = {s.name: s for s in ast_after}
 
     for name in all_names:
         if name not in touched:
@@ -189,6 +227,8 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
         if _KIND_CLASS.search(sig):
             kind = "class"
 
+        # Populate richer fields from AST when available
+        ast_sym = _ast_by_name_after.get(name)
         symbols.append(
             ChangedSymbol(
                 name=name,
@@ -196,6 +236,9 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
                 change_type=change_type,
                 signature_before=sig_before,
                 signature_after=sig_after,
+                params=ast_sym.params if ast_sym else [],
+                decorators=ast_sym.decorators if ast_sym else [],
+                return_type=ast_sym.return_type if ast_sym else None,
             )
         )
 

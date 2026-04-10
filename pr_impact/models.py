@@ -29,6 +29,10 @@ class ChangedSymbol:
     change_type: str  # See classifier.py for full type list
     signature_before: str | None
     signature_after: str | None
+    # v0.4: richer fields populated by AST extraction when available
+    params: list[str] = field(default_factory=list)
+    decorators: list[str] = field(default_factory=list)
+    return_type: str | None = None
 
 
 @dataclass
@@ -105,6 +109,16 @@ class DependencyIssue:
 
 
 @dataclass
+class SemanticVerdict:
+    """AI assessment of whether a changed symbol is semantically equivalent or risky."""
+
+    file: str
+    symbol: str
+    verdict: str  # "equivalent" | "risky" | "normal"
+    reason: str
+
+
+@dataclass
 class AIAnalysis:
     summary: str = ""
     decisions: list[Decision] = field(default_factory=list)
@@ -116,6 +130,8 @@ class AIAnalysis:
     # dependency_issues lives on ImpactReport because it is deterministic output
     # from security.py, produced before any AI call.
     security_signals: list[SecuritySignal] = field(default_factory=list)
+    # v0.4: semantic equivalence verdicts (5th AI call, optional)
+    semantic_verdicts: list[SemanticVerdict] = field(default_factory=list)
 
 
 @dataclass
@@ -145,6 +161,14 @@ class Verdict:
 
 
 @dataclass
+class HistoricalHotspot:
+    """A file that frequently appears in blast radii across past analyses."""
+
+    file: str
+    appearances: int
+
+
+@dataclass
 class ImpactReport:
     pr_title: str
     base_sha: str
@@ -154,3 +178,5 @@ class ImpactReport:
     interface_changes: list[InterfaceChange]
     ai_analysis: AIAnalysis
     dependency_issues: list[DependencyIssue] = field(default_factory=list)
+    # v0.4: historical hotspots from prior runs (populated when --history-db is active)
+    historical_hotspots: list[HistoricalHotspot] = field(default_factory=list)

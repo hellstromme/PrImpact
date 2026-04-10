@@ -4,13 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pr-impact"
-version = "0.3.0"
+version = "0.4.0"
 requires-python = ">=3.11"
 dependencies = [
     "gitpython>=3.1",
     "anthropic>=0.25",
     "click>=8.1",
     "rich>=13.0",
+    "tree-sitter>=0.22",
+    "tree-sitter-python",
+    "tree-sitter-javascript",
+    "tree-sitter-typescript",
+    "tree-sitter-java",
+    "tree-sitter-go",
+    "tree-sitter-ruby",
+    "tree-sitter-c-sharp",
 ]
 
 [project.scripts]

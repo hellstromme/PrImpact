@@ -27,7 +27,7 @@ in the time it takes to drink a coffee.
 | v0.1 | Foundation | MVP — blast radius, AI decisions/assumptions, test gaps |
 | v0.2 | Integration | GitHub/GitLab native, multi-language, CI output formats |
 | v0.3 | Trust | Malicious code detection — first signals |
-| v0.4 | Depth | AST-based analysis, richer anomaly detection |
+| v0.4 ✅ | Depth | AST-based analysis, semantic equivalence, historical learning |
 | v1.0 | Platform | Web UI, persistent history, team configuration |
 | v2.0 | Intelligence | Runtime telemetry integration, roadmap awareness |
 
@@ -256,7 +256,7 @@ to ask from reading the diff alone — at least 80% of the time.
 
 ---
 
-## v0.4 — Depth
+## v0.4 — Depth ✅ Complete
 
 **Theme:** Improve analysis quality without changing the user-facing interface.
 

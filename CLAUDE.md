@@ -9,7 +9,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-v0.3 — complete. All v0.3 items are done:
+v0.4 — complete. All v0.4 items are done:
+- AST-based import and symbol extraction via tree-sitter (`ast_extractor.py`) ✓
+- Symbol-level dependency tracking in `dependency_graph.py` (AST-first, regex fallback) ✓
+- Re-export / barrel file support in import graph ✓
+- Richer `ChangedSymbol` fields: `params`, `decorators`, `return_type` ✓
+- Semantic equivalence detection (5th AI call via `PROMPT_SEMANTIC_EQUIVALENCE`) ✓
+- Historical pattern learning via SQLite (`history.py`, `--history-db`, `--no-history`) ✓
+- Historical hotspots section in Markdown + terminal report ✓
+
+v0.3 items (complete):
 - Language expansion (Java, Go, Ruby) ✓ (v0.2)
 - `--pr` GitHub native input ✓ (v0.2)
 - CI/CD integration (GitHub Actions + GitLab CI template, `--fail-on-severity`) ✓ (v0.2)
@@ -19,7 +28,7 @@ v0.3 — complete. All v0.3 items are done:
 - Dependency integrity checks (`--check-osv`, typosquat detection, OSV lookup) ✓
 - Agent verdict analysis (`--verdict`, `--verdict-json`) ✓
 
-Next: v0.4 — Depth (AST-based analysis, richer anomaly detection).
+Next: v1.0 — Platform (web UI, persistent history, team configuration).
 
 ## Commands
 
@@ -45,6 +54,12 @@ pr-impact analyse --repo /path/to/repo --pr 247 --check-osv
 # Run agent verdict analysis (exit 2 if blockers found)
 pr-impact analyse --repo /path/to/repo --pr 247 --verdict --verdict-json verdict.json
 
+# Use a custom history database path (default: <repo>/.primpact/history.db)
+pr-impact analyse --repo /path/to/repo --pr 247 --history-db /path/to/history.db
+
+# Skip history read and write
+pr-impact analyse --repo /path/to/repo --pr 247 --no-history
+
 # Required environment variables
 export ANTHROPIC_API_KEY=...
 export GITHUB_TOKEN=...   # optional; needed for --pr on private repos
@@ -52,7 +67,7 @@ export GITHUB_TOKEN=...   # optional; needed for --pr on private repos
 
 ## Architecture
 
-PrImpact is a linear 8-step pipeline CLI tool. `cli.py` orchestrates the pipeline; all other modules are called by it and do not call each other (except all importing `models.py`).
+PrImpact is a linear 8-step pipeline CLI tool. `cli.py` orchestrates the pipeline; all other modules are called by it and do not call each other (except all importing `models.py`, `ast_extractor.py`, or `history.py`).
 
 ### Package structure
 
@@ -60,10 +75,12 @@ PrImpact is a linear 8-step pipeline CLI tool. `cli.py` orchestrates the pipelin
 pr_impact/
   cli.py               # Entry point (click), pipeline orchestration, progress to stderr
   models.py            # Shared dataclasses — single source of truth for data contracts
+  ast_extractor.py     # tree-sitter AST wrappers — extract_imports() and extract_symbols()
+  history.py           # SQLite history: save_run(), load_hotspots(), load_anomaly_patterns()
   git_analysis.py      # All git interaction (gitpython) — diffs, content, churn
-  dependency_graph.py  # Regex-based import graph + BFS blast radius calculation
-  classifier.py        # Changed symbol classification by impact type (regex, no AST)
-  ai_layer.py          # 3–4 Claude API calls — the only network I/O
+  dependency_graph.py  # AST-first import graph + BFS blast radius calculation
+  classifier.py        # Changed symbol classification by impact type (AST-first, regex fallback)
+  ai_layer.py          # 3–5 Claude API calls — the only network I/O
   prompts.py           # All prompt templates as string constants, no logic
   reporter.py          # Renders final Markdown, JSON, and SARIF from ImpactReport
   github.py            # GitHub API helpers (detect remote, fetch PR, list PRs)
@@ -87,24 +104,27 @@ Steps 1–6b are deterministic and CPU-bound (target: <5s). Step 7 is the only n
 
 ### Key data models (`models.py`)
 
-- `ImpactReport` — top-level aggregation passed to reporter
+- `ImpactReport` — top-level aggregation passed to reporter; includes `historical_hotspots`
 - `ChangedFile` — file path, language, diff, before/after content, `changed_symbols: list[ChangedSymbol]`
-- `ChangedSymbol` — name, kind, `change_type` (see classifier), before/after signatures
+- `ChangedSymbol` — name, kind, `change_type` (see classifier), before/after signatures, `params`, `decorators`, `return_type`
 - `BlastRadiusEntry` — path, distance (BFS hops), imported symbols, churn score
 - `InterfaceChange` — public symbol with changed signature + list of caller files
-- `AIAnalysis` — summary, decisions, assumptions, anomalies, test gaps, security signals
+- `AIAnalysis` — summary, decisions, assumptions, anomalies, test gaps, security signals, `semantic_verdicts`
+- `SemanticVerdict` — file, symbol, verdict ("equivalent"/"risky"/"normal"), reason
 - `SecuritySignal` — description, file path, line number, signal type, severity, why unusual, suggested action
 - `DependencyIssue` — package name, issue type (typosquat/version_change/vulnerability), description, severity
+- `HistoricalHotspot` — file, appearances count
 - `Verdict` — status, `agent_should_continue` bool, rationale, list of `VerdictBlocker`
 
-### AI layer (3–4 calls per run)
+### AI layer (3–5 calls per run)
 
-| Call | Prompt | Context included |
-|------|--------|-----------------|
-| 1 | Summary + Decisions + Assumptions | Diffs + blast radius signatures |
-| 2 | Anomaly Detection | Diffs + before-signatures + neighbouring file signatures |
-| 3 | Test Gap Analysis | Diffs + existing test files |
-| 4 | Security Signal Scoring | Pattern signals + diffs + file context (only when signals detected) |
+| Call | Prompt | Context included | Condition |
+|------|--------|-----------------|-----------|
+| 1 | Summary + Decisions + Assumptions | Diffs + blast radius signatures | Always |
+| 2 | Anomaly Detection | Diffs + before-signatures + neighbouring file signatures + historical context | Always |
+| 3 | Test Gap Analysis | Diffs + existing test files | Always |
+| 4 | Security Signal Scoring | Pattern signals + diffs + file context | Only when signals detected |
+| 5 | Semantic Equivalence | Diffs + before/after signatures | Only when substantial diffs present |
 
 Model: `claude-sonnet-4-5`. Prompts are in `prompts.py` (iterable independently of logic).
 
@@ -112,11 +132,12 @@ Context priority order: full diffs (always, truncated at 8k tokens) → distance
 
 ### Design constraints to preserve
 
-- **Regex over AST** — no tree-sitter in v0.1; AST planned for v0.4
+- **AST-first, regex fallback** — `ast_extractor.py` wraps tree-sitter; callers fall back to regex if `None` is returned
 - **BFS depth cap at 3** — beyond 3 hops reaches utility modules (noise, not signal)
 - **Graceful degradation** — every stage catches its own failures; partial reports are always better than crashes; empty lists over exceptions for AI fields
 - **stdout clean** — Markdown output to stdout, progress/warnings to stderr
-- **No module cross-imports** — all modules import `models.py` but not each other
+- **Shared modules** — `models.py`, `ast_extractor.py`, and `history.py` may be imported by pipeline modules; all other cross-module imports are forbidden
+- **History is best-effort** — `history.py` failures are silently swallowed and never affect exit codes
 
 ### Supported languages
 
