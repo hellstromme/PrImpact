@@ -1317,6 +1317,26 @@ def test_run_pipeline_detect_signals_failure_continues():
     assert dep == []
 
 
+def test_run_pipeline_detect_signals_failure_logs_warning():
+    """detect_pattern_signals raising logs a warning to stderr."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("scan error")),
+        patches[7],
+        patch("pr_impact.cli.stderr") as mock_stderr,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    warning_text = " ".join(str(c) for c in mock_stderr.print.call_args_list)
+    assert "scan error" in warning_text
+
+
 def test_run_pipeline_check_integrity_failure_continues():
     """check_dependency_integrity raising is non-fatal — continues with empty list."""
     refs = RefsResult(base="abc", head="def")
@@ -1333,6 +1353,26 @@ def test_run_pipeline_check_integrity_failure_continues():
     ):
         _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert dep == []
+
+
+def test_run_pipeline_check_integrity_failure_logs_warning():
+    """check_dependency_integrity raising logs a warning to stderr."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("dep error")),
+        patch("pr_impact.cli.stderr") as mock_stderr,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    warning_text = " ".join(str(c) for c in mock_stderr.print.call_args_list)
+    assert "dep error" in warning_text
 
 
 def test_run_pipeline_dependency_issues_returned_as_sixth_element():
