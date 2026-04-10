@@ -62,6 +62,42 @@ Established patterns in neighbouring files:
 {neighbouring_signatures}
 """
 
+PROMPT_SECURITY_SIGNALS = """\
+You are reviewing security signals detected in a pull request diff.
+
+For each pattern signal below, assess whether it is surprising given:
+- The file's stated purpose (inferred from its path and the code that existed before the change)
+- The surrounding module's existing patterns
+- The broader codebase context
+
+Rules for severity:
+- Downgrade to "low" if the same pattern already exists in the file before this change
+- Downgrade if the file is clearly an infrastructure/build/deploy script where this pattern is expected
+- Keep as "high" if the pattern appears in a module that had no prior similar behaviour
+
+Respond in JSON — an array of objects matching this schema exactly:
+[
+  {{
+    "description": "concise description of what was detected",
+    "file_path": "path/to/file",
+    "line_number": 42,
+    "signal_type": "network_call | credential | encoded_payload | dynamic_exec | shell_invoke | suspicious_import",
+    "severity": "high | medium | low",
+    "why_unusual": "why this is notable in this specific file and module context",
+    "suggested_action": "what the reviewer should do or ask about"
+  }}
+]
+
+If a signal is clearly benign, include it with severity "low" and explain why in why_unusual.
+Return an empty array [] if there are no signals.
+
+Pattern signals detected:
+{pattern_signals}
+
+File context (code that existed before the change, signatures only):
+{file_context}
+"""
+
 PROMPT_TEST_GAP_ANALYSIS = """\
 You are analysing a code change to identify behaviours that are not covered by tests.
 

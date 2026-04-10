@@ -18,6 +18,7 @@ from .git_analysis import ensure_commits_present, get_changed_files, get_git_chu
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .models import AIAnalysis, ImpactReport, RefsResult
 from .reporter import render_json, render_markdown, render_sarif, render_terminal
+from .security import check_dependency_integrity, detect_pattern_signals
 
 stderr = Console(stderr=True)
 
@@ -211,9 +212,9 @@ def _run_pipeline(
     max_depth: int,
     progress,
 ) -> tuple:
-    """Execute all 8 pipeline steps with an injected progress object.
+    """Execute all pipeline steps with an injected progress object.
 
-    Returns (changed_files, blast_radius, interface_changes, ai_analysis, metadata).
+    Returns (changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues).
     Exits with code 1 on fatal git errors, code 0 when no supported files changed.
     The ``progress`` parameter accepts any object with add_task/update/remove_task
     methods; tests pass a MagicMock() to suppress spinner output.
@@ -285,6 +286,20 @@ def _run_pipeline(
             stderr.print(f"[yellow]Warning:[/yellow] Churn score failed for {entry.path}: {e}")
             entry.churn_score = None
 
+    # Security: pattern signal detection (deterministic, fast, no API)
+    progress.update(task, description="Scanning for security signals...")
+    try:
+        pattern_signals = detect_pattern_signals(changed_files)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Security signal detection failed: {e}")
+        pattern_signals = []
+
+    try:
+        dependency_issues = check_dependency_integrity(changed_files)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Dependency integrity check failed: {e}")
+        dependency_issues = []
+
     # Metadata (best-effort)
     try:
         metadata = get_pr_metadata(repo, refs.base, refs.head)
@@ -292,17 +307,18 @@ def _run_pipeline(
         stderr.print(f"[yellow]Warning:[/yellow] PR metadata lookup failed: {e}")
         metadata = {}
 
-    # Step 7: AI analysis
-    progress.update(task, description="Running AI analysis (3 API calls)...")
+    # Step 7: AI analysis (4 API calls when security signals present)
+    call_count = 4 if pattern_signals else 3
+    progress.update(task, description=f"Running AI analysis ({call_count} API calls)...")
     try:
-        ai_analysis = run_ai_analysis(changed_files, blast_radius, repo)
+        ai_analysis = run_ai_analysis(changed_files, blast_radius, repo, pattern_signals or None)
     except Exception as e:
         stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")
         ai_analysis = AIAnalysis()
 
     progress.remove_task(task)
 
-    return changed_files, blast_radius, interface_changes, ai_analysis, metadata
+    return changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues
 
 
 def _resolve_refs(
@@ -462,7 +478,7 @@ def analyse(
         console=Console(stderr=True),
         transient=True,
     ) as progress:
-        changed_files, blast_radius, interface_changes, ai_analysis, metadata = (
+        changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
             _run_pipeline(repo, repo_obj, refs, max_depth, progress)
         )
 
@@ -485,6 +501,7 @@ def analyse(
         blast_radius=blast_radius,
         interface_changes=interface_changes,
         ai_analysis=ai_analysis,
+        dependency_issues=dependency_issues,
     )
 
     _write_outputs(report, output, json_output, sarif_output)

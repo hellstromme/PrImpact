@@ -124,6 +124,35 @@ def render_markdown(report: ImpactReport) -> str:
             lines.append(f"  `{gap.location}`")
         lines.append("")
 
+    # Security Signals
+    has_signals = bool(report.ai_analysis.security_signals)
+    has_dep_issues = bool(report.dependency_issues)
+    if has_signals or has_dep_issues:
+        lines.append("## Security Signals")
+        lines.append(
+            "> ⚠️ Primpact is not a security audit. These are signals for human review, "
+            "not verdicts. Treat HIGH signals as \"requires explanation\", not \"is malicious\"."
+        )
+        lines.append("")
+
+        for sig in report.ai_analysis.security_signals:
+            icon = _sev(sig.severity).icon
+            line_info = f" · line {sig.line_number}" if sig.line_number else ""
+            lines.append(f"### {icon} {sig.severity.upper()} — {sig.description}")
+            lines.append(f"**File:** `{sig.file_path}`{line_info}")
+            if sig.why_unusual:
+                lines.append(f"**Why this is unusual:** {sig.why_unusual}")
+            if sig.suggested_action:
+                lines.append(f"**Suggested action:** {sig.suggested_action}")
+            lines.append("")
+
+        if has_dep_issues:
+            lines.append("### Dependency Issues")
+            for issue in report.dependency_issues:
+                icon = _sev(issue.severity).icon
+                lines.append(f"- {icon} **{issue.package_name}** ({issue.issue_type}): {issue.description}")
+            lines.append("")
+
     return "\n".join(lines)
 
 
@@ -217,6 +246,43 @@ def render_sarif(report: ImpactReport) -> str:
             if loc:
                 result["locations"] = [loc]
             results.append(result)
+
+    if report.ai_analysis.security_signals:
+        rules.append({
+            "id": "primpact/security-signal",
+            "name": "SecuritySignal",
+            "shortDescription": {"text": "Security pattern detected in PR changes"},
+        })
+        for sig in report.ai_analysis.security_signals:
+            level = _severity_to_level.get(sig.severity, "note")
+            message = sig.description
+            if sig.why_unusual:
+                message += f" — {sig.why_unusual}"
+            result = {
+                "ruleId": "primpact/security-signal",
+                "level": level,
+                "message": {"text": message},
+            }
+            if sig.file_path:
+                loc_str = f"{sig.file_path}:{sig.line_number}" if sig.line_number else sig.file_path
+                loc = _parse_location(loc_str)
+                if loc:
+                    result["locations"] = [loc]
+            results.append(result)
+
+    if report.dependency_issues:
+        rules.append({
+            "id": "primpact/dependency-issue",
+            "name": "DependencyIssue",
+            "shortDescription": {"text": "Dependency integrity issue detected"},
+        })
+        for issue in report.dependency_issues:
+            level = _severity_to_level.get(issue.severity, "note")
+            results.append({
+                "ruleId": "primpact/dependency-issue",
+                "level": level,
+                "message": {"text": issue.description},
+            })
 
     sarif = {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
@@ -393,6 +459,49 @@ def render_terminal(
             console.print(f"  [dim]◇[/dim]  {gap.behaviour}")
             console.print(f"     [cyan dim]{gap.location}[/cyan dim]")
         console.print()
+
+    # ── Security Signals ──────────────────────────────────────────────────────
+    has_signals = bool(report.ai_analysis.security_signals)
+    has_dep_issues = bool(report.dependency_issues)
+    if has_signals or has_dep_issues:
+        high_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "high")
+        med_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "medium")
+        low_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "low")
+        console.print(Rule("SECURITY SIGNALS", style="bright_red"))
+        console.print(
+            "  [dim]⚠ Not a security audit — signals for human review, not verdicts[/dim]"
+        )
+        if has_signals:
+            console.print(
+                f"  [bright_red]{high_s} high[/bright_red]  ·  "
+                f"[yellow]{med_s} medium[/yellow]  ·  "
+                f"[bright_blue]{low_s} low[/bright_blue]"
+            )
+        console.print()
+        for sig in report.ai_analysis.security_signals:
+            color = _sev_color(sig.severity, "bright_blue")
+            bullet = _sev(sig.severity).bullet
+            line_info = f" :{sig.line_number}" if sig.line_number else ""
+            console.print(
+                f"  [{color}]{bullet}[/{color}] {sig.description}"
+                f"  [{color}][bold]{sig.severity.upper()}[/bold][/{color}]"
+            )
+            console.print(f"    [cyan dim]{sig.file_path}{line_info}[/cyan dim]")
+            if sig.why_unusual:
+                console.print(f"    [dim]{sig.why_unusual}[/dim]")
+            console.print()
+        if has_dep_issues:
+            console.print("  [bold]Dependency Issues[/bold]")
+            console.print()
+            for issue in report.dependency_issues:
+                color = _sev_color(issue.severity, "bright_blue")
+                bullet = _sev(issue.severity).bullet
+                console.print(
+                    f"  [{color}]{bullet}[/{color}] [{color}]{issue.package_name}[/{color}]"
+                    f" [dim]({issue.issue_type})[/dim]"
+                )
+                console.print(f"    [dim]{issue.description}[/dim]")
+                console.print()
 
     # ── Footer ────────────────────────────────────────────────────────────────
     if output or json_output or sarif_output:

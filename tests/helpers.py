@@ -7,8 +7,10 @@ from pr_impact.models import (
     BlastRadiusEntry,
     ChangedFile,
     Decision,
+    DependencyIssue,
     ImpactReport,
     InterfaceChange,
+    SecuritySignal,
     TestGap,
 )
 

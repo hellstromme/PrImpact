@@ -13,7 +13,9 @@ from pr_impact.models import (
     Assumption,
     BlastRadiusEntry,
     Decision,
+    DependencyIssue,
     InterfaceChange,
+    SecuritySignal,
     TestGap,
 )
 from pr_impact.reporter import _fmt_churn, _parse_location, _sev, _sev_color, render_json, render_markdown, render_sarif, render_terminal
@@ -839,3 +841,186 @@ def test_parse_location_returns_none_for_path_without_extension():
 def test_terminal_footer_shows_sarif_path():
     out = _capture_terminal(make_report(), sarif_output="report.sarif")
     assert "report.sarif" in out
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_markdown
+# ---------------------------------------------------------------------------
+
+
+def _make_signal(severity: str = "high") -> SecuritySignal:
+    return SecuritySignal(
+        description="New network call in auth module",
+        file_path="src/auth/session.py",
+        line_number=47,
+        signal_type="network_call",
+        severity=severity,
+        why_unusual="No prior network access in this module.",
+        suggested_action="Confirm with PR author.",
+    )
+
+
+def _make_dep_issue(issue_type: str = "typosquat") -> DependencyIssue:
+    return DependencyIssue(
+        package_name="requets",
+        issue_type=issue_type,
+        description="`requets` is very similar to `requests`.",
+        severity="high",
+    )
+
+
+def test_markdown_security_signals_section_present_when_signals_exist():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    md = render_markdown(report)
+    assert "## Security Signals" in md
+
+
+def test_markdown_security_signals_section_absent_when_empty():
+    report = make_report(ai_analysis=AIAnalysis())
+    md = render_markdown(report)
+    assert "## Security Signals" not in md
+
+
+def test_markdown_security_signal_high_icon():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("high")]))
+    md = render_markdown(report)
+    assert "🔴" in md
+    assert "HIGH" in md
+
+
+def test_markdown_security_signal_medium_icon():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("medium")]))
+    md = render_markdown(report)
+    assert "🟡" in md
+
+
+def test_markdown_security_signal_low_icon():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("low")]))
+    md = render_markdown(report)
+    assert "🔵" in md
+
+
+def test_markdown_security_signal_includes_file_path():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    md = render_markdown(report)
+    assert "src/auth/session.py" in md
+
+
+def test_markdown_security_signal_includes_line_number():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    md = render_markdown(report)
+    assert "line 47" in md
+
+
+def test_markdown_security_signal_no_line_number_when_none():
+    sig = _make_signal()
+    sig.line_number = None
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    md = render_markdown(report)
+    assert "line None" not in md
+
+
+def test_markdown_security_disclaimer_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    md = render_markdown(report)
+    assert "not a security audit" in md
+
+
+def test_markdown_dependency_issues_present():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    md = render_markdown(report)
+    assert "## Security Signals" in md
+    assert "Dependency Issues" in md
+    assert "requets" in md
+
+
+def test_markdown_dependency_issues_absent_when_empty():
+    report = make_report()
+    md = render_markdown(report)
+    assert "Dependency Issues" not in md
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_sarif
+# ---------------------------------------------------------------------------
+
+
+def test_sarif_security_signal_rule_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/security-signal" in rule_ids
+
+
+def test_sarif_security_signal_result_level_error_for_high():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("high")]))
+    sarif = json.loads(render_sarif(report))
+    results = sarif["runs"][0]["results"]
+    sec_results = [r for r in results if r["ruleId"] == "primpact/security-signal"]
+    assert sec_results
+    assert sec_results[0]["level"] == "error"
+
+
+def test_sarif_security_signal_no_rule_when_no_signals():
+    report = make_report(ai_analysis=AIAnalysis())
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/security-signal" not in rule_ids
+
+
+def test_sarif_dependency_issue_rule_present():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/dependency-issue" in rule_ids
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_terminal
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_security_signals_section_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" in out
+
+
+def test_terminal_security_signals_absent_when_empty():
+    report = make_report(ai_analysis=AIAnalysis())
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" not in out
+
+
+def test_terminal_security_signals_shows_file_path():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "src/auth/session.py" in out
+
+
+def test_terminal_dependency_issues_shows_package_name():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" in out
+    assert "requets" in out
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_json
+# ---------------------------------------------------------------------------
+
+
+def test_json_includes_security_signals():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    data = json.loads(render_json(report))
+    signals = data["ai_analysis"]["security_signals"]
+    assert len(signals) == 1
+    assert signals[0]["signal_type"] == "network_call"
+
+
+def test_json_includes_dependency_issues():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    data = json.loads(render_json(report))
+    issues = data["dependency_issues"]
+    assert len(issues) == 1
+    assert issues[0]["package_name"] == "requets"

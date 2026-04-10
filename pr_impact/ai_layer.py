@@ -14,11 +14,13 @@ from .models import (
     BlastRadiusEntry,
     ChangedFile,
     Decision,
+    SecuritySignal,
     TestGap,
     resolve_language,
 )
 from .prompts import (
     PROMPT_ANOMALY_DETECTION,
+    PROMPT_SECURITY_SIGNALS,
     PROMPT_SUMMARY_DECISIONS_ASSUMPTIONS,
     PROMPT_TEST_GAP_ANALYSIS,
 )
@@ -235,6 +237,35 @@ def _call_api(client: anthropic.Anthropic, prompt: str, label: str) -> dict:
         return {}
 
 
+def _build_security_signals_context(
+    pattern_signals: "list[SecuritySignal]",
+    changed_files: list[ChangedFile],
+) -> tuple[str, str]:
+    """Return (signals_text, file_context_text) for the security prompt."""
+    if not pattern_signals:
+        signals_text = "(none)"
+    else:
+        parts: list[str] = []
+        for sig in pattern_signals:
+            line_info = f" line {sig.line_number}" if sig.line_number else ""
+            parts.append(
+                f"- [{sig.severity.upper()}] {sig.signal_type}: {sig.description}"
+                f"  ({sig.file_path}{line_info})"
+            )
+        signals_text = "\n".join(parts)
+
+    ctx_parts: list[str] = []
+    for f in changed_files:
+        if not f.content_before:
+            continue
+        lang = resolve_language(f.path)
+        sigs = _extract_signatures(f.content_before, lang)
+        if sigs:
+            ctx_parts.append(f"### {f.path} (before)\n{sigs}")
+    file_context = "\n\n".join(ctx_parts) if ctx_parts else "(no prior content)"
+    return signals_text, file_context
+
+
 # --- Public interface ---
 
 
@@ -242,6 +273,7 @@ def run_ai_analysis(
     changed_files: list[ChangedFile],
     blast_radius: list[BlastRadiusEntry],
     repo_path: str,
+    pattern_signals: "list[SecuritySignal] | None" = None,
 ) -> AIAnalysis:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -330,5 +362,36 @@ def run_ai_analysis(
         for t in data3.get("test_gaps", [])
         if isinstance(t, dict)
     ]
+
+    # Call 4: contextual security scoring (only when pattern signals exist)
+    if pattern_signals:
+        signals_text, file_ctx = _build_security_signals_context(pattern_signals, changed_files)
+        data4 = _call_api(
+            client,
+            PROMPT_SECURITY_SIGNALS.format(
+                pattern_signals=signals_text,
+                file_context=file_ctx,
+            ),
+            "call4_security",
+        )
+        # data4 may be a list (the prompt returns an array) or a dict wrapping one
+        raw_signals = data4 if isinstance(data4, list) else data4.get("signals", data4.get("security_signals"))
+        if isinstance(raw_signals, list) and raw_signals:
+            result.security_signals = [
+                SecuritySignal(
+                    description=s.get("description", ""),
+                    file_path=s.get("file_path", ""),
+                    line_number=s.get("line_number") if isinstance(s.get("line_number"), int) else None,
+                    signal_type=s.get("signal_type", ""),
+                    severity=s.get("severity", "low"),
+                    why_unusual=s.get("why_unusual", ""),
+                    suggested_action=s.get("suggested_action", ""),
+                )
+                for s in raw_signals
+                if isinstance(s, dict)
+            ]
+        else:
+            # AI call returned empty or unexpected shape — fall back to raw pattern signals
+            result.security_signals = pattern_signals
 
     return result
