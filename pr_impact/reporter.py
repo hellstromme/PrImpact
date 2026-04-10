@@ -489,6 +489,8 @@ def render_terminal(
             console.print(f"    [cyan dim]{sig.file_path}{line_info}[/cyan dim]")
             if sig.why_unusual:
                 console.print(f"    [dim]{sig.why_unusual}[/dim]")
+            if sig.suggested_action:
+                console.print(f"    [dim italic]→ {sig.suggested_action}[/dim italic]")
             console.print()
         if has_dep_issues:
             console.print("  [bold]Dependency Issues[/bold]")
@@ -517,7 +519,12 @@ def render_terminal(
 
 def render_verdict_terminal(verdict: Verdict, console: Console) -> None:
     """Render the agent verdict panel to the console."""
-    if verdict.agent_should_continue:
+    has_blockers = (
+        getattr(verdict, "agent_should_continue", False)
+        or getattr(verdict, "status", "clean") == "has_blockers"
+        or bool(getattr(verdict, "blockers", []))
+    )
+    if has_blockers:
         rule_style = "bright_red"
         status_text = Text("● BLOCKERS FOUND — agent should continue", style="bold bright_red")
     else:

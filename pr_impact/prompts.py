@@ -91,6 +91,9 @@ Respond in JSON — an array of objects matching this schema exactly:
 If a signal is clearly benign, include it with severity "low" and explain why in why_unusual.
 Return an empty array [] if there are no signals.
 
+Changed files (full diff — use this to verify whether the signal is genuinely new code):
+{changed_files_diff}
+
 Pattern signals detected:
 {pattern_signals}
 

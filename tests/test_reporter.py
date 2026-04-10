@@ -1255,3 +1255,33 @@ def test_terminal_security_signal_shows_why_unusual():
     report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
     out = _capture_terminal(report)
     assert "No prior network access" in out
+
+
+def test_terminal_security_signal_shows_suggested_action():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "Confirm with PR author" in out
+
+
+def test_terminal_security_signal_omits_suggested_action_when_empty():
+    sig = _make_signal()
+    sig.suggested_action = ""
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    out = _capture_terminal(report)
+    assert "→" not in out
+
+
+def test_verdict_banner_red_when_status_has_blockers_even_if_flag_false():
+    """status='has_blockers' with agent_should_continue=False still shows red."""
+    v = _make_verdict(status="has_blockers", agent_should_continue=False,
+                      blockers=[VerdictBlocker(category="anomaly", description="x", location="")])
+    out = _capture_verdict(v)
+    assert "BLOCKER" in out or "continue" in out.lower()
+
+
+def test_verdict_banner_red_when_blockers_present_even_if_flag_false():
+    """Non-empty blockers list shows red banner regardless of agent_should_continue."""
+    v = _make_verdict(status="clean", agent_should_continue=False,
+                      blockers=[VerdictBlocker(category="test_gap", description="y", location="")])
+    out = _capture_verdict(v)
+    assert "BLOCKER" in out or "continue" in out.lower()

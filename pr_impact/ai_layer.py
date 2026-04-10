@@ -222,8 +222,8 @@ def _parse_json_safe(raw: str) -> dict:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Fall back to extracting the first JSON object in the text
-    match = re.search(r"\{.*\}", text, re.DOTALL)
+    # Fall back to extracting the first JSON object or array in the text
+    match = re.search(r"(\{.*\}|\[.*\])", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
@@ -384,6 +384,7 @@ def run_ai_analysis(
         data4 = _call_api(
             client,
             PROMPT_SECURITY_SIGNALS.format(
+                changed_files_diff=diffs_ctx,
                 pattern_signals=signals_text,
                 file_context=file_ctx,
             ),
@@ -489,9 +490,14 @@ def run_verdict_analysis(report: ImpactReport) -> Verdict:
         for b in data.get("blockers", [])
         if isinstance(b, dict)
     ]
+    raw_continue = data.get("agent_should_continue", False)
+    if isinstance(raw_continue, str):
+        should_continue = raw_continue.strip().lower() in ("true", "1")
+    else:
+        should_continue = raw_continue is True or raw_continue == 1
     return Verdict(
         status=data.get("status", "clean"),
-        agent_should_continue=bool(data.get("agent_should_continue", False)),
+        agent_should_continue=should_continue,
         rationale=data.get("rationale", ""),
         blockers=blockers,
     )

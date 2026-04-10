@@ -562,10 +562,13 @@ def analyse(
         render_verdict_terminal(verdict, Console())
 
         if verdict_output is not None:
-            Path(verdict_output).write_text(
-                json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
-            )
-            stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
+            try:
+                Path(verdict_output).write_text(
+                    json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
+                )
+                stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
+            except Exception as e:
+                stderr.print(f"[yellow]Warning:[/yellow] Could not write verdict to {verdict_output!r}: {e}")
 
         if verdict.agent_should_continue:
             sys.exit(2)

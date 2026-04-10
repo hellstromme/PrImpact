@@ -1622,3 +1622,19 @@ def test_analyse_check_osv_passes_flag_to_check_dependency_integrity(runner):
     mock_dep.assert_called_once()
     _, kwargs = mock_dep.call_args
     assert kwargs.get("osv_check") is True
+
+
+def test_verdict_json_write_failure_logs_warning(runner):
+    """I/O error during verdict JSON write is caught and logged, not raised."""
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            _with_verdict(_clean_verdict()), \
+            patch("pr_impact.cli.Path") as mock_path:
+        mock_path.return_value.write_text.side_effect = PermissionError("denied")
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
+             "--verdict", "--verdict-json", "v.json"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0

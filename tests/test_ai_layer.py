@@ -1163,3 +1163,87 @@ def test_run_verdict_missing_blockers_key_produces_empty_list(monkeypatch):
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         verdict = run_verdict_analysis(make_report())
     assert verdict.blockers == []
+
+
+# ---------------------------------------------------------------------------
+# _parse_json_safe — array fallback
+# ---------------------------------------------------------------------------
+
+
+def test_parse_json_safe_returns_list_when_top_level_array():
+    from pr_impact.ai_layer import _parse_json_safe
+    result = _parse_json_safe('[{"a": 1}, {"b": 2}]')
+    assert result == [{"a": 1}, {"b": 2}]
+
+
+def test_parse_json_safe_recovers_list_from_prose_prefix():
+    """Fallback regex should extract [...] when prose precedes the array."""
+    from pr_impact.ai_layer import _parse_json_safe
+    result = _parse_json_safe('Here is the result:\n[{"x": 1}]')
+    assert result == [{"x": 1}]
+
+
+# ---------------------------------------------------------------------------
+# run_verdict_analysis — agent_should_continue coercion
+# ---------------------------------------------------------------------------
+
+
+def test_run_verdict_string_false_not_coerced_to_true(monkeypatch):
+    """bool('false') would be True; our parser must return False."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(json.dumps({
+        "status": "clean",
+        "agent_should_continue": "false",
+        "rationale": "Fine.",
+        "blockers": [],
+    }))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert verdict.agent_should_continue is False
+
+
+def test_run_verdict_string_true_parsed_correctly(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(json.dumps({
+        "status": "has_blockers",
+        "agent_should_continue": "true",
+        "rationale": "Gaps.",
+        "blockers": [],
+    }))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert verdict.agent_should_continue is True
+
+
+def test_run_verdict_string_zero_not_truthy(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(json.dumps({
+        "status": "clean",
+        "agent_should_continue": "0",
+        "rationale": "Fine.",
+        "blockers": [],
+    }))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert verdict.agent_should_continue is False
+
+
+# ---------------------------------------------------------------------------
+# run_ai_analysis — 4th prompt includes diff
+# ---------------------------------------------------------------------------
+
+
+def test_run_ai_analysis_4th_prompt_contains_diff(monkeypatch, tmp_path):
+    """PROMPT_SECURITY_SIGNALS receives changed_files_diff so Claude sees the actual code."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([])
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    f = make_file(path="src/auth.py", diff="+DISTINCTIVE_DIFF_CONTENT\n")
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_ai_analysis([f], [], str(tmp_path), pattern_signals=[sig])
+    fourth_prompt = client.messages.create.call_args_list[3][1]["messages"][0]["content"]
+    assert "DISTINCTIVE_DIFF_CONTENT" in fourth_prompt
