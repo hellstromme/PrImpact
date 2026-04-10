@@ -17,8 +17,10 @@ from pr_impact.models import (
     InterfaceChange,
     SecuritySignal,
     TestGap,
+    Verdict,
+    VerdictBlocker,
 )
-from pr_impact.reporter import _fmt_churn, _parse_location, _sev, _sev_color, render_json, render_markdown, render_sarif, render_terminal
+from pr_impact.reporter import _fmt_churn, _parse_location, _sev, _sev_color, render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
 from tests.helpers import make_file, make_report
 
 
@@ -1147,3 +1149,78 @@ def test_terminal_security_signal_no_colon_none_when_line_number_is_none():
     report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
     out = _capture_terminal(report)
     assert ":None" not in out
+
+
+# ---------------------------------------------------------------------------
+# render_verdict_terminal
+# ---------------------------------------------------------------------------
+
+
+def _capture_verdict(verdict: Verdict) -> str:
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, no_color=True)
+    render_verdict_terminal(verdict, console)
+    return buf.getvalue()
+
+
+def _make_verdict(**kwargs) -> Verdict:
+    defaults = dict(
+        status="clean",
+        agent_should_continue=False,
+        rationale="No blockers found.",
+        blockers=[],
+    )
+    defaults.update(kwargs)
+    return Verdict(**defaults)
+
+
+def test_verdict_clean_shows_stop_message():
+    out = _capture_verdict(_make_verdict())
+    assert "CLEAN" in out or "agent may stop" in out.lower()
+
+
+def test_verdict_has_blockers_shows_continue_message():
+    out = _capture_verdict(_make_verdict(
+        status="has_blockers",
+        agent_should_continue=True,
+        rationale="Test coverage missing.",
+        blockers=[VerdictBlocker(category="test_gap", description="login untested", location="src/auth.py")],
+    ))
+    assert "BLOCKER" in out or "continue" in out.lower()
+
+
+def test_verdict_rationale_included():
+    out = _capture_verdict(_make_verdict(rationale="All signals are low severity."))
+    assert "All signals are low severity." in out
+
+
+def test_verdict_blockers_listed():
+    out = _capture_verdict(_make_verdict(
+        status="has_blockers",
+        agent_should_continue=True,
+        blockers=[VerdictBlocker(category="anomaly", description="Unusual coupling", location="src/db.py:42")],
+    ))
+    assert "Unusual coupling" in out
+    assert "src/db.py:42" in out
+
+
+def test_verdict_blocker_location_omitted_when_empty():
+    out = _capture_verdict(_make_verdict(
+        status="has_blockers",
+        agent_should_continue=True,
+        blockers=[VerdictBlocker(category="test_gap", description="missing test", location="")],
+    ))
+    # Empty location → no colon-delimited empty line
+    assert ":  " not in out
+
+
+def test_verdict_clean_no_blockers_section_when_empty():
+    out = _capture_verdict(_make_verdict())
+    # No blocker category labels when blockers list is empty
+    assert "test_gap" not in out
+    assert "anomaly" not in out
+
+
+def test_verdict_agent_verdict_rule_present():
+    out = _capture_verdict(_make_verdict())
+    assert "AGENT VERDICT" in out

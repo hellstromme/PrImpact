@@ -14,8 +14,11 @@ from .models import (
     BlastRadiusEntry,
     ChangedFile,
     Decision,
+    ImpactReport,
     SecuritySignal,
     TestGap,
+    Verdict,
+    VerdictBlocker,
     resolve_language,
 )
 from .prompts import (
@@ -23,6 +26,7 @@ from .prompts import (
     PROMPT_SECURITY_SIGNALS,
     PROMPT_SUMMARY_DECISIONS_ASSUMPTIONS,
     PROMPT_TEST_GAP_ANALYSIS,
+    PROMPT_VERDICT,
 )
 
 MODEL = "claude-sonnet-4-5"
@@ -400,3 +404,84 @@ def run_ai_analysis(
             result.security_signals = pattern_signals
 
     return result
+
+
+def run_verdict_analysis(report: ImpactReport) -> Verdict:
+    """Run the verdict API call against a completed ImpactReport.
+
+    Returns a Verdict with agent_should_continue=False (clean) on any API failure,
+    so an agent loop always terminates safely when the network is unavailable.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "ANTHROPIC_API_KEY is not set — verdict analysis skipped."
+        )
+    client = anthropic.Anthropic(api_key=api_key)
+
+    ai = report.ai_analysis
+
+    def _fmt_anomalies() -> str:
+        if not ai.anomalies:
+            return "(none)"
+        return "\n".join(
+            f"- [{a.severity.upper()}] {a.description} ({a.location})"
+            for a in ai.anomalies
+        )
+
+    def _fmt_test_gaps() -> str:
+        if not ai.test_gaps:
+            return "(none)"
+        return "\n".join(
+            f"- {t.behaviour} ({t.location})" for t in ai.test_gaps
+        )
+
+    def _fmt_security_signals() -> str:
+        if not ai.security_signals:
+            return "(none)"
+        return "\n".join(
+            f"- [{s.severity.upper()}] {s.signal_type}: {s.description} ({s.file_path})"
+            for s in ai.security_signals
+        )
+
+    def _fmt_dependency_issues() -> str:
+        if not report.dependency_issues:
+            return "(none)"
+        return "\n".join(
+            f"- [{i.severity.upper()}] {i.issue_type}: {i.description}"
+            for i in report.dependency_issues
+        )
+
+    prompt = PROMPT_VERDICT.format(
+        summary=ai.summary or "(no summary)",
+        anomaly_count=len(ai.anomalies),
+        anomalies=_fmt_anomalies(),
+        test_gap_count=len(ai.test_gaps),
+        test_gaps=_fmt_test_gaps(),
+        security_signal_count=len(ai.security_signals),
+        security_signals=_fmt_security_signals(),
+        dependency_issue_count=len(report.dependency_issues),
+        dependency_issues=_fmt_dependency_issues(),
+    )
+
+    data = _call_api(client, prompt, "call_verdict")
+
+    # Graceful degradation: any parse failure → clean verdict so the loop terminates
+    if not isinstance(data, dict):
+        return Verdict(status="clean", agent_should_continue=False, rationale="Verdict parse failed — defaulting to clean.")
+
+    blockers = [
+        VerdictBlocker(
+            category=b.get("category", ""),
+            description=b.get("description", ""),
+            location=b.get("location", ""),
+        )
+        for b in data.get("blockers", [])
+        if isinstance(b, dict)
+    ]
+    return Verdict(
+        status=data.get("status", "clean"),
+        agent_should_continue=bool(data.get("agent_should_continue", False)),
+        rationale=data.get("rationale", ""),
+        blockers=blockers,
+    )

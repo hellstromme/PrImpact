@@ -126,6 +126,21 @@ class RefsResult:
 
 
 @dataclass
+class VerdictBlocker:
+    category: str   # "test_gap" | "security_signal" | "dependency_issue" | "anomaly"
+    description: str
+    location: str
+
+
+@dataclass
+class Verdict:
+    status: str              # "clean" | "has_blockers"
+    agent_should_continue: bool
+    rationale: str
+    blockers: list[VerdictBlocker] = field(default_factory=list)
+
+
+@dataclass
 class ImpactReport:
     pr_title: str
     base_sha: str

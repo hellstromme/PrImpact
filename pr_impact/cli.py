@@ -11,13 +11,13 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-from .ai_layer import run_ai_analysis
+from .ai_layer import run_ai_analysis, run_verdict_analysis
 from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .models import AIAnalysis, ImpactReport, RefsResult
-from .reporter import render_json, render_markdown, render_sarif, render_terminal
+from .reporter import render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
 from .security import check_dependency_integrity, detect_pattern_signals
 
 stderr = Console(stderr=True)
@@ -435,6 +435,12 @@ def main() -> None:
     default=False,
     help="Query the OSV vulnerability database for new dependencies (requires network access)",
 )
+@click.option(
+    "--verdict",
+    "verdict_output",
+    default=None,
+    help="Write agent verdict JSON to this file (also printed to terminal)",
+)
 def analyse(
     repo: str,
     pr_number: int | None,
@@ -446,6 +452,7 @@ def analyse(
     max_depth: int,
     fail_on_severity: str,
     check_osv: bool,
+    verdict_output: str | None,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
@@ -527,6 +534,32 @@ def analyse(
                 f"at or above --fail-on-severity={fail_on_severity}"
             )
             sys.exit(1)
+
+    if verdict_output is not None:
+        import dataclasses
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=Console(stderr=True),
+            transient=True,
+        ) as progress:
+            progress.add_task("Running verdict analysis (1 API call)...", total=None)
+            try:
+                verdict = run_verdict_analysis(report)
+            except Exception as e:
+                stderr.print(f"[yellow]Warning:[/yellow] Verdict analysis failed: {e}")
+                sys.exit(0)
+
+        render_verdict_terminal(verdict, Console())
+
+        verdict_dict = dataclasses.asdict(verdict)
+        Path(verdict_output).write_text(
+            __import__("json").dumps(verdict_dict, indent=2), encoding="utf-8"
+        )
+        stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
+
+        if verdict.agent_should_continue:
+            sys.exit(2)
 
 
 if __name__ == "__main__":

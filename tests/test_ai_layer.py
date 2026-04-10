@@ -21,9 +21,10 @@ from pr_impact.ai_layer import (
     _log_response,
     _parse_json_safe,
     run_ai_analysis,
+    run_verdict_analysis,
 )
-from pr_impact.models import BlastRadiusEntry, ChangedFile, SecuritySignal
-from tests.helpers import make_file, make_security_signal as _make_security_signal
+from pr_impact.models import BlastRadiusEntry, ChangedFile, SecuritySignal, Verdict
+from tests.helpers import make_file, make_report, make_security_signal as _make_security_signal
 
 # _DIFF_CHAR_LIMIT = 8_000 tokens * 4 chars/token = 32_000 chars
 _LIMIT = 32_000
@@ -1001,3 +1002,105 @@ def test_run_ai_analysis_4th_response_missing_required_fields_uses_defaults(monk
     assert len(result.security_signals) == 1
     assert result.security_signals[0].severity == "low"   # default
     assert result.security_signals[0].signal_type == ""   # default
+
+
+# ---------------------------------------------------------------------------
+# run_verdict_analysis
+# ---------------------------------------------------------------------------
+
+
+def _verdict_response(**overrides) -> str:
+    data = {
+        "status": "clean",
+        "agent_should_continue": False,
+        "rationale": "No blockers found.",
+        "blockers": [],
+    }
+    data.update(overrides)
+    return json.dumps(data)
+
+
+def test_run_verdict_raises_without_api_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+        run_verdict_analysis(make_report())
+
+
+def test_run_verdict_clean_report(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(_verdict_response())
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert isinstance(verdict, Verdict)
+    assert verdict.status == "clean"
+    assert verdict.agent_should_continue is False
+    assert verdict.rationale == "No blockers found."
+    assert verdict.blockers == []
+
+
+def test_run_verdict_has_blockers(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(_verdict_response(
+        status="has_blockers",
+        agent_should_continue=True,
+        rationale="New code path has no test coverage.",
+        blockers=[{
+            "category": "test_gap",
+            "description": "login() error path is untested",
+            "location": "src/auth.py:login",
+        }],
+    ))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert verdict.status == "has_blockers"
+    assert verdict.agent_should_continue is True
+    assert len(verdict.blockers) == 1
+    assert verdict.blockers[0].category == "test_gap"
+    assert verdict.blockers[0].location == "src/auth.py:login"
+
+
+def test_run_verdict_api_failure_returns_clean(monkeypatch):
+    """Any API failure → clean verdict so agent loop always terminates safely."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(RuntimeError("network"), RuntimeError("network"))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert verdict.agent_should_continue is False
+
+
+def test_run_verdict_non_dict_response_returns_clean(monkeypatch):
+    """Non-dict JSON (e.g. bare string) → clean fallback."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(json.dumps("unexpected"))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert verdict.agent_should_continue is False
+
+
+def test_run_verdict_non_dict_blockers_skipped(monkeypatch):
+    """Non-dict items in blockers array are silently dropped."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(_verdict_response(
+        status="has_blockers",
+        agent_should_continue=True,
+        blockers=["not a dict", {"category": "anomaly", "description": "real", "location": "f.py"}],
+    ))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        verdict = run_verdict_analysis(make_report())
+    assert len(verdict.blockers) == 1
+    assert verdict.blockers[0].description == "real"
+
+
+def test_run_verdict_prompt_includes_anomaly_count(monkeypatch):
+    """Prompt sent to Claude includes the anomaly count for grounding."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from pr_impact.models import AIAnalysis, Anomaly
+    report = make_report(ai_analysis=AIAnalysis(
+        anomalies=[Anomaly(description="x", location="f.py:1", severity="high")],
+    ))
+    client = _mock_client(_verdict_response())
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_verdict_analysis(report)
+    prompt = client.messages.create.call_args[1]["messages"][0]["content"]
+    assert "1" in prompt   # anomaly_count=1 appears in the prompt
+    assert "x" in prompt   # anomaly description included

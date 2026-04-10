@@ -11,7 +11,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from .models import ImpactReport
+from .models import ImpactReport, Verdict
 
 
 class _SeverityStyle(NamedTuple):
@@ -513,3 +513,28 @@ def render_terminal(
         if sarif_output:
             console.print(f"  [dim]SARIF written to[/dim]  [cyan]{sarif_output}[/cyan]")
         console.print(Rule(style="bright_blue"))
+
+
+def render_verdict_terminal(verdict: Verdict, console: Console) -> None:
+    """Render the agent verdict panel to the console."""
+    if verdict.agent_should_continue:
+        rule_style = "bright_red"
+        status_text = Text("● BLOCKERS FOUND — agent should continue", style="bold bright_red")
+    else:
+        rule_style = "green"
+        status_text = Text("✓ CLEAN — agent may stop", style="bold green")
+
+    console.print(Rule("AGENT VERDICT", style=rule_style))
+    console.print(f"  {status_text}")
+    if verdict.rationale:
+        console.print(f"  [dim]{verdict.rationale}[/dim]")
+    console.print()
+
+    if verdict.blockers:
+        for b in verdict.blockers:
+            console.print(f"  [bold bright_red]●[/bold bright_red] [{b.category}] {b.description}")
+            if b.location:
+                console.print(f"    [cyan dim]{b.location}[/cyan dim]")
+        console.print()
+
+    console.print(Rule(style=rule_style))

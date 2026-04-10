@@ -1474,3 +1474,106 @@ def test_analyse_dependency_issues_in_report(runner):
     assert result.exit_code == 0
     # Dep issue should appear in the terminal output (Security Signals section)
     assert "requets" in result.output
+
+
+# ---------------------------------------------------------------------------
+# --verdict flag
+# ---------------------------------------------------------------------------
+
+
+def _with_verdict(verdict):
+    """Patch run_verdict_analysis to return a fixed verdict."""
+    return patch("pr_impact.cli.run_verdict_analysis", return_value=verdict)
+
+
+def _clean_verdict():
+    from pr_impact.models import Verdict
+    return Verdict(status="clean", agent_should_continue=False, rationale="All good.", blockers=[])
+
+
+def _blocker_verdict():
+    from pr_impact.models import Verdict, VerdictBlocker
+    return Verdict(
+        status="has_blockers",
+        agent_should_continue=True,
+        rationale="Missing test coverage.",
+        blockers=[VerdictBlocker(category="test_gap", description="login untested", location="auth.py")],
+    )
+
+
+def test_verdict_flag_writes_json_file(runner):
+    patches = _base_patches()
+    with runner.isolated_filesystem():
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+                _with_verdict(_clean_verdict()):
+            result = runner.invoke(
+                main,
+                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "verdict.json"],
+                env=_ENV,
+            )
+        import json as _json
+        data = _json.loads(open("verdict.json").read())
+    assert data["status"] == "clean"
+    assert data["agent_should_continue"] is False
+
+
+def test_verdict_clean_exits_0(runner):
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            _with_verdict(_clean_verdict()):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "v.json"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+
+
+def test_verdict_has_blockers_exits_2(runner):
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            _with_verdict(_blocker_verdict()):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "v.json"],
+            env=_ENV,
+        )
+    assert result.exit_code == 2
+
+
+def test_verdict_output_shown_in_terminal(runner):
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            _with_verdict(_clean_verdict()):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "v.json"],
+            env=_ENV,
+        )
+    assert "AGENT VERDICT" in result.output
+
+
+def test_verdict_api_failure_exits_0(runner):
+    """Verdict API failure → warning printed, exit 0 (loop terminates safely)."""
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            patch("pr_impact.cli.run_verdict_analysis", side_effect=RuntimeError("timeout")):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "v.json"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+
+
+def test_verdict_not_called_without_flag(runner):
+    """run_verdict_analysis is never called unless --verdict is passed."""
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            patch("pr_impact.cli.run_verdict_analysis") as mock_v:
+        runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
+            env=_ENV,
+        )
+    mock_v.assert_not_called()
