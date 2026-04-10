@@ -60,10 +60,12 @@ class BlastRadiusEntry:
 
 @dataclass
 class RefsResult:
-    base_sha: str
-    head_sha: str
-    pr_title: str           # PR title if resolved from GitHub; empty string otherwise
-    pr_number: int | None   # PR number if resolved from --pr flag; None otherwise
+    base: str                           # Base commit SHA
+    head: str                           # Head commit SHA
+    pr_title: str | None = None         # PR title if resolved from GitHub; None otherwise
+    fetch_pr_number: int | None = None  # Set when a real GitHub PR was resolved
+    fetch_base_ref: str | None = None   # Branch name of the PR base (for fetching)
+    fetch_remote: str = "origin"        # Remote to fetch from if commits are missing
 
 @dataclass
 class ImpactReport:

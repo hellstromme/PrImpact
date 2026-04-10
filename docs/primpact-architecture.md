@@ -231,10 +231,12 @@ logic before pipeline execution.
 ```python
 @dataclass
 class RefsResult:
-    base_sha: str
-    head_sha: str
-    pr_title: str           # PR title if resolved from GitHub; empty string otherwise
-    pr_number: int | None   # PR number if resolved from --pr flag; None otherwise
+    base: str                           # Base commit SHA
+    head: str                           # Head commit SHA
+    pr_title: str | None = None         # PR title if resolved from GitHub; None otherwise
+    fetch_pr_number: int | None = None  # Set when a real GitHub PR was resolved
+    fetch_base_ref: str | None = None   # Branch name of the PR base (for fetching)
+    fetch_remote: str = "origin"        # Remote to fetch from if commits are missing
 ```
 
 ### `ImpactReport`
@@ -313,11 +315,12 @@ Uses `gitpython`. Responsible for all interaction with the local git repository.
 - Retrieve author information from the commits
 - Returns a best-effort dict; failures in this function must not break the main pipeline
 
-#### `ensure_commits_present(repo_path, base_sha, head_sha)`
+#### `ensure_commits_present(repo_path, base_sha, head_sha, remote_name, pr_number=None, base_ref=None, repo=None)`
 
 - Checks whether both SHAs are present in the local git history
-- If either is missing, attempts to fetch from the configured remote
-- Logs a warning to `stderr` if the fetch fails; does not raise
+- If the head SHA is missing and `pr_number` is set, fetches `refs/pull/{pr_number}/head` from `remote_name`
+- If the base SHA is missing and `base_ref` is set, fetches that branch ref from `remote_name`
+- Raises `RuntimeError` if the fetch fails or SHAs remain absent after fetching; the caller (`cli.py`) catches this and logs it as a warning
 
 ---
 
@@ -548,15 +551,16 @@ completes; does not affect the file outputs.
 
 Handles all GitHub API interaction. No other module calls the GitHub API directly.
 
-#### `detect_github_remote(remotes) -> tuple[str, str] | None`
+#### `detect_github_remote(remotes) -> tuple[str, str, str] | None`
 
 - Inspects git remote URLs to detect a GitHub-hosted origin
-- Returns `(owner, repo)` tuple if found; `None` if no GitHub remote is configured
+- Returns `(owner, repo_name, remote_name)` triple if found; `None` if no GitHub remote is configured
+- Prefers the `origin` remote over others; `remote_name` is passed to `ensure_commits_present` for fetching
 
-#### `fetch_pr(owner, repo, number, token) -> RefsResult`
+#### `fetch_pr(owner, repo, number, token) -> dict`
 
-- Calls the GitHub REST API to retrieve PR metadata
-- Returns a `RefsResult` with `base_sha`, `head_sha`, `pr_title`, and `pr_number`
+- Calls the GitHub REST API to retrieve the raw PR object
+- Returns the GitHub API response dict; the caller (`cli.py`) constructs a `RefsResult` from it
 - Requires a valid `GITHUB_TOKEN` for private repositories
 
 #### `fetch_open_prs(owner, repo, token) -> list[dict]`
