@@ -601,3 +601,135 @@ def test_osv_check_returns_empty_on_http_error():
                side_effect=urllib.error.HTTPError(None, 500, "Server Error", {}, None)):
         result = _osv_check("any-pkg", "pypi")
     assert result == []
+
+
+def test_osv_check_empty_vulns_key_returns_empty_list():
+    """{"vulns": []} → empty list (not a crash)."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps({"vulns": []}).encode()
+    mock_response.__enter__ = lambda self: self
+    mock_response.__exit__ = MagicMock(return_value=False)
+    with patch("pr_impact.security.urllib.request.urlopen", return_value=mock_response):
+        result = _osv_check("safe-pkg", "pypi")
+    assert result == []
+
+
+def test_osv_check_timeout_returns_empty():
+    """socket.timeout (raised by urlopen on timeout) returns []."""
+    import socket
+    with patch("pr_impact.security.urllib.request.urlopen", side_effect=socket.timeout()):
+        result = _osv_check("any-pkg", "pypi")
+    assert result == []
+
+
+def test_osv_check_connection_error_returns_empty():
+    """ConnectionError returns []."""
+    with patch("pr_impact.security.urllib.request.urlopen", side_effect=ConnectionError("refused")):
+        result = _osv_check("any-pkg", "pypi")
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# check_dependency_integrity — aggregate multiple issue types
+# ---------------------------------------------------------------------------
+
+
+def test_check_aggregates_typosquat_and_version_change():
+    """A diff with a typosquat AND a version bump emits both issue types."""
+    diff = (
+        "@@ -1,2 +1,3 @@\n"
+        "-requests==2.27.0\n"
+        "+requests==2.28.0\n"   # version change
+        "+requets==1.0.0\n"     # typosquat
+    )
+    f = make_file("requirements.txt", diff=diff)
+    issues = check_dependency_integrity([f])
+    types = {i.issue_type for i in issues}
+    assert "typosquat" in types
+    assert "version_change" in types
+
+
+# ---------------------------------------------------------------------------
+# _added_lines — malformed diff
+# ---------------------------------------------------------------------------
+
+
+def test_added_lines_malformed_no_hunk_header():
+    """Diff with no @@ header → added lines still returned with line_number=0."""
+    diff = "+new_line_here\n+another_line\n"
+    lines = _added_lines(diff)
+    # No hunk header → line numbers default to 0, but added lines are still extracted
+    assert any(line == "new_line_here" for _, line in lines)
+
+
+# ---------------------------------------------------------------------------
+# _detect_version_changes — npm and go ecosystems
+# ---------------------------------------------------------------------------
+
+
+def test_detect_version_changes_npm_ecosystem():
+    """Version pin change in package.json is detected for npm ecosystem."""
+    diff = (
+        '@@ -3,7 +3,7 @@\n'
+        ' "dependencies": {\n'
+        '-  "lodash": "4.17.20",\n'
+        '+  "lodash": "4.17.21",\n'
+        ' }\n'
+    )
+    result = _detect_version_changes(diff, "npm")
+    assert "lodash" in result
+
+
+def test_detect_version_changes_go_ecosystem():
+    """Version pin change in go.mod is detected for go ecosystem."""
+    diff = (
+        "@@ -5,4 +5,4 @@\n"
+        "-\tgithub.com/foo/bar v1.2.3\n"
+        "+\tgithub.com/foo/bar v1.3.0\n"
+    )
+    result = _detect_version_changes(diff, "go")
+    assert "github.com/foo/bar" in result
+
+
+def test_detect_version_changes_rubygems_ecosystem():
+    """Version pin change in Gemfile is detected for rubygems ecosystem."""
+    diff = (
+        "@@ -1,2 +1,2 @@\n"
+        "-gem 'rails', '6.1.4'\n"
+        "+gem 'rails', '7.0.0'\n"
+    )
+    result = _detect_version_changes(diff, "rubygems")
+    assert "rails" in result
+
+
+# ---------------------------------------------------------------------------
+# _parse_new_packages — npm sections and version specifiers
+# ---------------------------------------------------------------------------
+
+
+def test_parse_new_packages_npm_dev_dependencies():
+    """devDependencies package names are extracted for npm ecosystem."""
+    diff = (
+        '@@ -1,5 +1,7 @@\n'
+        ' "devDependencies": {\n'
+        '+  "jest": "^27.0.0",\n'
+        '+  "eslint": "^8.0.0"\n'
+        ' }\n'
+    )
+    pkgs = _parse_new_packages(diff, "npm")
+    assert "jest" in pkgs
+    assert "eslint" in pkgs
+
+
+def test_parse_new_packages_pypi_with_version_specifiers():
+    """>=, ~=, and ^ specifiers don't break package name extraction."""
+    diff = (
+        "@@ -1,3 +1,6 @@\n"
+        "+flask>=2.0.0\n"
+        "+django~=4.2\n"
+        "+celery!=4.0,>=3.0\n"
+    )
+    pkgs = _parse_new_packages(diff, "pypi")
+    assert "flask" in pkgs
+    assert "django" in pkgs
+    assert "celery" in pkgs

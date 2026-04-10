@@ -1114,3 +1114,36 @@ def test_terminal_security_signals_absent_when_both_empty():
     report = make_report(ai_analysis=AIAnalysis(), dependency_issues=[])
     out = _capture_terminal(report)
     assert "SECURITY SIGNALS" not in out
+
+
+def test_terminal_security_signals_both_signals_and_dep_issues():
+    """When both security_signals and dependency_issues are present, both appear in terminal."""
+    report = make_report(
+        ai_analysis=AIAnalysis(security_signals=[_make_signal()]),
+        dependency_issues=[_make_dep_issue()],
+    )
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" in out
+    assert "src/auth/session.py" in out   # from signal
+    assert "requets" in out               # from dep issue
+
+
+def test_sarif_security_signal_no_region_when_line_number_is_none():
+    """When line_number is None, SARIF location omits 'region' key."""
+    sig = _make_signal()
+    sig.line_number = None
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    physical = results[0]["locations"][0]["physicalLocation"]
+    assert "region" not in physical
+
+
+def test_terminal_security_signal_no_colon_none_when_line_number_is_none():
+    """When line_number is None, ':None' must not appear in terminal output."""
+    sig = _make_signal()
+    sig.line_number = None
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    out = _capture_terminal(report)
+    assert ":None" not in out
