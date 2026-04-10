@@ -14,7 +14,7 @@ from .models import (
     BlastRadiusEntry,
     ChangedFile,
     Decision,
-    ImpactReport,
+    DependencyIssue,
     SecuritySignal,
     TestGap,
     Verdict,
@@ -253,7 +253,7 @@ def _call_api(client: anthropic.Anthropic, prompt: str, label: str) -> dict:
 
 
 def _build_security_signals_context(
-    pattern_signals: "list[SecuritySignal]",
+    pattern_signals: list[SecuritySignal],
     changed_files: list[ChangedFile],
 ) -> tuple[str, str]:
     """Return (signals_text, file_context_text) for the security prompt."""
@@ -288,7 +288,7 @@ def run_ai_analysis(
     changed_files: list[ChangedFile],
     blast_radius: list[BlastRadiusEntry],
     repo_path: str,
-    pattern_signals: "list[SecuritySignal] | None" = None,
+    pattern_signals: list[SecuritySignal] | None = None,
 ) -> AIAnalysis:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -418,8 +418,14 @@ def run_ai_analysis(
     return result
 
 
-def run_verdict_analysis(report: ImpactReport) -> Verdict:
-    """Run the verdict API call against a completed ImpactReport.
+def run_verdict_analysis(
+    ai_analysis: AIAnalysis,
+    dependency_issues: list[DependencyIssue],
+) -> Verdict:
+    """Run the verdict API call given a completed AI analysis and dependency issues.
+
+    Accepts the minimal fields the verdict prompt needs rather than the full ImpactReport,
+    keeping this function consistent with the rest of the AI layer's input pattern.
 
     Raises ValueError when the API key is missing or the response cannot be parsed
     as a verdict dict. The caller (cli.py) is responsible for graceful degradation.
@@ -431,48 +437,46 @@ def run_verdict_analysis(report: ImpactReport) -> Verdict:
         )
     client = anthropic.Anthropic(api_key=api_key)
 
-    ai = report.ai_analysis
-
     def _fmt_anomalies() -> str:
-        if not ai.anomalies:
+        if not ai_analysis.anomalies:
             return "(none)"
         return "\n".join(
             f"- [{a.severity.upper()}] {a.description} ({a.location})"
-            for a in ai.anomalies
+            for a in ai_analysis.anomalies
         )
 
     def _fmt_test_gaps() -> str:
-        if not ai.test_gaps:
+        if not ai_analysis.test_gaps:
             return "(none)"
         return "\n".join(
-            f"- {t.behaviour} ({t.location})" for t in ai.test_gaps
+            f"- {t.behaviour} ({t.location})" for t in ai_analysis.test_gaps
         )
 
     def _fmt_security_signals() -> str:
-        if not ai.security_signals:
+        if not ai_analysis.security_signals:
             return "(none)"
         return "\n".join(
             f"- [{s.severity.upper()}] {s.signal_type}: {s.description} ({s.file_path})"
-            for s in ai.security_signals
+            for s in ai_analysis.security_signals
         )
 
     def _fmt_dependency_issues() -> str:
-        if not report.dependency_issues:
+        if not dependency_issues:
             return "(none)"
         return "\n".join(
             f"- [{i.severity.upper()}] {i.issue_type}: {i.description}"
-            for i in report.dependency_issues
+            for i in dependency_issues
         )
 
     prompt = PROMPT_VERDICT.format(
-        summary=ai.summary or "(no summary)",
-        anomaly_count=len(ai.anomalies),
+        summary=ai_analysis.summary or "(no summary)",
+        anomaly_count=len(ai_analysis.anomalies),
         anomalies=_fmt_anomalies(),
-        test_gap_count=len(ai.test_gaps),
+        test_gap_count=len(ai_analysis.test_gaps),
         test_gaps=_fmt_test_gaps(),
-        security_signal_count=len(ai.security_signals),
+        security_signal_count=len(ai_analysis.security_signals),
         security_signals=_fmt_security_signals(),
-        dependency_issue_count=len(report.dependency_issues),
+        dependency_issue_count=len(dependency_issues),
         dependency_issues=_fmt_dependency_issues(),
     )
 

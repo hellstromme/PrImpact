@@ -532,6 +532,10 @@ def analyse(
     _write_outputs(report, output, json_output, sarif_output)
     render_terminal(report, Console(), output, json_output, sarif_output)
 
+    # Collect both exit conditions before exiting so neither silently suppresses the other.
+    # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),
+    # because exit 2 carries a concrete remediation list for an agent loop.
+    severity_exit = False
     if fail_on_severity != "none":
         threshold = _SEVERITY_ORDER[fail_on_severity]
         breaching = [
@@ -540,11 +544,12 @@ def analyse(
         ]
         if breaching:
             stderr.print(
-                f"[bold red]Exiting 1:[/bold red] {len(breaching)} anomaly/anomalies "
-                f"at or above --fail-on-severity={fail_on_severity}"
+                f"[bold red]--fail-on-severity={fail_on_severity}:[/bold red] "
+                f"{len(breaching)} anomaly/anomalies at or above threshold"
             )
-            sys.exit(1)
+            severity_exit = True
 
+    verdict_continue = False
     if run_verdict or verdict_output is not None:
         with Progress(
             SpinnerColumn(),
@@ -554,24 +559,30 @@ def analyse(
         ) as progress:
             progress.add_task("Running verdict analysis (1 API call)...", total=None)
             try:
-                verdict = run_verdict_analysis(report)
+                verdict = run_verdict_analysis(report.ai_analysis, report.dependency_issues)
             except Exception as e:
                 stderr.print(f"[yellow]Warning:[/yellow] Verdict analysis failed: {e}")
-                sys.exit(0)
+                verdict = None
 
-        render_verdict_terminal(verdict, Console())
+        if verdict is not None:
+            render_verdict_terminal(verdict, Console())
 
-        if verdict_output is not None:
-            try:
-                Path(verdict_output).write_text(
-                    json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
-                )
-                stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
-            except Exception as e:
-                stderr.print(f"[yellow]Warning:[/yellow] Could not write verdict to {verdict_output!r}: {e}")
+            if verdict_output is not None:
+                try:
+                    Path(verdict_output).write_text(
+                        json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
+                    )
+                    stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
+                except Exception as e:
+                    stderr.print(f"[yellow]Warning:[/yellow] Could not write verdict to {verdict_output!r}: {e}")
 
-        if verdict.agent_should_continue:
-            sys.exit(2)
+            if verdict.agent_should_continue:
+                verdict_continue = True
+
+    if verdict_continue:
+        sys.exit(2)
+    elif severity_exit:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

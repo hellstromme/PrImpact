@@ -520,9 +520,9 @@ def render_terminal(
 def render_verdict_terminal(verdict: Verdict, console: Console) -> None:
     """Render the agent verdict panel to the console."""
     has_blockers = (
-        getattr(verdict, "agent_should_continue", False)
-        or getattr(verdict, "status", "clean") == "has_blockers"
-        or bool(getattr(verdict, "blockers", []))
+        verdict.agent_should_continue
+        or verdict.status == "has_blockers"
+        or bool(verdict.blockers)
     )
     if has_blockers:
         rule_style = "bright_red"
