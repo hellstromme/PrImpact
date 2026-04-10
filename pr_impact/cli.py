@@ -437,9 +437,16 @@ def main() -> None:
 )
 @click.option(
     "--verdict",
+    "run_verdict",
+    is_flag=True,
+    default=False,
+    help="Run agent verdict analysis and print result to terminal (exit 2 if blockers found)",
+)
+@click.option(
+    "--verdict-json",
     "verdict_output",
     default=None,
-    help="Write agent verdict JSON to this file (also printed to terminal)",
+    help="Also write agent verdict JSON to this file (implies --verdict)",
 )
 def analyse(
     repo: str,
@@ -452,6 +459,7 @@ def analyse(
     max_depth: int,
     fail_on_severity: str,
     check_osv: bool,
+    run_verdict: bool,
     verdict_output: str | None,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
@@ -535,8 +543,9 @@ def analyse(
             )
             sys.exit(1)
 
-    if verdict_output is not None:
+    if run_verdict or verdict_output is not None:
         import dataclasses
+        import json as _json
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -552,11 +561,11 @@ def analyse(
 
         render_verdict_terminal(verdict, Console())
 
-        verdict_dict = dataclasses.asdict(verdict)
-        Path(verdict_output).write_text(
-            __import__("json").dumps(verdict_dict, indent=2), encoding="utf-8"
-        )
-        stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
+        if verdict_output is not None:
+            Path(verdict_output).write_text(
+                _json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
+            )
+            stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
 
         if verdict.agent_should_continue:
             sys.exit(2)

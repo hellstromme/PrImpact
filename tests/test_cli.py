@@ -1501,14 +1501,14 @@ def _blocker_verdict():
     )
 
 
-def test_verdict_flag_writes_json_file(runner):
+def test_verdict_json_flag_writes_json_file(runner):
     patches = _base_patches()
     with runner.isolated_filesystem():
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
                 _with_verdict(_clean_verdict()):
-            result = runner.invoke(
+            runner.invoke(
                 main,
-                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "verdict.json"],
+                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict-json", "verdict.json"],
                 env=_ENV,
             )
         import json as _json
@@ -1517,13 +1517,28 @@ def test_verdict_flag_writes_json_file(runner):
     assert data["agent_should_continue"] is False
 
 
+def test_verdict_flag_alone_does_not_write_file(runner):
+    """--verdict alone prints to terminal but writes no file."""
+    patches = _base_patches()
+    with runner.isolated_filesystem():
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+                _with_verdict(_clean_verdict()):
+            runner.invoke(
+                main,
+                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
+                env=_ENV,
+            )
+        import os
+        assert not os.path.exists("verdict.json")
+
+
 def test_verdict_clean_exits_0(runner):
     patches = _base_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
             _with_verdict(_clean_verdict()):
         result = runner.invoke(
             main,
-            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "v.json"],
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
             env=_ENV,
         )
     assert result.exit_code == 0
@@ -1535,7 +1550,7 @@ def test_verdict_has_blockers_exits_2(runner):
             _with_verdict(_blocker_verdict()):
         result = runner.invoke(
             main,
-            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "v.json"],
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
             env=_ENV,
         )
     assert result.exit_code == 2
@@ -1547,10 +1562,24 @@ def test_verdict_output_shown_in_terminal(runner):
             _with_verdict(_clean_verdict()):
         result = runner.invoke(
             main,
-            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "v.json"],
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
             env=_ENV,
         )
     assert "AGENT VERDICT" in result.output
+
+
+def test_verdict_json_implies_verdict(runner):
+    """--verdict-json alone (without --verdict) still runs verdict analysis."""
+    patches = _base_patches()
+    with runner.isolated_filesystem():
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+                _with_verdict(_clean_verdict()) as mock_v:
+            runner.invoke(
+                main,
+                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict-json", "v.json"],
+                env=_ENV,
+            )
+    mock_v.assert_called_once()
 
 
 def test_verdict_api_failure_exits_0(runner):
@@ -1560,14 +1589,14 @@ def test_verdict_api_failure_exits_0(runner):
             patch("pr_impact.cli.run_verdict_analysis", side_effect=RuntimeError("timeout")):
         result = runner.invoke(
             main,
-            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict", "v.json"],
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
             env=_ENV,
         )
     assert result.exit_code == 0
 
 
 def test_verdict_not_called_without_flag(runner):
-    """run_verdict_analysis is never called unless --verdict is passed."""
+    """run_verdict_analysis is never called unless --verdict or --verdict-json is passed."""
     patches = _base_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
             patch("pr_impact.cli.run_verdict_analysis") as mock_v:
