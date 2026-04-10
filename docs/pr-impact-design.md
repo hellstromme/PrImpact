@@ -37,7 +37,7 @@ pr_impact/
 @dataclass
 class ChangedFile:
     path: str
-    language: str                      # 'python' | 'typescript' | 'javascript' | 'csharp' | 'unknown'
+    language: str                      # 'python' | 'typescript' | 'javascript' | 'csharp' | 'java' | 'go' | 'ruby' | 'unknown'
     diff: str                          # Raw unified diff for this file
     content_before: str
     content_after: str
@@ -57,6 +57,15 @@ class BlastRadiusEntry:
     distance: int                      # 1 = directly imports changed file, 2 = imports that, etc.
     imported_symbols: list[str]        # Which specific symbols it uses from the changed file
     churn_score: float | None          # Commits touching this file in last 90 days, if available
+
+@dataclass
+class RefsResult:
+    base: str                           # Base commit SHA
+    head: str                           # Head commit SHA
+    pr_title: str | None = None         # PR title if resolved from GitHub; None otherwise
+    fetch_pr_number: int | None = None  # Set when a real GitHub PR was resolved
+    fetch_base_ref: str | None = None   # Branch name of the PR base (for fetching)
+    fetch_remote: str = "origin"        # Remote to fetch from if commits are missing
 
 @dataclass
 class ImpactReport:
@@ -162,6 +171,17 @@ TypeScript / JavaScript:
 
 C#:
 - `using Namespace;` (resolved via a pre-built namespace→files map scanned from `namespace` declarations)
+
+Java:
+- `import fully.qualified.Class;`
+- `import fully.qualified.*;` (wildcard imports)
+- Source roots resolved via Maven/Gradle conventions
+
+Go:
+- Standard `import` blocks; module-path resolved via `go.mod`; `vendor/` excluded
+
+Ruby:
+- `require 'name'` and `require_relative 'path'`; falls back to `lib/` convention
 
 **Functions:**
 
@@ -445,6 +465,12 @@ def render_json(report: ImpactReport) -> str
 - JSON serialisation of the full ImpactReport dataclass
 - Used as the machine-readable sidecar
 
+```python
+def render_sarif(report: ImpactReport) -> str
+```
+- SARIF 2.1.0 serialisation of anomalies and test gaps
+- Enables import into GitHub Advanced Security, SonarQube, and similar tools
+
 ---
 
 ### `cli.py`
@@ -454,11 +480,12 @@ Entry point. Uses `click`.
 ```
 pr-impact analyse \
   --repo /path/to/repo \
-  --base abc1234 \
-  --head def5678 \
+  [--pr 247 | --base abc1234 --head def5678] \
   [--output report.md] \
   [--json report.json] \
-  [--max-depth 3]
+  [--sarif report.sarif] \
+  [--max-depth 3] \
+  [--fail-on-severity high]
 ```
 
 - Orchestrates the pipeline: git → graph → classify → ai → report
@@ -503,12 +530,11 @@ this use case.
 
 ---
 
-## What This Is Not (Deferred to v2)
+## What This Is Not
 
-- Tree-sitter AST parsing (would improve classifier accuracy)
+- Tree-sitter AST parsing (deferred to v0.4 — would improve classifier accuracy)
 - Runtime / dynamic call graph analysis
 - Performance impact modelling
-- Integration with GitHub/GitLab PR APIs (MVP works on local repos)
-- Roadmap / backlog integration
-- Web UI or dashboard
-- Support for languages beyond Python, TypeScript, JavaScript, C#
+- Roadmap / backlog integration (deferred to v2.0)
+- Web UI or dashboard (deferred to v1.0)
+- Malicious code detection (deferred to v0.3)
