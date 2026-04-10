@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import os
 import sys
 from collections import defaultdict
@@ -11,13 +13,14 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-from .ai_layer import run_ai_analysis
+from .ai_layer import run_ai_analysis, run_verdict_analysis
 from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .models import AIAnalysis, ImpactReport, RefsResult
-from .reporter import render_json, render_markdown, render_sarif, render_terminal
+from .reporter import render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
+from .security import check_dependency_integrity, detect_pattern_signals
 
 stderr = Console(stderr=True)
 
@@ -210,10 +213,11 @@ def _run_pipeline(
     refs: RefsResult,
     max_depth: int,
     progress,
+    check_osv: bool = False,
 ) -> tuple:
-    """Execute all 8 pipeline steps with an injected progress object.
+    """Execute all pipeline steps with an injected progress object.
 
-    Returns (changed_files, blast_radius, interface_changes, ai_analysis, metadata).
+    Returns (changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues).
     Exits with code 1 on fatal git errors, code 0 when no supported files changed.
     The ``progress`` parameter accepts any object with add_task/update/remove_task
     methods; tests pass a MagicMock() to suppress spinner output.
@@ -285,6 +289,20 @@ def _run_pipeline(
             stderr.print(f"[yellow]Warning:[/yellow] Churn score failed for {entry.path}: {e}")
             entry.churn_score = None
 
+    # Security: pattern signal detection (deterministic, fast, no API)
+    progress.update(task, description="Scanning for security signals...")
+    try:
+        pattern_signals = detect_pattern_signals(changed_files)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Security signal detection failed: {e}")
+        pattern_signals = []
+
+    try:
+        dependency_issues = check_dependency_integrity(changed_files, osv_check=check_osv)
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Dependency integrity check failed: {e}")
+        dependency_issues = []
+
     # Metadata (best-effort)
     try:
         metadata = get_pr_metadata(repo, refs.base, refs.head)
@@ -292,17 +310,18 @@ def _run_pipeline(
         stderr.print(f"[yellow]Warning:[/yellow] PR metadata lookup failed: {e}")
         metadata = {}
 
-    # Step 7: AI analysis
-    progress.update(task, description="Running AI analysis (3 API calls)...")
+    # Step 7: AI analysis (4 API calls when security signals present)
+    call_count = 4 if pattern_signals else 3
+    progress.update(task, description=f"Running AI analysis ({call_count} API calls)...")
     try:
-        ai_analysis = run_ai_analysis(changed_files, blast_radius, repo)
+        ai_analysis = run_ai_analysis(changed_files, blast_radius, repo, pattern_signals or None)
     except Exception as e:
         stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")
         ai_analysis = AIAnalysis()
 
     progress.remove_task(task)
 
-    return changed_files, blast_radius, interface_changes, ai_analysis, metadata
+    return changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues
 
 
 def _resolve_refs(
@@ -412,6 +431,25 @@ def main() -> None:
     type=click.Choice(["none", "low", "medium", "high"]),
     help="Exit 1 if any anomaly meets or exceeds this severity level",
 )
+@click.option(
+    "--check-osv",
+    is_flag=True,
+    default=False,
+    help="Query the OSV vulnerability database for new dependencies (requires network access)",
+)
+@click.option(
+    "--verdict",
+    "run_verdict",
+    is_flag=True,
+    default=False,
+    help="Run agent verdict analysis and print result to terminal (exit 2 if blockers found)",
+)
+@click.option(
+    "--verdict-json",
+    "verdict_output",
+    default=None,
+    help="Also write agent verdict JSON to this file (implies --verdict)",
+)
 def analyse(
     repo: str,
     pr_number: int | None,
@@ -422,6 +460,9 @@ def analyse(
     sarif_output: str | None,
     max_depth: int,
     fail_on_severity: str,
+    check_osv: bool,
+    run_verdict: bool,
+    verdict_output: str | None,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
@@ -462,8 +503,8 @@ def analyse(
         console=Console(stderr=True),
         transient=True,
     ) as progress:
-        changed_files, blast_radius, interface_changes, ai_analysis, metadata = (
-            _run_pipeline(repo, repo_obj, refs, max_depth, progress)
+        changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
+            _run_pipeline(repo, repo_obj, refs, max_depth, progress, check_osv=check_osv)
         )
 
     # Build title: from resolved PR or fall back to first commit message / SHA range
@@ -485,11 +526,16 @@ def analyse(
         blast_radius=blast_radius,
         interface_changes=interface_changes,
         ai_analysis=ai_analysis,
+        dependency_issues=dependency_issues,
     )
 
     _write_outputs(report, output, json_output, sarif_output)
     render_terminal(report, Console(), output, json_output, sarif_output)
 
+    # Collect both exit conditions before exiting so neither silently suppresses the other.
+    # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),
+    # because exit 2 carries a concrete remediation list for an agent loop.
+    severity_exit = False
     if fail_on_severity != "none":
         threshold = _SEVERITY_ORDER[fail_on_severity]
         breaching = [
@@ -498,10 +544,45 @@ def analyse(
         ]
         if breaching:
             stderr.print(
-                f"[bold red]Exiting 1:[/bold red] {len(breaching)} anomaly/anomalies "
-                f"at or above --fail-on-severity={fail_on_severity}"
+                f"[bold red]--fail-on-severity={fail_on_severity}:[/bold red] "
+                f"{len(breaching)} anomaly/anomalies at or above threshold"
             )
-            sys.exit(1)
+            severity_exit = True
+
+    verdict_continue = False
+    if run_verdict or verdict_output is not None:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=Console(stderr=True),
+            transient=True,
+        ) as progress:
+            progress.add_task("Running verdict analysis (1 API call)...", total=None)
+            try:
+                verdict = run_verdict_analysis(report.ai_analysis, report.dependency_issues)
+            except Exception as e:
+                stderr.print(f"[yellow]Warning:[/yellow] Verdict analysis failed: {e}")
+                verdict = None
+
+        if verdict is not None:
+            render_verdict_terminal(verdict, Console())
+
+            if verdict_output is not None:
+                try:
+                    Path(verdict_output).write_text(
+                        json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
+                    )
+                    stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
+                except Exception as e:
+                    stderr.print(f"[yellow]Warning:[/yellow] Could not write verdict to {verdict_output!r}: {e}")
+
+            if verdict.agent_should_continue:
+                verdict_continue = True
+
+    if verdict_continue:
+        sys.exit(2)
+    elif severity_exit:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

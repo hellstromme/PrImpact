@@ -14,13 +14,19 @@ from .models import (
     BlastRadiusEntry,
     ChangedFile,
     Decision,
+    DependencyIssue,
+    SecuritySignal,
     TestGap,
+    Verdict,
+    VerdictBlocker,
     resolve_language,
 )
 from .prompts import (
     PROMPT_ANOMALY_DETECTION,
+    PROMPT_SECURITY_SIGNALS,
     PROMPT_SUMMARY_DECISIONS_ASSUMPTIONS,
     PROMPT_TEST_GAP_ANALYSIS,
+    PROMPT_VERDICT,
 )
 
 MODEL = "claude-sonnet-4-5"
@@ -136,8 +142,21 @@ def _find_test_files(changed_files: list[ChangedFile], repo_path: str) -> str:
                 if stem_lower and stem_lower not in name_lower:
                     continue
                 content = _read_file_safe(entry.path)
-                if content:
-                    found[entry.name] = f"### {entry.path}\n{content[:4000]}"
+                if not content:
+                    continue
+                # Extract test names for a complete coverage picture.
+                # Python: match sync and async test functions (async def test_* is common in pytest-asyncio).
+                py_names = re.findall(r"^\s*(?:async\s+)?def (test_\w+)", content, re.MULTILINE)
+                # JS/TS: extract it/test/describe block titles.
+                js_names = re.findall(
+                    r"""\b(?:it|test|describe)\s*\(\s*["'`]([^"'`\n]+)["'`]""", content
+                )
+                test_names = py_names + js_names
+                if test_names:
+                    body = "\n".join(test_names)
+                else:
+                    body = content[:4000]   # non-standard structure — fall back to partial content
+                found[entry.name] = f"### {entry.path}\n{body}"
 
     return "\n\n".join(found.values()) if found else "(no test files found)"
 
@@ -176,6 +195,27 @@ def _find_neighbouring_signatures(
     return "\n\n".join(parts) if parts else "(none)"
 
 
+def _build_changed_files_before_signatures(changed_files: list[ChangedFile]) -> str:
+    """Return import/declaration signatures from the before-state of each changed file.
+
+    Anomaly detection excludes changed files from the neighbour set, so on large PRs
+    that touch many files in one package the 'established patterns' context is nearly
+    empty.  Providing the before-signatures of the changed files themselves gives
+    Claude evidence of what patterns already existed — e.g. that cli.py already
+    imported from classifier, dependency_graph, git_analysis etc. before this PR,
+    establishing that direct module calls from the orchestration layer are the norm.
+    """
+    parts: list[str] = []
+    for f in changed_files:
+        if not f.content_before:
+            continue
+        lang = resolve_language(f.path)
+        sigs = _extract_signatures(f.content_before, lang)
+        if sigs:
+            parts.append(f"### {f.path} (before this PR)\n{sigs}")
+    return "\n\n".join(parts) if parts else "(none)"
+
+
 # --- API call ---
 
 
@@ -205,8 +245,8 @@ def _parse_json_safe(raw: str) -> dict:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Fall back to extracting the first JSON object in the text
-    match = re.search(r"\{.*\}", text, re.DOTALL)
+    # Fall back to extracting the first JSON object or array in the text
+    match = re.search(r"(\{.*\}|\[.*\])", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
@@ -235,6 +275,35 @@ def _call_api(client: anthropic.Anthropic, prompt: str, label: str) -> dict:
         return {}
 
 
+def _build_security_signals_context(
+    pattern_signals: list[SecuritySignal],
+    changed_files: list[ChangedFile],
+) -> tuple[str, str]:
+    """Return (signals_text, file_context_text) for the security prompt."""
+    if not pattern_signals:
+        signals_text = "(none)"
+    else:
+        parts: list[str] = []
+        for sig in pattern_signals:
+            line_info = f" line {sig.line_number}" if sig.line_number else ""
+            parts.append(
+                f"- [{sig.severity.upper()}] {sig.signal_type}: {sig.description}"
+                f"  ({sig.file_path}{line_info})"
+            )
+        signals_text = "\n".join(parts)
+
+    ctx_parts: list[str] = []
+    for f in changed_files:
+        if not f.content_before:
+            continue
+        lang = resolve_language(f.path)
+        sigs = _extract_signatures(f.content_before, lang)
+        if sigs:
+            ctx_parts.append(f"### {f.path} (before)\n{sigs}")
+    file_context = "\n\n".join(ctx_parts) if ctx_parts else "(no prior content)"
+    return signals_text, file_context
+
+
 # --- Public interface ---
 
 
@@ -242,6 +311,7 @@ def run_ai_analysis(
     changed_files: list[ChangedFile],
     blast_radius: list[BlastRadiusEntry],
     repo_path: str,
+    pattern_signals: list[SecuritySignal] | None = None,
 ) -> AIAnalysis:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -285,6 +355,7 @@ def run_ai_analysis(
     ]
 
     # Call 2: anomaly detection
+    before_sigs = _build_changed_files_before_signatures(changed_files)
     try:
         neighbour_sigs = _find_neighbouring_signatures(changed_files, repo_path)
     except Exception as exc:
@@ -294,6 +365,7 @@ def run_ai_analysis(
         client,
         PROMPT_ANOMALY_DETECTION.format(
             changed_files_diff=diffs_ctx,
+            changed_files_before_signatures=before_sigs,
             neighbouring_signatures=neighbour_sigs,
         ),
         "call2_anomalies",
@@ -331,4 +403,130 @@ def run_ai_analysis(
         if isinstance(t, dict)
     ]
 
+    # Call 4: contextual security scoring (only when pattern signals exist)
+    if pattern_signals:
+        signals_text, file_ctx = _build_security_signals_context(pattern_signals, changed_files)
+        data4 = _call_api(
+            client,
+            PROMPT_SECURITY_SIGNALS.format(
+                changed_files_diff=diffs_ctx,
+                pattern_signals=signals_text,
+                file_context=file_ctx,
+            ),
+            "call4_security",
+        )
+        # data4 may be a list (the prompt returns an array) or a dict wrapping one
+        if isinstance(data4, list):
+            raw_signals = data4
+        elif isinstance(data4, dict):
+            raw_signals = data4.get("signals", data4.get("security_signals"))
+        else:
+            raw_signals = None
+        if isinstance(raw_signals, list) and raw_signals:
+            result.security_signals = [
+                SecuritySignal(
+                    description=s.get("description", ""),
+                    file_path=s.get("file_path", ""),
+                    line_number=s.get("line_number") if isinstance(s.get("line_number"), int) else None,
+                    signal_type=s.get("signal_type", ""),
+                    severity=s.get("severity", "low"),
+                    why_unusual=s.get("why_unusual", ""),
+                    suggested_action=s.get("suggested_action", ""),
+                )
+                for s in raw_signals
+                if isinstance(s, dict)
+            ]
+        else:
+            # AI call returned empty or unexpected shape — fall back to raw pattern signals
+            result.security_signals = pattern_signals
+
     return result
+
+
+def run_verdict_analysis(
+    ai_analysis: AIAnalysis,
+    dependency_issues: list[DependencyIssue],
+) -> Verdict:
+    """Run the verdict API call given a completed AI analysis and dependency issues.
+
+    Accepts the minimal fields the verdict prompt needs rather than the full ImpactReport,
+    keeping this function consistent with the rest of the AI layer's input pattern.
+
+    Raises ValueError when the API key is missing or the response cannot be parsed
+    as a verdict dict. The caller (cli.py) is responsible for graceful degradation.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "ANTHROPIC_API_KEY is not set — verdict analysis skipped."
+        )
+    client = anthropic.Anthropic(api_key=api_key)
+
+    def _fmt_anomalies() -> str:
+        if not ai_analysis.anomalies:
+            return "(none)"
+        return "\n".join(
+            f"- [{a.severity.upper()}] {a.description} ({a.location})"
+            for a in ai_analysis.anomalies
+        )
+
+    def _fmt_test_gaps() -> str:
+        if not ai_analysis.test_gaps:
+            return "(none)"
+        return "\n".join(
+            f"- {t.behaviour} ({t.location})" for t in ai_analysis.test_gaps
+        )
+
+    def _fmt_security_signals() -> str:
+        if not ai_analysis.security_signals:
+            return "(none)"
+        return "\n".join(
+            f"- [{s.severity.upper()}] {s.signal_type}: {s.description} ({s.file_path})"
+            for s in ai_analysis.security_signals
+        )
+
+    def _fmt_dependency_issues() -> str:
+        if not dependency_issues:
+            return "(none)"
+        return "\n".join(
+            f"- [{i.severity.upper()}] {i.issue_type}: {i.description}"
+            for i in dependency_issues
+        )
+
+    prompt = PROMPT_VERDICT.format(
+        summary=ai_analysis.summary or "(no summary)",
+        anomaly_count=len(ai_analysis.anomalies),
+        anomalies=_fmt_anomalies(),
+        test_gap_count=len(ai_analysis.test_gaps),
+        test_gaps=_fmt_test_gaps(),
+        security_signal_count=len(ai_analysis.security_signals),
+        security_signals=_fmt_security_signals(),
+        dependency_issue_count=len(dependency_issues),
+        dependency_issues=_fmt_dependency_issues(),
+    )
+
+    data = _call_api(client, prompt, "call_verdict")
+
+    if not isinstance(data, dict):
+        raise ValueError(f"Verdict response was not a JSON object (got {type(data).__name__})")
+
+    blockers = [
+        VerdictBlocker(
+            category=b.get("category", ""),
+            description=b.get("description", ""),
+            location=b.get("location", ""),
+        )
+        for b in data.get("blockers", [])
+        if isinstance(b, dict)
+    ]
+    raw_continue = data.get("agent_should_continue", False)
+    if isinstance(raw_continue, str):
+        should_continue = raw_continue.strip().lower() in ("true", "1")
+    else:
+        should_continue = raw_continue is True or raw_continue == 1
+    return Verdict(
+        status=data.get("status", "clean"),
+        agent_should_continue=should_continue,
+        rationale=data.get("rationale", ""),
+        blockers=blockers,
+    )

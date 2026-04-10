@@ -86,12 +86,36 @@ class TestGap:
 
 
 @dataclass
+class SecuritySignal:
+    description: str
+    file_path: str
+    line_number: int | None
+    signal_type: str  # "network_call" | "credential" | "encoded_payload" | "dynamic_exec" | "shell_invoke" | "suspicious_import"
+    severity: str     # "high" | "medium" | "low"
+    why_unusual: str
+    suggested_action: str
+
+
+@dataclass
+class DependencyIssue:
+    package_name: str
+    issue_type: str   # "typosquat" | "version_change" | "vulnerability"
+    description: str
+    severity: str     # "high" | "medium" | "low"
+
+
+@dataclass
 class AIAnalysis:
     summary: str = ""
     decisions: list[Decision] = field(default_factory=list)
     assumptions: list[Assumption] = field(default_factory=list)
     anomalies: list[Anomaly] = field(default_factory=list)
     test_gaps: list[TestGap] = field(default_factory=list)
+    # security_signals lives here (not on ImpactReport) because it is the output
+    # of the 4th Claude API call — AI-scored and context-adjusted findings.
+    # dependency_issues lives on ImpactReport because it is deterministic output
+    # from security.py, produced before any AI call.
+    security_signals: list[SecuritySignal] = field(default_factory=list)
 
 
 @dataclass
@@ -106,6 +130,21 @@ class RefsResult:
 
 
 @dataclass
+class VerdictBlocker:
+    category: str   # "test_gap" | "security_signal" | "dependency_issue" | "anomaly"
+    description: str
+    location: str
+
+
+@dataclass
+class Verdict:
+    status: str              # "clean" | "has_blockers"
+    agent_should_continue: bool
+    rationale: str
+    blockers: list[VerdictBlocker] = field(default_factory=list)
+
+
+@dataclass
 class ImpactReport:
     pr_title: str
     base_sha: str
@@ -114,3 +153,4 @@ class ImpactReport:
     blast_radius: list[BlastRadiusEntry]
     interface_changes: list[InterfaceChange]
     ai_analysis: AIAnalysis
+    dependency_issues: list[DependencyIssue] = field(default_factory=list)

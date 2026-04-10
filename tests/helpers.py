@@ -7,8 +7,10 @@ from pr_impact.models import (
     BlastRadiusEntry,
     ChangedFile,
     Decision,
+    DependencyIssue,
     ImpactReport,
     InterfaceChange,
+    SecuritySignal,
     TestGap,
 )
 
@@ -27,6 +29,20 @@ def make_file(
         content_before=before,
         content_after=after,
     )
+
+
+def make_security_signal(**kwargs) -> SecuritySignal:
+    defaults = dict(
+        description="New shell invoke",
+        file_path="src/auth.py",
+        line_number=10,
+        signal_type="shell_invoke",
+        severity="high",
+        why_unusual="No prior shell calls.",
+        suggested_action="Confirm intent.",
+    )
+    defaults.update(kwargs)
+    return SecuritySignal(**defaults)
 
 
 def make_report(**overrides) -> ImpactReport:

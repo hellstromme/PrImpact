@@ -739,6 +739,8 @@ def _pipeline_patches():
         patch("pr_impact.cli.get_git_churn", return_value=0.0),
         patch("pr_impact.cli.get_pr_metadata", return_value={}),
         patch("pr_impact.cli.run_ai_analysis", return_value=AIAnalysis(summary="ok")),
+        patch("pr_impact.cli.detect_pattern_signals", return_value=[]),
+        patch("pr_impact.cli.check_dependency_integrity", return_value=[]),
     ]
 
 
@@ -762,15 +764,16 @@ def test_run_pipeline_exits_0_when_no_changed_files():
     assert exc_info.value.code == 0
 
 
-def test_run_pipeline_returns_five_tuple():
+def test_run_pipeline_returns_six_tuple():
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
-    changed, blast, _, ai, _ = result
+    changed, blast, _, ai, _, dep = result
     assert changed[0].path == "foo.py"
     assert blast == []
     assert ai.summary == "ok"
+    assert dep == []
 
 
 def test_run_pipeline_passes_max_depth_to_blast_radius():
@@ -795,8 +798,8 @@ def test_run_pipeline_import_graph_failure_continues():
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
     patches[1] = patch("pr_impact.cli.build_import_graph", side_effect=RuntimeError("oops"))
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        changed, _, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -805,8 +808,8 @@ def test_run_pipeline_blast_radius_failure_continues():
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
     patches[2] = patch("pr_impact.cli.get_blast_radius", side_effect=RuntimeError("oops"))
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        _, blast, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _, blast, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert blast == []
 
 
@@ -815,8 +818,8 @@ def test_run_pipeline_ai_failure_returns_empty_analysis():
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
     patches[5] = patch("pr_impact.cli.run_ai_analysis", side_effect=ValueError("no key"))
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        _, _, _, ai, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _, _, _, ai, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert ai.summary == ""
 
 
@@ -833,7 +836,7 @@ def test_run_pipeline_classifier_failure_continues():
         patches[5],
         patch("pr_impact.cli.classify_changed_file", side_effect=RuntimeError("parse error")),
     ):
-        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -850,7 +853,7 @@ def test_run_pipeline_interface_change_failure_continues():
         patches[5],
         patch("pr_impact.cli.get_interface_changes", side_effect=RuntimeError("oops")),
     ):
-        _, _, interface, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, interface, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert interface == []
 
 
@@ -867,7 +870,7 @@ def test_run_pipeline_ensure_commits_warning_on_failure():
         patches[5],
         patch("pr_impact.cli.ensure_commits_present", side_effect=RuntimeError("fetch failed")),
     ):
-        changed, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert changed  # pipeline completed despite the warning
 
 
@@ -878,8 +881,8 @@ def test_run_pipeline_churn_failure_sets_none_and_continues():
     patches = _pipeline_patches()
     patches[2] = patch("pr_impact.cli.get_blast_radius", return_value=[blast_entry])
     patches[3] = patch("pr_impact.cli.get_git_churn", side_effect=RuntimeError("git error"))
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        _, blast, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _, blast, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert blast_entry.churn_score is None
 
 
@@ -888,8 +891,8 @@ def test_run_pipeline_metadata_failure_returns_empty_dict():
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
     patches[4] = patch("pr_impact.cli.get_pr_metadata", side_effect=RuntimeError("no history"))
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        _, _, _, _, meta = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _, _, _, _, meta, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
     assert meta == {}
 
 
@@ -1288,3 +1291,350 @@ def test_fail_on_severity_low_exits_1_on_low_anomaly(runner):
             env=_ENV,
         )
     assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# _run_pipeline — security steps
+# ---------------------------------------------------------------------------
+
+
+def test_run_pipeline_detect_signals_failure_continues():
+    """detect_pattern_signals raising is non-fatal — continues with empty list."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("scan error")),
+        patches[7],
+    ):
+        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    # pipeline completed; dep is from check_dependency_integrity mock (returns [])
+    assert dep == []
+
+
+def test_run_pipeline_detect_signals_failure_logs_warning():
+    """detect_pattern_signals raising logs a warning to stderr."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("scan error")),
+        patches[7],
+        patch("pr_impact.cli.stderr") as mock_stderr,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert mock_stderr.print.called
+    assert "scan error" in mock_stderr.print.call_args[0][0]
+
+
+def test_run_pipeline_check_integrity_failure_continues():
+    """check_dependency_integrity raising is non-fatal — continues with empty list."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("dep error")),
+    ):
+        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert dep == []
+
+
+def test_run_pipeline_check_integrity_failure_logs_warning():
+    """check_dependency_integrity raising logs a warning to stderr."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("dep error")),
+        patch("pr_impact.cli.stderr") as mock_stderr,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert mock_stderr.print.called
+    assert "dep error" in mock_stderr.print.call_args[0][0]
+
+
+def test_run_pipeline_detect_signals_warning_contains_warning_prefix():
+    """detect_pattern_signals failure warning uses [yellow]Warning:[/yellow] prefix."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0], patches[1], patches[2], patches[3], patches[4], patches[5],
+        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("boom")),
+        patches[7],
+        patch("pr_impact.cli.stderr") as mock_stderr,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert mock_stderr.print.called
+    text = mock_stderr.print.call_args[0][0]
+    assert "Warning" in text
+
+
+def test_run_pipeline_check_integrity_warning_contains_warning_prefix():
+    """check_dependency_integrity failure warning uses [yellow]Warning:[/yellow] prefix."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6],
+        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("boom")),
+        patch("pr_impact.cli.stderr") as mock_stderr,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert mock_stderr.print.called
+    text = mock_stderr.print.call_args[0][0]
+    assert "Warning" in text
+
+
+def test_run_pipeline_dependency_issues_returned_as_sixth_element():
+    from pr_impact.models import DependencyIssue
+    dep_issue = DependencyIssue(package_name="evil-pkg", issue_type="typosquat",
+                                description="suspicious", severity="high")
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    patches[7] = patch("pr_impact.cli.check_dependency_integrity", return_value=[dep_issue])
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert dep == [dep_issue]
+
+
+def test_run_pipeline_progress_shows_4_calls_when_signals_present():
+    """When detect_pattern_signals returns signals, progress message says 4 API calls."""
+    from pr_impact.models import SecuritySignal
+    sig = SecuritySignal(description="x", file_path="f.py", line_number=1,
+                         signal_type="shell_invoke", severity="high",
+                         why_unusual="u", suggested_action="s")
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    patches[6] = patch("pr_impact.cli.detect_pattern_signals", return_value=[sig])
+    mock_progress = MagicMock()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _run_pipeline(".", MagicMock(), refs, 3, mock_progress)
+    descriptions = [str(c) for c in mock_progress.update.call_args_list]
+    assert any("4" in d for d in descriptions)
+
+
+def test_run_pipeline_progress_shows_3_calls_when_no_signals():
+    """When detect_pattern_signals returns [], progress message says 3 API calls."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    mock_progress = MagicMock()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        _run_pipeline(".", MagicMock(), refs, 3, mock_progress)
+    descriptions = [str(c) for c in mock_progress.update.call_args_list]
+    assert any("3" in d for d in descriptions)
+
+
+# ---------------------------------------------------------------------------
+# analyse command — dependency_issues passed to ImpactReport
+# ---------------------------------------------------------------------------
+
+
+def test_analyse_dependency_issues_in_report(runner):
+    """dependency_issues from the pipeline end up in the ImpactReport."""
+    from pr_impact.models import DependencyIssue
+    dep_issue = DependencyIssue(package_name="requets", issue_type="typosquat",
+                                description="similar to requests", severity="high")
+    patches = _base_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patch("pr_impact.cli.check_dependency_integrity", return_value=[dep_issue]),
+    ):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+    # Dep issue should appear in the terminal output (Security Signals section)
+    assert "requets" in result.output
+
+
+# ---------------------------------------------------------------------------
+# --verdict flag
+# ---------------------------------------------------------------------------
+
+
+def _with_verdict(verdict):
+    """Patch run_verdict_analysis to return a fixed verdict."""
+    return patch("pr_impact.cli.run_verdict_analysis", return_value=verdict)
+
+
+def _clean_verdict():
+    from pr_impact.models import Verdict
+    return Verdict(status="clean", agent_should_continue=False, rationale="All good.", blockers=[])
+
+
+def _blocker_verdict():
+    from pr_impact.models import Verdict, VerdictBlocker
+    return Verdict(
+        status="has_blockers",
+        agent_should_continue=True,
+        rationale="Missing test coverage.",
+        blockers=[VerdictBlocker(category="test_gap", description="login untested", location="auth.py")],
+    )
+
+
+def test_verdict_json_flag_writes_json_file(runner):
+    patches = _base_patches()
+    with runner.isolated_filesystem():
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+                _with_verdict(_clean_verdict()):
+            runner.invoke(
+                main,
+                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict-json", "verdict.json"],
+                env=_ENV,
+            )
+        import json as _json
+        data = _json.loads(open("verdict.json").read())
+    assert data["status"] == "clean"
+    assert data["agent_should_continue"] is False
+
+
+def test_verdict_flag_alone_does_not_write_file(runner):
+    """--verdict alone prints to terminal but writes no file."""
+    patches = _base_patches()
+    with runner.isolated_filesystem():
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+                _with_verdict(_clean_verdict()):
+            runner.invoke(
+                main,
+                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
+                env=_ENV,
+            )
+        import os
+        assert not os.path.exists("verdict.json")
+
+
+def test_verdict_clean_exits_0(runner):
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            _with_verdict(_clean_verdict()):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+
+
+def test_verdict_has_blockers_exits_2(runner):
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            _with_verdict(_blocker_verdict()):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
+            env=_ENV,
+        )
+    assert result.exit_code == 2
+
+
+def test_verdict_output_shown_in_terminal(runner):
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            _with_verdict(_clean_verdict()):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
+            env=_ENV,
+        )
+    assert "AGENT VERDICT" in result.output
+
+
+def test_verdict_json_implies_verdict(runner):
+    """--verdict-json alone (without --verdict) still runs verdict analysis."""
+    patches = _base_patches()
+    with runner.isolated_filesystem():
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+                _with_verdict(_clean_verdict()) as mock_v:
+            runner.invoke(
+                main,
+                ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict-json", "v.json"],
+                env=_ENV,
+            )
+    mock_v.assert_called_once()
+
+
+def test_verdict_api_failure_exits_0(runner):
+    """Verdict API failure → warning printed, exit 0 (loop terminates safely)."""
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            patch("pr_impact.cli.run_verdict_analysis", side_effect=RuntimeError("timeout")):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--verdict"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+
+
+def test_verdict_not_called_without_flag(runner):
+    """run_verdict_analysis is never called unless --verdict or --verdict-json is passed."""
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            patch("pr_impact.cli.run_verdict_analysis") as mock_v:
+        runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
+            env=_ENV,
+        )
+    mock_v.assert_not_called()
+
+
+def test_analyse_check_osv_passes_flag_to_check_dependency_integrity(runner):
+    """--check-osv flag is forwarded as osv_check=True to check_dependency_integrity."""
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            patch("pr_impact.cli.detect_pattern_signals", return_value=[]), \
+            patch("pr_impact.cli.check_dependency_integrity", return_value=[]) as mock_dep:
+        runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--check-osv"],
+            env=_ENV,
+        )
+    mock_dep.assert_called_once()
+    _, kwargs = mock_dep.call_args
+    assert kwargs.get("osv_check") is True
+
+
+def test_verdict_json_write_failure_logs_warning(runner):
+    """I/O error during verdict JSON write is caught and logged, not raised."""
+    patches = _base_patches()
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+            _with_verdict(_clean_verdict()), \
+            patch("pr_impact.cli.Path") as mock_path:
+        mock_path.return_value.write_text.side_effect = PermissionError("denied")
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
+             "--verdict", "--verdict-json", "v.json"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0

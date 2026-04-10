@@ -13,10 +13,14 @@ from pr_impact.models import (
     Assumption,
     BlastRadiusEntry,
     Decision,
+    DependencyIssue,
     InterfaceChange,
+    SecuritySignal,
     TestGap,
+    Verdict,
+    VerdictBlocker,
 )
-from pr_impact.reporter import _fmt_churn, _parse_location, _sev, _sev_color, render_json, render_markdown, render_sarif, render_terminal
+from pr_impact.reporter import _fmt_churn, _parse_location, _sev, _sev_color, render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
 from tests.helpers import make_file, make_report
 
 
@@ -839,3 +843,445 @@ def test_parse_location_returns_none_for_path_without_extension():
 def test_terminal_footer_shows_sarif_path():
     out = _capture_terminal(make_report(), sarif_output="report.sarif")
     assert "report.sarif" in out
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_markdown
+# ---------------------------------------------------------------------------
+
+
+def _make_signal(severity: str = "high") -> SecuritySignal:
+    return SecuritySignal(
+        description="New network call in auth module",
+        file_path="src/auth/session.py",
+        line_number=47,
+        signal_type="network_call",
+        severity=severity,
+        why_unusual="No prior network access in this module.",
+        suggested_action="Confirm with PR author.",
+    )
+
+
+def _make_dep_issue(issue_type: str = "typosquat") -> DependencyIssue:
+    return DependencyIssue(
+        package_name="requets",
+        issue_type=issue_type,
+        description="`requets` is very similar to `requests`.",
+        severity="high",
+    )
+
+
+def test_markdown_security_signals_section_present_when_signals_exist():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    md = render_markdown(report)
+    assert "## Security Signals" in md
+
+
+def test_markdown_security_signals_section_absent_when_empty():
+    report = make_report(ai_analysis=AIAnalysis())
+    md = render_markdown(report)
+    assert "## Security Signals" not in md
+
+
+def test_markdown_security_signal_high_icon():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("high")]))
+    md = render_markdown(report)
+    assert "🔴" in md
+    assert "HIGH" in md
+
+
+def test_markdown_security_signal_medium_icon():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("medium")]))
+    md = render_markdown(report)
+    assert "🟡" in md
+
+
+def test_markdown_security_signal_low_icon():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("low")]))
+    md = render_markdown(report)
+    assert "🔵" in md
+
+
+def test_markdown_security_signal_includes_file_path():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    md = render_markdown(report)
+    assert "src/auth/session.py" in md
+
+
+def test_markdown_security_signal_includes_line_number():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    md = render_markdown(report)
+    assert "line 47" in md
+
+
+def test_markdown_security_signal_no_line_number_when_none():
+    sig = _make_signal()
+    sig.line_number = None
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    md = render_markdown(report)
+    assert "line None" not in md
+
+
+def test_markdown_security_disclaimer_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    md = render_markdown(report)
+    assert "not a security audit" in md
+
+
+def test_markdown_dependency_issues_present():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    md = render_markdown(report)
+    assert "## Security Signals" in md
+    assert "Dependency Issues" in md
+    assert "requets" in md
+
+
+def test_markdown_dependency_issues_absent_when_empty():
+    report = make_report()
+    md = render_markdown(report)
+    assert "Dependency Issues" not in md
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_sarif
+# ---------------------------------------------------------------------------
+
+
+def test_sarif_security_signal_rule_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/security-signal" in rule_ids
+
+
+def test_sarif_security_signal_result_level_error_for_high():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("high")]))
+    sarif = json.loads(render_sarif(report))
+    results = sarif["runs"][0]["results"]
+    sec_results = [r for r in results if r["ruleId"] == "primpact/security-signal"]
+    assert sec_results
+    assert sec_results[0]["level"] == "error"
+
+
+def test_sarif_security_signal_no_rule_when_no_signals():
+    report = make_report(ai_analysis=AIAnalysis())
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/security-signal" not in rule_ids
+
+
+def test_sarif_dependency_issue_rule_present():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/dependency-issue" in rule_ids
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_terminal
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_security_signals_section_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" in out
+
+
+def test_terminal_security_signals_absent_when_empty():
+    report = make_report(ai_analysis=AIAnalysis())
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" not in out
+
+
+def test_terminal_security_signals_shows_file_path():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "src/auth/session.py" in out
+
+
+def test_terminal_dependency_issues_shows_package_name():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" in out
+    assert "requets" in out
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_json
+# ---------------------------------------------------------------------------
+
+
+def test_json_includes_security_signals():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    data = json.loads(render_json(report))
+    signals = data["ai_analysis"]["security_signals"]
+    assert len(signals) == 1
+    assert signals[0]["signal_type"] == "network_call"
+
+
+def test_json_includes_dependency_issues():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    data = json.loads(render_json(report))
+    issues = data["dependency_issues"]
+    assert len(issues) == 1
+    assert issues[0]["package_name"] == "requets"
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — SARIF location detail
+# ---------------------------------------------------------------------------
+
+
+def test_sarif_security_signal_includes_location_for_file_path():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    assert "locations" in results[0]
+    assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "src/auth/session.py"
+
+
+def test_sarif_security_signal_includes_line_number_when_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    region = results[0]["locations"][0]["physicalLocation"].get("region", {})
+    assert region.get("startLine") == 47
+
+
+def test_sarif_security_signal_no_location_when_empty_file_path():
+    sig = _make_signal()
+    sig.file_path = ""
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    assert "locations" not in results[0]
+
+
+def test_sarif_security_signal_medium_maps_to_warning():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("medium")]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results[0]["level"] == "warning"
+
+
+def test_sarif_security_signal_low_maps_to_note():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal("low")]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results[0]["level"] == "note"
+
+
+def test_sarif_dependency_issue_high_maps_to_error():
+    report = make_report(dependency_issues=[_make_dep_issue()])
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/dependency-issue"]
+    assert results
+    assert results[0]["level"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# Security Signals — render_terminal detail
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_security_signals_shows_severity_counts():
+    signals = [
+        _make_signal("high"),
+        _make_signal("medium"),
+        _make_signal("low"),
+    ]
+    report = make_report(ai_analysis=AIAnalysis(security_signals=signals))
+    out = _capture_terminal(report)
+    assert "1 high" in out
+    assert "1 medium" in out
+    assert "1 low" in out
+
+
+def test_terminal_security_signals_shows_disclaimer():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "Not a security audit" in out or "not a security audit" in out.lower()
+
+
+def test_terminal_security_signals_shows_line_number():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert ":47" in out
+
+
+def test_terminal_security_signals_absent_when_both_empty():
+    report = make_report(ai_analysis=AIAnalysis(), dependency_issues=[])
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" not in out
+
+
+def test_terminal_security_signals_both_signals_and_dep_issues():
+    """When both security_signals and dependency_issues are present, both appear in terminal."""
+    report = make_report(
+        ai_analysis=AIAnalysis(security_signals=[_make_signal()]),
+        dependency_issues=[_make_dep_issue()],
+    )
+    out = _capture_terminal(report)
+    assert "SECURITY SIGNALS" in out
+    assert "src/auth/session.py" in out   # from signal
+    assert "requets" in out               # from dep issue
+
+
+def test_sarif_security_signal_no_region_when_line_number_is_none():
+    """When line_number is None, SARIF location omits 'region' key."""
+    sig = _make_signal()
+    sig.line_number = None
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    physical = results[0]["locations"][0]["physicalLocation"]
+    assert "region" not in physical
+
+
+def test_terminal_security_signal_no_colon_none_when_line_number_is_none():
+    """When line_number is None, ':None' must not appear in terminal output."""
+    sig = _make_signal()
+    sig.line_number = None
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    out = _capture_terminal(report)
+    assert ":None" not in out
+
+
+# ---------------------------------------------------------------------------
+# render_verdict_terminal
+# ---------------------------------------------------------------------------
+
+
+def _capture_verdict(verdict: Verdict) -> str:
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, no_color=True)
+    render_verdict_terminal(verdict, console)
+    return buf.getvalue()
+
+
+def _make_verdict(**kwargs) -> Verdict:
+    defaults = dict(
+        status="clean",
+        agent_should_continue=False,
+        rationale="No blockers found.",
+        blockers=[],
+    )
+    defaults.update(kwargs)
+    return Verdict(**defaults)
+
+
+def test_verdict_clean_shows_stop_message():
+    out = _capture_verdict(_make_verdict())
+    assert "CLEAN" in out or "agent may stop" in out.lower()
+
+
+def test_verdict_has_blockers_shows_continue_message():
+    out = _capture_verdict(_make_verdict(
+        status="has_blockers",
+        agent_should_continue=True,
+        rationale="Test coverage missing.",
+        blockers=[VerdictBlocker(category="test_gap", description="login untested", location="src/auth.py")],
+    ))
+    assert "BLOCKER" in out or "continue" in out.lower()
+
+
+def test_verdict_rationale_included():
+    out = _capture_verdict(_make_verdict(rationale="All signals are low severity."))
+    assert "All signals are low severity." in out
+
+
+def test_verdict_blockers_listed():
+    out = _capture_verdict(_make_verdict(
+        status="has_blockers",
+        agent_should_continue=True,
+        blockers=[VerdictBlocker(category="anomaly", description="Unusual coupling", location="src/db.py:42")],
+    ))
+    assert "Unusual coupling" in out
+    assert "src/db.py:42" in out
+
+
+def test_verdict_blocker_location_omitted_when_empty():
+    out = _capture_verdict(_make_verdict(
+        status="has_blockers",
+        agent_should_continue=True,
+        blockers=[VerdictBlocker(category="test_gap", description="missing test", location="")],
+    ))
+    # Empty location → no colon-delimited empty line
+    assert ":  " not in out
+
+
+def test_verdict_clean_no_blockers_section_when_empty():
+    out = _capture_verdict(_make_verdict())
+    # No blocker category labels when blockers list is empty
+    assert "test_gap" not in out
+    assert "anomaly" not in out
+
+
+def test_verdict_agent_verdict_rule_present():
+    out = _capture_verdict(_make_verdict())
+    assert "AGENT VERDICT" in out
+
+
+def test_markdown_security_signal_omits_why_unusual_when_empty():
+    sig = _make_signal()
+    sig.why_unusual = ""
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    md = render_markdown(report)
+    assert "Why this is unusual" not in md
+
+
+def test_markdown_security_signal_omits_suggested_action_when_empty():
+    sig = _make_signal()
+    sig.suggested_action = ""
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    md = render_markdown(report)
+    assert "Suggested action" not in md
+
+
+def test_sarif_security_signal_message_includes_why_unusual():
+    sig = _make_signal()
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    assert "No prior network access" in results[0]["message"]["text"]
+
+
+def test_terminal_security_signal_shows_why_unusual():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "No prior network access" in out
+
+
+def test_terminal_security_signal_shows_suggested_action():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    out = _capture_terminal(report)
+    assert "Confirm with PR author" in out
+
+
+def test_terminal_security_signal_omits_suggested_action_when_empty():
+    sig = _make_signal()
+    sig.suggested_action = ""
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    out = _capture_terminal(report)
+    assert "→" not in out
+
+
+def test_verdict_banner_red_when_status_has_blockers_even_if_flag_false():
+    """status='has_blockers' with agent_should_continue=False still shows red."""
+    v = _make_verdict(status="has_blockers", agent_should_continue=False,
+                      blockers=[VerdictBlocker(category="anomaly", description="x", location="")])
+    out = _capture_verdict(v)
+    assert "BLOCKER" in out or "continue" in out.lower()
+
+
+def test_verdict_banner_red_when_blockers_present_even_if_flag_false():
+    """Non-empty blockers list shows red banner regardless of agent_should_continue."""
+    v = _make_verdict(status="clean", agent_should_continue=False,
+                      blockers=[VerdictBlocker(category="test_gap", description="y", location="")])
+    out = _capture_verdict(v)
+    assert "BLOCKER" in out or "continue" in out.lower()
