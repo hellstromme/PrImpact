@@ -142,8 +142,19 @@ def _find_test_files(changed_files: list[ChangedFile], repo_path: str) -> str:
                 if stem_lower and stem_lower not in name_lower:
                     continue
                 content = _read_file_safe(entry.path)
-                if content:
-                    found[entry.name] = f"### {entry.path}\n{content[:4000]}"
+                if not content:
+                    continue
+                # Extract test function names rather than raw content.
+                # A large test file (1000+ lines, 30k chars) would be truncated
+                # at 4000 chars, hiding tests appended later in the file.
+                # Function names give Claude a complete picture of coverage
+                # in ~1-2k chars regardless of file size.
+                test_names = re.findall(r"^\s*def (test_\w+)", content, re.MULTILINE)
+                if test_names:
+                    body = "\n".join(test_names)
+                else:
+                    body = content[:2000]   # non-standard structure — fall back to partial content
+                found[entry.name] = f"### {entry.path}\n{body}"
 
     return "\n\n".join(found.values()) if found else "(no test files found)"
 
