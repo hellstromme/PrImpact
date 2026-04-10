@@ -1375,6 +1375,37 @@ def test_run_pipeline_check_integrity_failure_logs_warning():
     assert "dep error" in mock_stderr.print.call_args[0][0]
 
 
+def test_run_pipeline_detect_signals_warning_contains_warning_prefix():
+    """detect_pattern_signals failure warning uses [yellow]Warning:[/yellow] prefix."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0], patches[1], patches[2], patches[3], patches[4], patches[5],
+        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("boom")),
+        patches[7],
+        patch("pr_impact.cli.stderr") as mock_stderr,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert mock_stderr.print.called
+    text = mock_stderr.print.call_args[0][0]
+    assert "Warning" in text
+
+
+def test_run_pipeline_check_integrity_warning_contains_warning_prefix():
+    """check_dependency_integrity failure warning uses [yellow]Warning:[/yellow] prefix."""
+    refs = RefsResult(base="abc", head="def")
+    patches = _pipeline_patches()
+    with (
+        patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6],
+        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("boom")),
+        patch("pr_impact.cli.stderr") as mock_stderr,
+    ):
+        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+    assert mock_stderr.print.called
+    text = mock_stderr.print.call_args[0][0]
+    assert "Warning" in text
+
+
 def test_run_pipeline_dependency_issues_returned_as_sixth_element():
     from pr_impact.models import DependencyIssue
     dep_issue = DependencyIssue(package_name="evil-pkg", issue_type="typosquat",

@@ -910,3 +910,94 @@ def test_run_ai_analysis_non_int_line_number_becomes_none(monkeypatch, tmp_path)
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
     assert result.security_signals[0].line_number is None
+
+
+# ---------------------------------------------------------------------------
+# _build_security_signals_context — edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_security_context_empty_signals_file_context_still_built():
+    """Empty signals list → signals_text is placeholder, file_ctx still extracted."""
+    f = make_file(path="src/auth.py", before="def login(): pass\n")
+    signals_text, file_ctx = _build_security_signals_context([], [f])
+    assert signals_text == "(none)"
+    # File context is built regardless (not gated on signals)
+    assert "def login" in file_ctx
+
+
+def test_security_context_signal_with_empty_file_path_does_not_crash():
+    """Signal with file_path='' is formatted without crashing."""
+    sig = _make_security_signal(file_path="")
+    signals_text, _ = _build_security_signals_context([sig], [])
+    # Signal still appears (description is always included)
+    assert "shell_invoke" in signals_text
+
+
+def test_security_context_signal_with_none_line_number_formatted_cleanly():
+    """line_number=None produces no 'None' literal in signals_text."""
+    sig = _make_security_signal(line_number=None)
+    signals_text, _ = _build_security_signals_context([sig], [])
+    assert "None" not in signals_text
+
+
+def test_security_context_file_no_extractable_signatures_skipped():
+    """A file whose before-content yields no signatures is omitted from file_ctx."""
+    # Content with no function/class/import statements → _extract_signatures returns ""
+    f = make_file(path="src/data.py", before="x = 1\ny = 2\n")
+    sig = _make_security_signal(file_path="src/data.py")
+    _, file_ctx = _build_security_signals_context([sig], [f])
+    # No signatures extracted → file absent from context
+    assert "src/data.py" not in file_ctx
+
+
+# ---------------------------------------------------------------------------
+# run_ai_analysis — 4th call failure and type validation
+# ---------------------------------------------------------------------------
+
+
+def test_run_ai_analysis_4th_call_api_error_falls_back_to_raw(monkeypatch, tmp_path):
+    """When the 4th API call raises (e.g. timeout), result falls back to raw pattern_signals."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    # Two failures (retry logic tries twice per call)
+    client = _mock_client(r1, r2, r3, RuntimeError("timeout"), RuntimeError("timeout"))
+    raw_sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[raw_sig])
+    assert result.security_signals == [raw_sig]
+
+
+def test_run_ai_analysis_4th_response_string_falls_back_to_raw(monkeypatch, tmp_path):
+    """When the 4th response JSON is a bare string, fall back to raw pattern_signals."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps("just a string")
+    client = _mock_client(r1, r2, r3, r4)
+    raw_sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[raw_sig])
+    assert result.security_signals == [raw_sig]
+
+
+def test_run_ai_analysis_4th_response_missing_required_fields_uses_defaults(monkeypatch, tmp_path):
+    """Items in 4th response missing severity/signal_type default to empty/low rather than crash."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([{
+        "description": "partial signal",
+        # severity and signal_type omitted
+    }])
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
+    assert len(result.security_signals) == 1
+    assert result.security_signals[0].severity == "low"   # default
+    assert result.security_signals[0].signal_type == ""   # default

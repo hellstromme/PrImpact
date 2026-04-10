@@ -375,7 +375,12 @@ def run_ai_analysis(
             "call4_security",
         )
         # data4 may be a list (the prompt returns an array) or a dict wrapping one
-        raw_signals = data4 if isinstance(data4, list) else data4.get("signals", data4.get("security_signals"))
+        if isinstance(data4, list):
+            raw_signals = data4
+        elif isinstance(data4, dict):
+            raw_signals = data4.get("signals", data4.get("security_signals"))
+        else:
+            raw_signals = None
         if isinstance(raw_signals, list) and raw_signals:
             result.security_signals = [
                 SecuritySignal(
