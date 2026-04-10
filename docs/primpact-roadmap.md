@@ -55,40 +55,38 @@ make a confident go/no-go decision on whether to look closer — in under ten mi
 
 **Theme:** Make Primpact run where the work already happens.
 
-### GitHub / GitLab native input
+### ✅ GitHub native input (`--pr` flag)
 
 Replace `--base` / `--head` with `--pr` flag that resolves directly from the
-platform API. Primpact fetches the PR metadata, diff, and commit range itself.
+GitHub API. Primpact fetches the PR metadata and commit range itself.
 
+```bash
+pr-impact analyse --repo /path/to/repo --pr 247
 ```
-primpact analyse --repo owner/repo --pr 247
-```
 
-Requires a `GITHUB_TOKEN` / `GITLAB_TOKEN` env var. Falls back to local git if
-not available.
+Requires a `GITHUB_TOKEN` env var for private repos. Falls back to `HEAD~1 → HEAD`
+if no GitHub remote is detected. Supports interactive PR selection in a terminal
+(lists open PRs and prompts for a number).
 
-### CI/CD integration
+### ✅ CI/CD integration
 
-A GitHub Actions step and a GitLab CI template that:
-- Runs Primpact on every PR
-- Posts the Markdown report as a PR comment (collapsible, with a summary header)
-- Fails the step (optionally) if anomaly severity threshold is breached
+GitHub Actions workflow (`.github/workflows/pr-impact.yml`) and GitLab CI template
+(`ci/gitlab-ci-template.yml`) that:
+- Run Primpact on every PR / MR (no draft filtering in CI template)
+- Post the Markdown report as a collapsible PR comment (upserts on re-run)
+- Fail the step if any anomaly meets `--fail-on-severity high` (configurable)
+- Upload `pr_impact_report.md` and `pr_impact_report.json` as build artifacts
 
-The JSON sidecar is uploaded as a build artefact, enabling downstream tooling.
+### ✅ Language expansion
 
-### Language expansion
-
-Add support for:
-- **Java** — import graph only; AI layer already handles it
-- **Go** — import graph is explicit and clean; straightforward addition
-- **Ruby** — require/require_relative patterns
+Added import graph support for:
+- **Java** — `import fully.qualified.Class;` and wildcard imports, Maven/Gradle source roots
+- **Go** — standard `import` blocks, module-path resolution via `go.mod`, vendor exclusion
+- **Ruby** — `require` and `require_relative` patterns, `lib/` fallback
 
 C# (`using` statements, namespace graph) was added in v0.1.
 
-The classifier and AI layer are language-agnostic. Only the import extractor is
-language-specific — each new language is an addition to one module.
-
-### Structured SARIF output
+### ⏳ Structured SARIF output
 
 SARIF is the standard format for static analysis results in GitHub, Azure DevOps,
 and many security tools. Adding a `--sarif` output flag means Primpact results can
