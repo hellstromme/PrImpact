@@ -149,8 +149,8 @@ You will be given:
 - The diff for each changed file, including before and after signatures
 
 For each changed function or class, assess whether the change is:
-- "equivalent": a refactor, rename, reformat, or reorder — the observable behaviour is
-  unchanged (e.g. extract method, rename variable, reorder parameters with same defaults,
+- "equivalent": a refactor, rename, or reformat — the observable behaviour is
+  unchanged (e.g. extract method, rename variable,
   add type annotations that don't change runtime behaviour)
 - "risky": a small-looking diff that alters branching logic, adds a new code path, changes
   state transitions, or modifies return values in a non-obvious way

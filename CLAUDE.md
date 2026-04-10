@@ -71,7 +71,7 @@ PrImpact is a linear 8-step pipeline CLI tool. `cli.py` orchestrates the pipelin
 
 ### Package structure
 
-```
+```text
 pr_impact/
   cli.py               # Entry point (click), pipeline orchestration, progress to stderr
   models.py            # Shared dataclasses — single source of truth for data contracts

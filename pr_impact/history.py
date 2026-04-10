@@ -123,6 +123,7 @@ def load_hotspots(db_path: str, repo_path: str, limit: int = 10) -> list[dict]:
     """
     if not os.path.exists(db_path):
         return []
+    conn = None
     try:
         conn = _connect(db_path)
         rows = conn.execute(
@@ -137,10 +138,12 @@ def load_hotspots(db_path: str, repo_path: str, limit: int = 10) -> list[dict]:
             """,
             (repo_path, limit),
         ).fetchall()
-        conn.close()
         return [{"file": row[0], "appearances": row[1]} for row in rows]
     except Exception:
         return []
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def load_anomaly_patterns(db_path: str, repo_path: str, limit: int = 10) -> list[dict]:
@@ -151,6 +154,7 @@ def load_anomaly_patterns(db_path: str, repo_path: str, limit: int = 10) -> list
     """
     if not os.path.exists(db_path):
         return []
+    conn = None
     try:
         conn = _connect(db_path)
         rows = conn.execute(
@@ -166,22 +170,27 @@ def load_anomaly_patterns(db_path: str, repo_path: str, limit: int = 10) -> list
             """,
             (repo_path, limit),
         ).fetchall()
-        conn.close()
         return [{"file": row[0], "description": row[1], "run_count": row[2]} for row in rows]
     except Exception:
         return []
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def get_run_count(db_path: str, repo_path: str) -> int:
     """Return the number of recorded runs for this repo."""
     if not os.path.exists(db_path):
         return 0
+    conn = None
     try:
         conn = _connect(db_path)
         count = conn.execute(
             "SELECT COUNT(*) FROM runs WHERE repo_path = ?", (repo_path,)
         ).fetchone()[0]
-        conn.close()
         return count
     except Exception:
         return 0
+    finally:
+        if conn is not None:
+            conn.close()

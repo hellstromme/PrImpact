@@ -526,7 +526,7 @@ def analyse(
     hotspots: list[dict] | None = None
     if not no_history:
         run_count = get_run_count(_db_path, repo)
-        if run_count >= 2:
+        if run_count >= 1:
             hotspots = load_hotspots(_db_path, repo) or None
             anomaly_history = load_anomaly_patterns(_db_path, repo) or None
             if hotspots or anomaly_history:

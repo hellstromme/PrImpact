@@ -178,11 +178,17 @@ def _unquote(s: str) -> str:
 
 
 def _py_imports_v2(root) -> list[ASTImport]:
-    """Revised Python import extraction using direct node text parsing."""
+    """Revised Python import extraction using direct node text parsing.
+
+    Walks all descendants (not just top-level children) so imports inside
+    ``if TYPE_CHECKING:``, ``try/except ImportError``, and similar blocks are
+    also captured.
+    """
     results: list[ASTImport] = []
-    for node in root.children:
+
+    def _walk(node) -> None:
         if node.type == "import_statement":
-            # Get the first dotted_name
+            # e.g. `import os` or `import json as _json`
             for child in node.children:
                 if child.type == "dotted_name":
                     results.append(ASTImport(specifier=_node_text(child), imported_names=[]))
@@ -192,14 +198,13 @@ def _py_imports_v2(root) -> list[ASTImport]:
                         results.append(ASTImport(specifier=_node_text(dn), imported_names=[]))
 
         elif node.type == "import_from_statement":
-            # Reconstruct specifier from raw text
-            raw = _node_text(node)
-            # raw starts with "from " — extract module part
+            # Reconstruct specifier from raw text.
             # e.g. "from .models import Foo, Bar" → specifier=".models", names=["Foo","Bar"]
             # e.g. "from foo.bar import *" → specifier="foo.bar", names=[]
+            raw = _node_text(node)
             text_after_from = raw[5:]  # strip "from "
             if " import " not in text_after_from:
-                continue
+                return
             module_part, _, names_part = text_after_from.partition(" import ")
             specifier = module_part.strip()
             names_raw = names_part.strip().strip("()")
@@ -213,6 +218,14 @@ def _py_imports_v2(root) -> list[ASTImport]:
                 ]
             results.append(ASTImport(specifier=specifier, imported_names=names))
 
+        else:
+            # Recurse into block-level nodes (if, try, with, etc.) so imports
+            # inside ``if TYPE_CHECKING:`` or ``try/except ImportError:`` are found.
+            for child in node.children:
+                _walk(child)
+
+    for child in root.children:
+        _walk(child)
     return results
 
 

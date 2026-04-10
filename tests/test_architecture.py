@@ -4,11 +4,12 @@ import ast
 from pathlib import Path
 
 
-def test_pipeline_modules_only_import_models_and_prompts():
+def test_pipeline_modules_do_not_cross_import():
     """No pipeline module may import another pipeline module.
 
-    Only models.py and prompts.py (pure-data modules) are shared across the
-    package. cli.py is the sole orchestrator and is exempt from this rule.
+    Shared modules exempt from this rule: models, prompts (pure data),
+    ast_extractor and history (shared utilities), cli (orchestrator), __init__.
+    All other pipeline modules must only import from that exempt set.
     """
     pkg = Path(__file__).parent.parent / "pr_impact"
     # Exempt: cli (orchestrator), models/prompts (shared data), ast_extractor/history (shared utilities), __init__
