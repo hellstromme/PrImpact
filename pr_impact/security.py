@@ -117,11 +117,12 @@ def _added_lines(diff: str) -> list[tuple[int, str]]:
 def detect_pattern_signals(changed_files: list[ChangedFile]) -> list[SecuritySignal]:
     """Scan changed file diffs for high-signal security patterns.
 
-    Returns a list of SecuritySignal. Catches all exceptions internally.
+    Returns a list of SecuritySignal. Per-file failures are skipped silently;
+    unexpected top-level errors propagate to the caller (cli.py catches and warns).
     """
     signals: list[SecuritySignal] = []
-    try:
-        for f in changed_files:
+    for f in changed_files:
+        try:
             infra = _is_infra_file(f.path)
             added = _added_lines(f.diff)
             for line_no, line_text in added:
@@ -152,8 +153,8 @@ def detect_pattern_signals(changed_files: list[ChangedFile]) -> list[SecuritySig
                         why_unusual=why_unusual,
                         suggested_action="Confirm with the PR author that this is intentional.",
                     ))
-    except Exception:
-        pass
+        except Exception:
+            pass  # skip this file; continue with others
     return signals
 
 
@@ -302,14 +303,21 @@ def _detect_version_changes(diff: str, ecosystem: str) -> list[str]:
     return sorted(removed & added)
 
 
-def check_dependency_integrity(changed_files: list[ChangedFile]) -> list[DependencyIssue]:
+def check_dependency_integrity(
+    changed_files: list[ChangedFile],
+    osv_check: bool = False,
+) -> list[DependencyIssue]:
     """Check package manifest changes for typosquatting, version changes, and CVEs.
 
-    Returns a list of DependencyIssue. Catches all exceptions internally.
+    osv_check: when True, query the OSV API for known vulnerabilities in new packages.
+    Disabled by default — enable with --check-osv on the CLI.
+
+    Per-file failures are skipped silently; unexpected top-level errors propagate
+    to the caller (cli.py catches and warns).
     """
     issues: list[DependencyIssue] = []
-    try:
-        for f in changed_files:
+    for f in changed_files:
+        try:
             filename = Path(f.path).name
             ecosystem = _MANIFEST_ECOSYSTEM.get(filename)
             if ecosystem is None:
@@ -335,18 +343,19 @@ def check_dependency_integrity(changed_files: list[ChangedFile]) -> list[Depende
                         severity="high",
                     ))
 
-                vulns = _osv_check(pkg, ecosystem)
-                if vulns:
-                    vuln_list = ", ".join(vulns[:5])
-                    issues.append(DependencyIssue(
-                        package_name=pkg,
-                        issue_type="vulnerability",
-                        description=(
-                            f"`{pkg}` has known vulnerabilities: {vuln_list}. "
-                            "Review before merging."
-                        ),
-                        severity="high",
-                    ))
+                if osv_check:
+                    vulns = _osv_check(pkg, ecosystem)
+                    if vulns:
+                        vuln_list = ", ".join(vulns[:5])
+                        issues.append(DependencyIssue(
+                            package_name=pkg,
+                            issue_type="vulnerability",
+                            description=(
+                                f"`{pkg}` has known vulnerabilities: {vuln_list}. "
+                                "Review before merging."
+                            ),
+                            severity="high",
+                        ))
 
             for pkg in version_changed:
                 if any(i.package_name == pkg and i.issue_type == "typosquat" for i in issues):
@@ -360,6 +369,6 @@ def check_dependency_integrity(changed_files: list[ChangedFile]) -> list[Depende
                     ),
                     severity="low",
                 ))
-    except Exception:
-        pass
+        except Exception:
+            pass  # skip this file; continue with others
     return issues

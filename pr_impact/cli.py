@@ -211,6 +211,7 @@ def _run_pipeline(
     refs: RefsResult,
     max_depth: int,
     progress,
+    check_osv: bool = False,
 ) -> tuple:
     """Execute all pipeline steps with an injected progress object.
 
@@ -295,7 +296,7 @@ def _run_pipeline(
         pattern_signals = []
 
     try:
-        dependency_issues = check_dependency_integrity(changed_files)
+        dependency_issues = check_dependency_integrity(changed_files, osv_check=check_osv)
     except Exception as e:
         stderr.print(f"[yellow]Warning:[/yellow] Dependency integrity check failed: {e}")
         dependency_issues = []
@@ -428,6 +429,12 @@ def main() -> None:
     type=click.Choice(["none", "low", "medium", "high"]),
     help="Exit 1 if any anomaly meets or exceeds this severity level",
 )
+@click.option(
+    "--check-osv",
+    is_flag=True,
+    default=False,
+    help="Query the OSV vulnerability database for new dependencies (requires network access)",
+)
 def analyse(
     repo: str,
     pr_number: int | None,
@@ -438,6 +445,7 @@ def analyse(
     sarif_output: str | None,
     max_depth: int,
     fail_on_severity: str,
+    check_osv: bool,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
@@ -479,7 +487,7 @@ def analyse(
         transient=True,
     ) as progress:
         changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
-            _run_pipeline(repo, repo_obj, refs, max_depth, progress)
+            _run_pipeline(repo, repo_obj, refs, max_depth, progress, check_osv=check_osv)
         )
 
     # Build title: from resolved PR or fall back to first commit message / SHA range

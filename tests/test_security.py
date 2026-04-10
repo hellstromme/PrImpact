@@ -325,20 +325,39 @@ def test_check_non_manifest_file_ignored():
 def test_check_version_change_detected():
     diff = "@@ -1 +1 @@\n-requests==2.27.0\n+requests==2.28.1\n"
     f = make_file("requirements.txt", diff=diff)
-    with patch("pr_impact.security._osv_check", return_value=[]):
-        issues = check_dependency_integrity([f])
+    issues = check_dependency_integrity([f])
     version_issues = [i for i in issues if i.issue_type == "version_change"]
     assert version_issues
     assert version_issues[0].package_name == "requests"
 
 
-def test_check_exception_returns_empty():
-    """check_dependency_integrity must not raise on bad input."""
+def test_check_osv_not_called_by_default():
+    """OSV check must not fire unless osv_check=True."""
+    diff = "@@ -1 +1,2 @@\n requests==2.28.0\n+newpkg==1.0.0\n"
+    f = make_file("requirements.txt", diff=diff)
+    with patch("pr_impact.security._osv_check") as mock_osv:
+        check_dependency_integrity([f], osv_check=False)
+    mock_osv.assert_not_called()
+
+
+def test_check_osv_called_when_flag_set():
+    """OSV check fires for new packages when osv_check=True."""
+    diff = "@@ -1 +1,2 @@\n requests==2.28.0\n+newpkg==1.0.0\n"
+    f = make_file("requirements.txt", diff=diff)
+    with patch("pr_impact.security._osv_check", return_value=[]) as mock_osv:
+        check_dependency_integrity([f], osv_check=True)
+    mock_osv.assert_called()
+
+
+def test_check_exception_per_file_skipped():
+    """A bad file is skipped; others still processed."""
     bad_file = MagicMock()
     bad_file.path = "requirements.txt"
     bad_file.diff = None  # will cause iteration error
-    issues = check_dependency_integrity([bad_file])
-    assert issues == []
+    good = make_file("requirements.txt", diff="@@ -1 +1,2 @@\n requests==2.28.0\n+requets==1.0.0\n")
+    issues = check_dependency_integrity([bad_file, good])
+    # good file still processed → typosquat detected
+    assert any(i.issue_type == "typosquat" for i in issues)
 
 
 def test_check_requirements_txt_variant():
