@@ -9,9 +9,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-v0.2 — active development. v0.1 MVP is complete. v0.2 language expansion (Java, Go, Ruby),
-`--pr` GitHub native input, and CI/CD integration (GitHub Actions + GitLab CI template,
-`--fail-on-severity`) are done. SARIF output is the remaining v0.2 item.
+v0.2 — complete. All v0.2 items are done:
+- Language expansion (Java, Go, Ruby) ✓
+- `--pr` GitHub native input ✓
+- CI/CD integration (GitHub Actions + GitLab CI template, `--fail-on-severity`) ✓
+- SARIF output (`--sarif`) ✓
+
+Next: v0.3 — Trust (malicious code detection).
 
 ## Commands
 
@@ -26,7 +30,7 @@ pr-impact analyse --repo /path/to/repo --pr 247
 pr-impact analyse --repo /path/to/repo --base abc1234 --head def5678
 
 # With file output
-pr-impact analyse --repo /path/to/repo --pr 247 --output report.md --json report.json
+pr-impact analyse --repo /path/to/repo --pr 247 --output report.md --json report.json --sarif report.sarif
 
 # Fail CI on high-severity anomalies
 pr-impact analyse --repo /path/to/repo --pr 247 --fail-on-severity high
@@ -51,7 +55,7 @@ pr_impact/
   classifier.py        # Changed symbol classification by impact type (regex, no AST)
   ai_layer.py          # Three Claude API calls — the only network I/O
   prompts.py           # All prompt templates as string constants, no logic
-  reporter.py          # Renders final Markdown and JSON from ImpactReport
+  reporter.py          # Renders final Markdown, JSON, and SARIF from ImpactReport
   github.py            # GitHub API helpers (detect remote, fetch PR, list PRs)
 ```
 
@@ -64,7 +68,7 @@ pr_impact/
 5. `classifier.get_interface_changes(changed_files, reverse_graph)` → `list[InterfaceChange]`
 6. `git_analysis.get_git_churn(...)` for each blast radius entry → populates `BlastRadiusEntry.churn_score` in place
 7. `ai_layer.run_ai_analysis(...)` → `AIAnalysis` (3 sequential API calls)
-8. `reporter.render_markdown()` + `reporter.render_json()` → output
+8. `reporter.render_markdown()` + `reporter.render_json()` + `reporter.render_sarif()` → output
 
 Steps 1–6 are deterministic and CPU-bound (target: <5s). Step 7 is the only network call.
 

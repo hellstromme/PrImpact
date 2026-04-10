@@ -4,15 +4,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
   analyse:
     name: Analyse PR impact
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
 
     steps:
       - name: Checkout repository
@@ -40,6 +40,7 @@ jobs:
             --pr ${{ github.event.pull_request.number }} \
             --output pr_impact_report.md \
             --json pr_impact_report.json \
+            --sarif pr_impact_report.sarif \
             --fail-on-severity high
 
       - name: Post report as PR comment
@@ -83,5 +84,30 @@ jobs:
           path: |
             pr_impact_report.md
             pr_impact_report.json
+            pr_impact_report.sarif
           retention-days: 30
           if-no-files-found: ignore
+
+  upload-sarif:
+    name: Upload SARIF to GitHub Security tab
+    needs: analyse
+    runs-on: ubuntu-latest
+    if: |
+      needs.analyse.result == 'success' &&
+      github.repository == github.event.pull_request.head.repo.full_name
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - name: Download report artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-impact-report
+
+      - name: Upload SARIF
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: pr_impact_report.sarif
+          category: primpact

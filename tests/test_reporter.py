@@ -1,7 +1,9 @@
 """Unit tests for pr_impact/reporter.py."""
 
+import importlib.metadata
 import io
 import json
+from unittest.mock import patch
 
 from rich.console import Console
 
@@ -14,7 +16,7 @@ from pr_impact.models import (
     InterfaceChange,
     TestGap,
 )
-from pr_impact.reporter import _fmt_churn, _sev, _sev_color, render_json, render_markdown, render_terminal
+from pr_impact.reporter import _fmt_churn, _parse_location, _sev, _sev_color, render_json, render_markdown, render_sarif, render_terminal
 from tests.helpers import make_file, make_report
 
 
@@ -663,3 +665,177 @@ def test_terminal_decision_risk_unrecognised_does_not_raise():
     )
     out = _capture_terminal(report)
     assert "Catastrophic" in out
+
+
+# ---------------------------------------------------------------------------
+# render_sarif
+# ---------------------------------------------------------------------------
+
+def test_sarif_is_valid_json():
+    sarif = render_sarif(make_report())
+    parsed = json.loads(sarif)
+    assert "$schema" in parsed
+    assert parsed["version"] == "2.1.0"
+
+
+def test_sarif_has_single_run():
+    parsed = json.loads(render_sarif(make_report()))
+    assert len(parsed["runs"]) == 1
+
+
+def test_sarif_tool_driver_name():
+    parsed = json.loads(render_sarif(make_report()))
+    assert parsed["runs"][0]["tool"]["driver"]["name"] == "primpact"
+
+
+def test_sarif_empty_results_when_no_anomalies_or_gaps():
+    report = make_report(ai_analysis=AIAnalysis())
+    parsed = json.loads(render_sarif(report))
+    assert parsed["runs"][0]["results"] == []
+
+
+def test_sarif_high_anomaly_maps_to_error():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="bad", location="foo.py", severity="high")])
+    )
+    parsed = json.loads(render_sarif(report))
+    result = parsed["runs"][0]["results"][0]
+    assert result["level"] == "error"
+    assert result["ruleId"] == "primpact/anomaly"
+
+
+def test_sarif_medium_anomaly_maps_to_warning():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="suspicious", location="bar.py", severity="medium")])
+    )
+    parsed = json.loads(render_sarif(report))
+    assert parsed["runs"][0]["results"][0]["level"] == "warning"
+
+
+def test_sarif_low_anomaly_maps_to_note():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="minor", location="baz.py", severity="low")])
+    )
+    parsed = json.loads(render_sarif(report))
+    assert parsed["runs"][0]["results"][0]["level"] == "note"
+
+
+def test_sarif_test_gap_maps_to_note():
+    report = make_report(
+        ai_analysis=AIAnalysis(test_gaps=[TestGap(behaviour="missing branch", location="src/thing.py")])
+    )
+    parsed = json.loads(render_sarif(report))
+    result = parsed["runs"][0]["results"][0]
+    assert result["level"] == "note"
+    assert result["ruleId"] == "primpact/test-gap"
+
+
+def test_sarif_anomaly_location_in_physical_location():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="src/auth.py", severity="high")])
+    )
+    parsed = json.loads(render_sarif(report))
+    uri = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == "src/auth.py"
+
+
+def test_sarif_anomaly_location_colon_line():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="src/auth.py:12", severity="high")])
+    )
+    parsed = json.loads(render_sarif(report))
+    loc = parsed["runs"][0]["results"][0]["locations"][0]
+    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "src/auth.py"
+    assert loc["physicalLocation"]["region"]["startLine"] == 12
+
+
+def test_sarif_anomaly_location_colon_symbol():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="src/auth.py:my_func", severity="high")])
+    )
+    parsed = json.loads(render_sarif(report))
+    loc = parsed["runs"][0]["results"][0]["locations"][0]
+    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "src/auth.py"
+    assert loc["logicalLocations"][0]["name"] == "my_func"
+
+
+def test_sarif_multiple_anomalies_all_present():
+    anomalies = [
+        Anomaly(description="a1", location="f1.py", severity="high"),
+        Anomaly(description="a2", location="f2.py", severity="low"),
+    ]
+    report = make_report(ai_analysis=AIAnalysis(anomalies=anomalies))
+    parsed = json.loads(render_sarif(report))
+    assert len(parsed["runs"][0]["results"]) == 2
+
+
+def test_sarif_anomaly_and_gap_both_present():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            anomalies=[Anomaly(description="x", location="a.py", severity="high")],
+            test_gaps=[TestGap(behaviour="y", location="b.py")],
+        )
+    )
+    parsed = json.loads(render_sarif(report))
+    results = parsed["runs"][0]["results"]
+    assert len(results) == 2
+    rule_ids = {r["ruleId"] for r in results}
+    assert rule_ids == {"primpact/anomaly", "primpact/test-gap"}
+
+
+def test_sarif_rules_array_contains_both_rules():
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            anomalies=[Anomaly(description="x", location="a.py", severity="high")],
+            test_gaps=[TestGap(behaviour="y", location="b.py")],
+        )
+    )
+    parsed = json.loads(render_sarif(report))
+    rule_ids = {r["id"] for r in parsed["runs"][0]["tool"]["driver"]["rules"]}
+    assert rule_ids == {"primpact/anomaly", "primpact/test-gap"}
+
+
+def test_sarif_unrecognised_severity_maps_to_note():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="a.py", severity="critical")])
+    )
+    parsed = json.loads(render_sarif(report))
+    assert parsed["runs"][0]["results"][0]["level"] == "note"
+
+
+def test_sarif_no_locations_when_parse_location_returns_none():
+    report = make_report(
+        ai_analysis=AIAnalysis(anomalies=[Anomaly(description="x", location="no file here", severity="low")])
+    )
+    parsed = json.loads(render_sarif(report))
+    assert "locations" not in parsed["runs"][0]["results"][0]
+
+
+def test_sarif_version_fallback_when_package_not_found():
+    with patch("pr_impact.reporter.importlib.metadata.version", side_effect=importlib.metadata.PackageNotFoundError):
+        parsed = json.loads(render_sarif(make_report()))
+    assert parsed["runs"][0]["tool"]["driver"]["version"] == "0.0.0"
+
+
+# ---------------------------------------------------------------------------
+# _parse_location — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_parse_location_returns_none_for_plain_text():
+    assert _parse_location("no file here") is None
+
+
+def test_parse_location_returns_none_for_path_without_extension():
+    # colon present but path part has no dot-extension
+    assert _parse_location("nodotpath:12") is None
+
+
+# ---------------------------------------------------------------------------
+# render_terminal — SARIF footer
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_footer_shows_sarif_path():
+    out = _capture_terminal(make_report(), sarif_output="report.sarif")
+    assert "report.sarif" in out
