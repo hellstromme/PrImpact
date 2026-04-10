@@ -23,21 +23,7 @@ from pr_impact.ai_layer import (
     run_ai_analysis,
 )
 from pr_impact.models import BlastRadiusEntry, ChangedFile, SecuritySignal
-from tests.helpers import make_file
-
-
-def _make_security_signal(**kwargs) -> SecuritySignal:
-    defaults = dict(
-        description="New shell invoke",
-        file_path="src/auth.py",
-        line_number=10,
-        signal_type="shell_invoke",
-        severity="high",
-        why_unusual="No prior shell calls.",
-        suggested_action="Confirm intent.",
-    )
-    defaults.update(kwargs)
-    return SecuritySignal(**defaults)
+from tests.helpers import make_file, make_security_signal as _make_security_signal
 
 # _DIFF_CHAR_LIMIT = 8_000 tokens * 4 chars/token = 32_000 chars
 _LIMIT = 32_000
@@ -857,45 +843,35 @@ def test_run_ai_analysis_falls_back_to_raw_signals_on_unexpected_shape(monkeypat
     assert result.security_signals == [raw_sig]
 
 
-def test_run_ai_analysis_passes_signals_to_context_builder(monkeypatch, tmp_path):
-    """Verify _build_security_signals_context is called with the provided signals."""
+def test_run_ai_analysis_4th_prompt_contains_signal_description(monkeypatch, tmp_path):
+    """The 4th prompt sent to Claude includes the signal's description string."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
     r2 = json.dumps({"anomalies": []})
     r3 = json.dumps({"test_gaps": []})
     r4 = json.dumps([])
     client = _mock_client(r1, r2, r3, r4)
-    sig = _make_security_signal()
-    with (
-        patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client),
-        patch("pr_impact.ai_layer._build_security_signals_context",
-              return_value=("SIGNALS_TEXT", "FILE_CTX")) as mock_ctx,
-    ):
+    sig = _make_security_signal(description="DISTINCTIVE_SIGNAL_DESCRIPTION")
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
-    mock_ctx.assert_called_once()
-    call_sigs, _ = mock_ctx.call_args.args
-    assert call_sigs == [sig]
-
-
-def test_run_ai_analysis_4th_prompt_contains_context_output(monkeypatch, tmp_path):
-    """The 4th prompt sent to Claude includes the context strings from _build_security_signals_context."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
-    r2 = json.dumps({"anomalies": []})
-    r3 = json.dumps({"test_gaps": []})
-    r4 = json.dumps([])
-    client = _mock_client(r1, r2, r3, r4)
-    sig = _make_security_signal()
-    with (
-        patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client),
-        patch("pr_impact.ai_layer._build_security_signals_context",
-              return_value=("UNIQUE_SIGNALS_SENTINEL", "UNIQUE_CTX_SENTINEL")),
-    ):
-        run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
-    # The 4th call's prompt should contain both sentinel strings
     fourth_call_prompt = client.messages.create.call_args_list[3][1]["messages"][0]["content"]
-    assert "UNIQUE_SIGNALS_SENTINEL" in fourth_call_prompt
-    assert "UNIQUE_CTX_SENTINEL" in fourth_call_prompt
+    assert "DISTINCTIVE_SIGNAL_DESCRIPTION" in fourth_call_prompt
+
+
+def test_run_ai_analysis_4th_prompt_contains_file_context(monkeypatch, tmp_path):
+    """The 4th prompt sent to Claude includes file signatures from before-content."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([])
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal(file_path="src/auth.py")
+    f = make_file(path="src/auth.py", before="def distinctive_function_xyz(): pass\n")
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_ai_analysis([f], [], str(tmp_path), pattern_signals=[sig])
+    fourth_call_prompt = client.messages.create.call_args_list[3][1]["messages"][0]["content"]
+    assert "distinctive_function_xyz" in fourth_call_prompt
 
 
 def test_run_ai_analysis_non_dict_items_in_4th_response_skipped(monkeypatch, tmp_path):

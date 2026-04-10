@@ -1333,8 +1333,8 @@ def test_run_pipeline_detect_signals_failure_logs_warning():
         patch("pr_impact.cli.stderr") as mock_stderr,
     ):
         _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
-    warning_text = " ".join(str(c) for c in mock_stderr.print.call_args_list)
-    assert "scan error" in warning_text
+    assert mock_stderr.print.called
+    assert "scan error" in mock_stderr.print.call_args[0][0]
 
 
 def test_run_pipeline_check_integrity_failure_continues():
@@ -1371,8 +1371,8 @@ def test_run_pipeline_check_integrity_failure_logs_warning():
         patch("pr_impact.cli.stderr") as mock_stderr,
     ):
         _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
-    warning_text = " ".join(str(c) for c in mock_stderr.print.call_args_list)
-    assert "dep error" in warning_text
+    assert mock_stderr.print.called
+    assert "dep error" in mock_stderr.print.call_args[0][0]
 
 
 def test_run_pipeline_dependency_issues_returned_as_sixth_element():

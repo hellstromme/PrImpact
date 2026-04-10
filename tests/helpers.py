@@ -31,6 +31,20 @@ def make_file(
     )
 
 
+def make_security_signal(**kwargs) -> SecuritySignal:
+    defaults = dict(
+        description="New shell invoke",
+        file_path="src/auth.py",
+        line_number=10,
+        signal_type="shell_invoke",
+        severity="high",
+        why_unusual="No prior shell calls.",
+        suggested_action="Confirm intent.",
+    )
+    defaults.update(kwargs)
+    return SecuritySignal(**defaults)
+
+
 def make_report(**overrides) -> ImpactReport:
     """Return a fully populated ImpactReport suitable for reporter tests."""
     defaults: dict = {
