@@ -10,6 +10,53 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+# Optional tree-sitter dependencies — all imported at module level so the
+# project's "no inline imports" convention is respected. Each grammar package
+# is optional; missing ones silently remain None and trigger regex fallback.
+try:
+    from tree_sitter import Language as _TSLanguage
+    from tree_sitter import Parser as _TSParser
+    _TREE_SITTER_AVAILABLE = True
+except ImportError:
+    _TSLanguage = None  # type: ignore[assignment,misc]
+    _TSParser = None  # type: ignore[assignment]
+    _TREE_SITTER_AVAILABLE = False
+
+try:
+    import tree_sitter_python as _ts_py
+except ImportError:
+    _ts_py = None  # type: ignore[assignment]
+
+try:
+    import tree_sitter_typescript as _ts_typescript
+except ImportError:
+    _ts_typescript = None  # type: ignore[assignment]
+
+try:
+    import tree_sitter_javascript as _ts_js
+except ImportError:
+    _ts_js = None  # type: ignore[assignment]
+
+try:
+    import tree_sitter_java as _ts_java
+except ImportError:
+    _ts_java = None  # type: ignore[assignment]
+
+try:
+    import tree_sitter_go as _ts_go
+except ImportError:
+    _ts_go = None  # type: ignore[assignment]
+
+try:
+    import tree_sitter_ruby as _ts_ruby
+except ImportError:
+    _ts_ruby = None  # type: ignore[assignment]
+
+try:
+    import tree_sitter_c_sharp as _ts_csharp
+except ImportError:
+    _ts_csharp = None  # type: ignore[assignment]
+
 # --- Data models ---
 
 
@@ -47,37 +94,33 @@ def _get_parser(language: str):  # type: ignore[return]
     if language in _PARSERS:
         return _PARSERS[language]
 
-    try:
-        from tree_sitter import Language, Parser  # noqa: PLC0415
+    if not _TREE_SITTER_AVAILABLE:
+        _PARSERS[language] = None
+        return None
 
+    try:
         lang_obj: object | None = None
 
-        if language == "python":
-            import tree_sitter_python as _m  # noqa: PLC0415
-            lang_obj = Language(_m.language())
-        elif language == "typescript":
-            import tree_sitter_typescript as _m  # noqa: PLC0415
-            lang_obj = Language(_m.language_typescript())
-        elif language == "javascript":
-            import tree_sitter_javascript as _m  # noqa: PLC0415
-            lang_obj = Language(_m.language())
-        elif language == "java":
-            import tree_sitter_java as _m  # noqa: PLC0415
-            lang_obj = Language(_m.language())
-        elif language == "go":
-            import tree_sitter_go as _m  # noqa: PLC0415
-            lang_obj = Language(_m.language())
-        elif language == "ruby":
-            import tree_sitter_ruby as _m  # noqa: PLC0415
-            lang_obj = Language(_m.language())
-        elif language == "csharp":
-            import tree_sitter_c_sharp as _m  # noqa: PLC0415
-            lang_obj = Language(_m.language())
-        else:
+        if language == "python" and _ts_py is not None:
+            lang_obj = _TSLanguage(_ts_py.language())
+        elif language == "typescript" and _ts_typescript is not None:
+            lang_obj = _TSLanguage(_ts_typescript.language_typescript())
+        elif language == "javascript" and _ts_js is not None:
+            lang_obj = _TSLanguage(_ts_js.language())
+        elif language == "java" and _ts_java is not None:
+            lang_obj = _TSLanguage(_ts_java.language())
+        elif language == "go" and _ts_go is not None:
+            lang_obj = _TSLanguage(_ts_go.language())
+        elif language == "ruby" and _ts_ruby is not None:
+            lang_obj = _TSLanguage(_ts_ruby.language())
+        elif language == "csharp" and _ts_csharp is not None:
+            lang_obj = _TSLanguage(_ts_csharp.language())
+
+        if lang_obj is None:
             _PARSERS[language] = None
             return None
 
-        parser = Parser(lang_obj)
+        parser = _TSParser(lang_obj)
         _PARSERS[language] = parser
         return parser
 
@@ -132,61 +175,6 @@ def _unquote(s: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Python
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def _py_imports(root) -> list[ASTImport]:
-    results: list[ASTImport] = []
-
-    def walk(node) -> None:
-        if node.type == "import_statement":
-            # `import foo.bar` or `import foo as f`
-            for child in node.children:
-                if child.type == "dotted_name":
-                    results.append(ASTImport(specifier=_node_text(child)))
-                elif child.type == "aliased_import":
-                    name_node = _child_by_type(child, "dotted_name")
-                    if name_node:
-                        results.append(ASTImport(specifier=_node_text(name_node)))
-        elif node.type == "import_from_statement":
-            # `from .models import Foo, Bar` or `from foo import *`
-            # Collect module specifier
-            module_parts: list[str] = []
-            dots = ""
-            for child in node.children:
-                if child.type == "relative_import":
-                    dots = "." * len([c for c in child.children if c.type in (".", "..")])
-                    inner = _child_by_type(child, "dotted_name")
-                    if inner:
-                        module_parts.append(_node_text(inner))
-                elif child.type == "dotted_name":
-                    module_parts.append(_node_text(child))
-            specifier = dots + "".join(module_parts)
-
-            # Collect imported names
-            names: list[str] = []
-            for child in node.children:
-                if child.type == "wildcard_import":
-                    names = []  # star import
-                    break
-                elif child.type == "dotted_name" and child != node.children[1]:
-                    names.append(_node_text(child).split(".")[-1])
-                elif child.type == "aliased_import":
-                    dn = _child_by_type(child, "dotted_name")
-                    if dn:
-                        names.append(_node_text(dn).split(".")[-1])
-
-            if specifier:
-                results.append(ASTImport(specifier=specifier, imported_names=names))
-        else:
-            # Walk only top-level statements (don't recurse into function bodies)
-            if node.type in ("module",):
-                for child in node.children:
-                    walk(child)
-                return
-
-    for child in root.children:
-        walk(child)
-    return results
 
 
 def _py_imports_v2(root) -> list[ASTImport]:
@@ -736,6 +724,14 @@ def _ruby_symbols(root) -> list[ASTSymbol]:
             sym = _ruby_extract_class(node)
             if sym:
                 results.append(sym)
+            # Also extract methods from within the class body
+            body = _child_by_type(node, "body_statement")
+            if body:
+                for child in body.children:
+                    if child.type == "method":
+                        method_sym = _ruby_extract_method(child)
+                        if method_sym:
+                            results.append(method_sym)
     return results
 
 
