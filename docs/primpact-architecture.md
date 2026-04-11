@@ -839,7 +839,7 @@ The `ImpactReport` is assembled in `cli.py` after step 7, combining all outputs 
 
 ### Claude API
 
-`ai_layer.py` makes HTTPS POST requests to the Anthropic API at `https://api.anthropic.com/v1/messages`. Authentication is via the `ANTHROPIC_API_KEY` environment variable. The tool makes three to five API calls per successful run (always 3; +1 when security signals are detected; +1 when substantial diffs are present). All calls are made sequentially.
+`ai_layer.py` makes HTTPS POST requests to the Anthropic API at `https://api.anthropic.com/v1/messages`. Authentication is via the `ANTHROPIC_API_KEY` environment variable. The main analysis pipeline (`ai_layer.run_ai_analysis`) makes three to five sequential API calls per run (always 3; +1 when security signals are detected; +1 when substantial diffs are present). The optional `--verdict` step calls `ai_layer.run_verdict_analysis`, which makes one additional API call and is not included in the 3–5 count.
 
 ### GitHub API
 
