@@ -9,6 +9,12 @@ import git
 from .ast_extractor import extract_imports as ast_extract_imports
 from .models import BlastRadiusEntry, resolve_language
 
+
+def _posix(path: str) -> str:
+    """Normalise *path* to a forward-slash string, stable on Windows."""
+    return os.path.normpath(path).replace("\\", "/")
+
+
 # --- Import extraction patterns ---
 
 # Matches `import foo.bar` (absolute Python imports)
@@ -167,9 +173,7 @@ def _parse_tsconfig(
     if extends:
         config_dir = os.path.dirname(rel_path)
         if extends.startswith("."):
-            ext_path = os.path.normpath(
-                os.path.join(config_dir, extends) if config_dir else extends
-            ).replace("\\", "/")
+            ext_path = _posix(os.path.join(config_dir, extends) if config_dir else extends)
         else:
             ext_path = extends
         if not ext_path.endswith(".json"):
@@ -214,23 +218,21 @@ def _resolve_python_module(module: str, source_file: str, all_files: set[str]) -
         for _ in range(dots - 1):
             base_dir = os.path.dirname(base_dir)
         candidate = os.path.join(base_dir, rest.replace(".", os.sep) + ".py")
-        candidate = os.path.normpath(candidate).replace("\\", "/")
+        candidate = _posix(candidate)
         if candidate in all_files:
             return candidate
         # Try as package __init__
         candidate2 = os.path.join(base_dir, rest.replace(".", os.sep), "__init__.py")
-        candidate2 = os.path.normpath(candidate2).replace("\\", "/")
+        candidate2 = _posix(candidate2)
         if candidate2 in all_files:
             return candidate2
         return None
 
     # Absolute import: convert dots to path separators, normalise, then canonicalise to POSIX
-    as_path = os.path.normpath(module.replace(".", os.sep) + ".py").replace("\\", "/")
+    as_path = _posix(module.replace(".", os.sep) + ".py")
     if as_path in all_files:
         return as_path
-    as_init = os.path.normpath(
-        os.path.join(module.replace(".", os.sep), "__init__.py")
-    ).replace("\\", "/")
+    as_init = _posix(os.path.join(module.replace(".", os.sep), "__init__.py"))
     if as_init in all_files:
         return as_init
     return None
@@ -282,7 +284,7 @@ def _resolve_js_import(
         return None  # external package
 
     base_dir = os.path.dirname(source_file)
-    raw = os.path.normpath(os.path.join(base_dir, specifier)).replace("\\", "/")
+    raw = _posix(os.path.join(base_dir, specifier))
     return _probe_js_extensions(raw, all_files)
 
 
@@ -367,7 +369,7 @@ def _resolve_ruby_require_relative(
     if not specifier.endswith(".rb"):
         specifier += ".rb"
     base_dir = os.path.dirname(source_file)
-    candidate = os.path.normpath(os.path.join(base_dir, specifier)).replace("\\", "/")
+    candidate = _posix(os.path.join(base_dir, specifier))
     return candidate if candidate in all_files else None
 
 
@@ -380,7 +382,7 @@ def _resolve_ruby_require(
         specifier += ".rb"
     if specifier.startswith("."):
         base_dir = os.path.dirname(source_file)
-        candidate = os.path.normpath(os.path.join(base_dir, specifier)).replace("\\", "/")
+        candidate = _posix(os.path.join(base_dir, specifier))
         return candidate if candidate in all_files else None
     # Bare name — try repo-root first, then lib/ convention
     if specifier in all_files:
