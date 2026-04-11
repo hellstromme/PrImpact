@@ -82,6 +82,8 @@ class ASTSymbol:
     line: int = 0  # 1-based
     # Full declaration header (without body), used for signature comparison in classifier
     signature: str = ""
+    # Containing class name (populated for methods); empty string for top-level symbols
+    container: str = ""
 
 
 # --- Language grammar loader ---
@@ -589,14 +591,14 @@ def _java_extract_class(class_node, results: list[ASTSymbol]) -> None:
     if body:
         for child in body.children:
             if child.type == "method_declaration":
-                sym = _java_extract_method(child)
+                sym = _java_extract_method(child, container=class_name)
                 if sym:
                     results.append(sym)
             elif child.type == "class_declaration":
                 _java_extract_class(child, results)
 
 
-def _java_extract_method(method_node) -> ASTSymbol | None:
+def _java_extract_method(method_node, container: str = "") -> ASTSymbol | None:
     name_node = _child_by_type(method_node, "identifier")
     if not name_node:
         return None
@@ -610,6 +612,7 @@ def _java_extract_method(method_node) -> ASTSymbol | None:
         params=params,
         is_exported=True,
         line=method_node.start_point[0] + 1,
+        container=container,
     )
 
 
@@ -735,6 +738,7 @@ def _ruby_symbols(root) -> list[ASTSymbol]:
                 results.append(sym)
         elif node.type == "class":
             sym = _ruby_extract_class(node)
+            class_name = sym.name if sym else ""
             if sym:
                 results.append(sym)
             # Also extract methods from within the class body
@@ -742,13 +746,13 @@ def _ruby_symbols(root) -> list[ASTSymbol]:
             if body:
                 for child in body.children:
                     if child.type == "method":
-                        method_sym = _ruby_extract_method(child)
+                        method_sym = _ruby_extract_method(child, container=class_name)
                         if method_sym:
                             results.append(method_sym)
     return results
 
 
-def _ruby_extract_method(node) -> ASTSymbol | None:
+def _ruby_extract_method(node, container: str = "") -> ASTSymbol | None:
     name_node = _child_by_type(node, "identifier")
     if not name_node:
         return None
@@ -770,6 +774,7 @@ def _ruby_extract_method(node) -> ASTSymbol | None:
         params=params,
         is_exported=not name.startswith("_"),
         line=node.start_point[0] + 1,
+        container=container,
     )
 
 
@@ -839,8 +844,9 @@ def _cs_extract_class(class_node, results: list[ASTSymbol]) -> None:
     name_node = _child_by_type(class_node, "identifier")
     if not name_node:
         return
+    class_name = _node_text(name_node)
     results.append(ASTSymbol(
-        name=_node_text(name_node),
+        name=class_name,
         kind="class",
         is_exported=True,
         line=class_node.start_point[0] + 1,
@@ -849,14 +855,14 @@ def _cs_extract_class(class_node, results: list[ASTSymbol]) -> None:
     if body:
         for child in body.children:
             if child.type == "method_declaration":
-                sym = _cs_extract_method(child)
+                sym = _cs_extract_method(child, container=class_name)
                 if sym:
                     results.append(sym)
             elif child.type == "class_declaration":
                 _cs_extract_class(child, results)
 
 
-def _cs_extract_method(method_node) -> ASTSymbol | None:
+def _cs_extract_method(method_node, container: str = "") -> ASTSymbol | None:
     name_node = _child_by_type(method_node, "identifier")
     if not name_node:
         return None
@@ -870,6 +876,7 @@ def _cs_extract_method(method_node) -> ASTSymbol | None:
         params=params,
         is_exported=True,
         line=method_node.start_point[0] + 1,
+        container=container,
     )
 
 

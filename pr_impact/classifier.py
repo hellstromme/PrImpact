@@ -82,21 +82,26 @@ def _extract_ts_defs(content: str) -> dict[str, str]:
 
 
 def _ast_defs_to_sig_map(ast_symbols: list[ASTSymbol], language: str) -> dict[str, str]:
-    """Convert AST symbols to the {name: signature_str} format expected by classify_changed_file."""
+    """Convert AST symbols to the {name: signature_str} format expected by classify_changed_file.
+
+    Methods are keyed as "ClassName.method_name" to avoid collisions when multiple
+    classes define a method with the same bare name.
+    """
     defs: dict[str, str] = {}
     for sym in ast_symbols:
+        key = f"{sym.container}.{sym.name}" if sym.container else sym.name
         if sym.signature:
-            defs[sym.name] = sym.signature
+            defs[key] = sym.signature
         elif sym.kind == "class":
-            defs[sym.name] = f"class {sym.name}"
+            defs[key] = f"class {sym.name}"
         elif language == "python":
             param_str = ", ".join(sym.params)
             ret = f" -> {sym.return_type}" if sym.return_type else ""
-            defs[sym.name] = f"def {sym.name}({param_str}){ret}"
+            defs[key] = f"def {sym.name}({param_str}){ret}"
         else:
             param_str = ", ".join(sym.params)
             ret = f": {sym.return_type}" if sym.return_type else ""
-            defs[sym.name] = f"function {sym.name}({param_str}){ret}"
+            defs[key] = f"function {sym.name}({param_str}){ret}"
     return defs
 
 
@@ -199,10 +204,13 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
     touched = _names_touched_in_diff(file.diff)
     all_names = set(defs_before) | set(defs_after)
 
-    # Build fast lookup from AST symbols (for richer fields)
+    # Build fast lookup from AST symbols (for richer fields); keyed by qualified name to
+    # avoid collisions when multiple classes define a method with the same bare name.
     _ast_by_name_after: dict[str, ASTSymbol] = {}
     if ast_after is not None:
-        _ast_by_name_after = {s.name: s for s in ast_after}
+        for s in ast_after:
+            qualified = f"{s.container}.{s.name}" if s.container else s.name
+            _ast_by_name_after[qualified] = s
 
     for name in all_names:
         if name not in touched:

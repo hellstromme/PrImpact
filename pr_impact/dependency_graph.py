@@ -585,8 +585,13 @@ def get_imported_symbols(file_path: str, imported_from: str) -> list[str]:
     if lang in ("python", "javascript", "typescript"):
         ast_imports = ast_extract_imports(content, lang)
         if ast_imports is not None:
+            # Only collect names from imports that originate from the target module
+            from_stem = Path(imported_from).stem
             for ast_imp in ast_imports:
-                symbols.extend(ast_imp.imported_names)
+                spec = ast_imp.specifier.lstrip("./")
+                spec_stem = spec.split("/")[-1].split(".")[-1] if spec else ""
+                if spec_stem == from_stem:
+                    symbols.extend(ast_imp.imported_names)
             return list(set(s for s in symbols if s))
 
     # Regex fallback (also handles Java, Go, C#, Ruby which have no AST path above)
