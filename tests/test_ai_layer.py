@@ -10,17 +10,21 @@ from unittest.mock import MagicMock, patch
 import anthropic
 import pytest
 
-from pr_impact.ai_layer import (
-    _build_blast_radius_signatures,
-    _build_changed_files_before_signatures,
-    _build_diffs_context,
-    _build_security_signals_context,
+from pr_impact.ai_client import (
     _call_claude,
-    _extract_signatures,
-    _find_neighbouring_signatures,
-    _find_test_files,
     _log_response,
     _parse_json_safe,
+)
+from pr_impact.ai_context import (
+    _extract_signatures,
+    build_blast_radius_signatures as _build_blast_radius_signatures,
+    build_changed_files_before_signatures as _build_changed_files_before_signatures,
+    build_diffs_context as _build_diffs_context,
+    build_security_signals_context as _build_security_signals_context,
+    find_neighbouring_signatures as _find_neighbouring_signatures,
+    find_test_files as _find_test_files,
+)
+from pr_impact.ai_layer import (
     run_ai_analysis,
     run_verdict_analysis,
 )
@@ -1274,14 +1278,14 @@ def test_run_verdict_missing_blockers_key_produces_empty_list(monkeypatch):
 
 
 def test_parse_json_safe_returns_list_when_top_level_array():
-    from pr_impact.ai_layer import _parse_json_safe
+    from pr_impact.ai_client import _parse_json_safe
     result = _parse_json_safe('[{"a": 1}, {"b": 2}]')
     assert result == [{"a": 1}, {"b": 2}]
 
 
 def test_parse_json_safe_recovers_list_from_prose_prefix():
     """Fallback regex should extract [...] when prose precedes the array."""
-    from pr_impact.ai_layer import _parse_json_safe
+    from pr_impact.ai_client import _parse_json_safe
     result = _parse_json_safe('Here is the result:\n[{"x": 1}]')
     assert result == [{"x": 1}]
 

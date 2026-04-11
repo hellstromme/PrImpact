@@ -351,16 +351,7 @@ def render_sarif(report: ImpactReport) -> str:
     return json.dumps(sarif, indent=2)
 
 
-def render_terminal(
-    report: ImpactReport,
-    console: Console,
-    output: str | None = None,
-    json_output: str | None = None,
-    sarif_output: str | None = None,
-) -> None:
-    sha_range = f"{report.base_sha[:7]}..{report.head_sha[:7]}"
-
-    # ── Header ────────────────────────────────────────────────────────────────
+def _render_header_section(console: Console, report: ImpactReport, sha_range: str) -> None:
     header_content = (
         "[bold bright_blue]PR IMPACT REPORT[/bold bright_blue]\n"
         f"{report.pr_title}  ·  {sha_range}\n"
@@ -370,14 +361,16 @@ def render_terminal(
     )
     console.print(Panel(header_content, box=_rich_box.SIMPLE_HEAVY, border_style="bright_blue"))
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+
+def _render_summary_section(console: Console, report: ImpactReport) -> None:
     summary = report.ai_analysis.summary
     console.print(Rule("SUMMARY", style="bright_blue"))
     console.print()
     console.print(f"  {summary}" if summary else "  [dim]No summary available.[/dim]")
     console.print()
 
-    # ── Blast Radius ──────────────────────────────────────────────────────────
+
+def _render_blast_radius_section(console: Console, report: ImpactReport) -> None:
     direct = len(report.changed_files)
     downstream = len(report.blast_radius)
     max_dist = max((e.distance for e in report.blast_radius), default=0)
@@ -386,7 +379,6 @@ def render_terminal(
         f"  [dim]{direct} direct  ·  {downstream} downstream  ·  max {max_dist} hop(s)[/dim]"
     )
     console.print()
-
     if report.blast_radius:
         table = Table(
             box=None,
@@ -399,7 +391,6 @@ def render_terminal(
         table.add_column("Dist", justify="center")
         table.add_column("Uses")
         table.add_column("Churn", justify="right", style="dim")
-
         for entry in report.blast_radius:
             uses = ", ".join(entry.imported_symbols) if entry.imported_symbols else "—"
             if entry.distance == 1:
@@ -409,201 +400,240 @@ def render_terminal(
             else:
                 row_style = ""
             table.add_row(entry.path, str(entry.distance), uses, _fmt_churn(entry.churn_score), style=row_style)
-
         console.print(table)
         console.print()
 
-    # ── Interface Changes ─────────────────────────────────────────────────────
-    if report.interface_changes:
-        console.print(Rule("INTERFACE CHANGES", style="bright_blue"))
-        console.print(
-            f"  [dim]{len(report.interface_changes)} symbol(s) with changed signatures[/dim]"
-        )
-        console.print()
-        for ic in report.interface_changes:
-            before_val = ic.before if ic.before else "(new)"
-            after_val = ic.after if ic.after else "(removed)"
-            body = Text()
-            body.append("  before  ", style="dim")
-            body.append(before_val + "\n", style="italic")
-            body.append("  after   ", style="dim")
-            body.append(after_val, style="italic")
-            if ic.callers:
-                body.append("\n  callers ", style="dim")
-                body.append("  ".join(ic.callers), style="cyan dim")
-            console.print(
-                Panel(
-                    body,
-                    title=(
-                        f"[bold cyan]{ic.symbol}[/bold cyan]  [dim]·[/dim]  [cyan]{ic.file}[/cyan]"
-                    ),
-                    title_align="left",
-                    box=_rich_box.ROUNDED,
-                    border_style="cyan",
-                )
-            )
-        console.print()
 
-    # ── Decisions & Assumptions ───────────────────────────────────────────────
+def _render_interface_changes_section(console: Console, report: ImpactReport) -> None:
+    if not report.interface_changes:
+        return
+    console.print(Rule("INTERFACE CHANGES", style="bright_blue"))
+    console.print(
+        f"  [dim]{len(report.interface_changes)} symbol(s) with changed signatures[/dim]"
+    )
+    console.print()
+    for ic in report.interface_changes:
+        before_val = ic.before if ic.before else "(new)"
+        after_val = ic.after if ic.after else "(removed)"
+        body = Text()
+        body.append("  before  ", style="dim")
+        body.append(before_val + "\n", style="italic")
+        body.append("  after   ", style="dim")
+        body.append(after_val, style="italic")
+        if ic.callers:
+            body.append("\n  callers ", style="dim")
+            body.append("  ".join(ic.callers), style="cyan dim")
+        console.print(
+            Panel(
+                body,
+                title=(
+                    f"[bold cyan]{ic.symbol}[/bold cyan]  [dim]·[/dim]  [cyan]{ic.file}[/cyan]"
+                ),
+                title_align="left",
+                box=_rich_box.ROUNDED,
+                border_style="cyan",
+            )
+        )
+    console.print()
+
+
+def _render_decisions_section(console: Console, report: ImpactReport) -> None:
     has_decisions = bool(report.ai_analysis.decisions)
     has_assumptions = bool(report.ai_analysis.assumptions)
-    if has_decisions or has_assumptions:
-        console.print(Rule("DECISIONS & ASSUMPTIONS", style="bright_blue"))
+    if not has_decisions and not has_assumptions:
+        return
+    console.print(Rule("DECISIONS & ASSUMPTIONS", style="bright_blue"))
+    console.print()
+    if has_decisions:
+        console.print("  [bold]Decisions[/bold]")
         console.print()
-
-        if has_decisions:
-            console.print("  [bold]Decisions[/bold]")
+        for i, d in enumerate(report.ai_analysis.decisions, 1):
+            risk_lower = d.risk.lower() if d.risk else ""
+            risk_color = _sev_color(risk_lower)
+            console.print(f"  [bold]{i}[/bold]  {d.description}")
+            console.print(f"     [dim]Rationale:[/dim] {d.rationale}")
+            console.print(f"     [dim]Risk:[/dim] [{risk_color}]{d.risk}[/{risk_color}]")
             console.print()
-            for i, d in enumerate(report.ai_analysis.decisions, 1):
-                risk_lower = d.risk.lower() if d.risk else ""
-                risk_color = _sev_color(risk_lower)
-                console.print(f"  [bold]{i}[/bold]  {d.description}")
-                console.print(f"     [dim]Rationale:[/dim] {d.rationale}")
-                console.print(f"     [dim]Risk:[/dim] [{risk_color}]{d.risk}[/{risk_color}]")
-                console.print()
-
-        if has_assumptions:
-            console.print("  [bold]Assumptions[/bold]")
-            console.print()
-            for i, a in enumerate(report.ai_analysis.assumptions, 1):
-                risk_lower = a.risk.lower() if a.risk else ""
-                risk_color = _sev_color(risk_lower)
-                console.print(
-                    f"  [bold]{i}[/bold]  {a.description}"
-                    f"  [{risk_color}]{a.risk.upper()} RISK[/{risk_color}]"
-                )
-                console.print(f"     [cyan dim]{a.location}[/cyan dim]")
-                console.print()
-
-    # ── Anomalies ─────────────────────────────────────────────────────────────
-    if report.ai_analysis.anomalies:
-        high = sum(1 for a in report.ai_analysis.anomalies if a.severity == "high")
-        medium = sum(1 for a in report.ai_analysis.anomalies if a.severity == "medium")
-        low = sum(1 for a in report.ai_analysis.anomalies if a.severity == "low")
-        console.print(Rule("ANOMALIES", style="bright_blue"))
-        console.print(
-            f"  [bright_red]{high} high[/bright_red]  ·  "
-            f"[yellow]{medium} medium[/yellow]  ·  "
-            f"[bright_blue]{low} low[/bright_blue]"
-        )
+    if has_assumptions:
+        console.print("  [bold]Assumptions[/bold]")
         console.print()
-        for anomaly in report.ai_analysis.anomalies:
-            color = _sev_color(anomaly.severity, "bright_blue")
-            bullet = _sev(anomaly.severity).bullet
+        for i, a in enumerate(report.ai_analysis.assumptions, 1):
+            risk_lower = a.risk.lower() if a.risk else ""
+            risk_color = _sev_color(risk_lower)
             console.print(
-                f"  [{color}]{bullet}[/{color}] {anomaly.description}"
-                f"  [{color}][bold]{anomaly.severity.upper()}[/bold][/{color}]"
+                f"  [bold]{i}[/bold]  {a.description}"
+                f"  [{risk_color}]{a.risk.upper()} RISK[/{risk_color}]"
             )
-            console.print(f"    [cyan dim]{anomaly.location}[/cyan dim]")
+            console.print(f"     [cyan dim]{a.location}[/cyan dim]")
             console.print()
 
-    # ── Semantic Analysis ─────────────────────────────────────────────────────
+
+def _render_anomalies_section(console: Console, report: ImpactReport) -> None:
+    if not report.ai_analysis.anomalies:
+        return
+    high = sum(1 for a in report.ai_analysis.anomalies if a.severity == "high")
+    medium = sum(1 for a in report.ai_analysis.anomalies if a.severity == "medium")
+    low = sum(1 for a in report.ai_analysis.anomalies if a.severity == "low")
+    console.print(Rule("ANOMALIES", style="bright_blue"))
+    console.print(
+        f"  [bright_red]{high} high[/bright_red]  ·  "
+        f"[yellow]{medium} medium[/yellow]  ·  "
+        f"[bright_blue]{low} low[/bright_blue]"
+    )
+    console.print()
+    for anomaly in report.ai_analysis.anomalies:
+        color = _sev_color(anomaly.severity, "bright_blue")
+        bullet = _sev(anomaly.severity).bullet
+        console.print(
+            f"  [{color}]{bullet}[/{color}] {anomaly.description}"
+            f"  [{color}][bold]{anomaly.severity.upper()}[/bold][/{color}]"
+        )
+        console.print(f"    [cyan dim]{anomaly.location}[/cyan dim]")
+        console.print()
+
+
+def _render_semantic_section(console: Console, report: ImpactReport) -> None:
     risky_verdicts = [v for v in report.ai_analysis.semantic_verdicts if v.verdict == "risky"]
     equiv_verdicts = [v for v in report.ai_analysis.semantic_verdicts if v.verdict == "equivalent"]
-    if risky_verdicts or equiv_verdicts:
-        console.print(Rule("SEMANTIC ANALYSIS", style="bright_blue"))
+    if not risky_verdicts and not equiv_verdicts:
+        return
+    console.print(Rule("SEMANTIC ANALYSIS", style="bright_blue"))
+    console.print()
+    if risky_verdicts:
+        console.print("  [bold yellow]⚠ Logic changes (small diff, significant impact)[/bold yellow]")
         console.print()
-        if risky_verdicts:
-            console.print("  [bold yellow]⚠ Logic changes (small diff, significant impact)[/bold yellow]")
-            console.print()
-            for v in risky_verdicts:
-                console.print(f"  [yellow]◉[/yellow] [bold]{v.symbol}[/bold]  [cyan dim]{v.file}[/cyan dim]")
-                console.print(f"    [dim]{v.reason}[/dim]")
-            console.print()
-        if equiv_verdicts:
-            console.print("  [bold dim]~ Refactors (semantically equivalent)[/bold dim]")
-            console.print()
-            for v in equiv_verdicts:
-                console.print(f"  [dim]~[/dim] [bold]{v.symbol}[/bold]  [cyan dim]{v.file}[/cyan dim]")
-                console.print(f"    [dim]{v.reason}[/dim]")
-            console.print()
-
-    # ── Test Gaps ─────────────────────────────────────────────────────────────
-    if report.ai_analysis.test_gaps:
-        console.print(Rule("TEST GAPS", style="bright_blue"))
-        console.print(f"  [dim]{len(report.ai_analysis.test_gaps)} behaviour(s) not covered[/dim]")
+        for v in risky_verdicts:
+            console.print(f"  [yellow]◉[/yellow] [bold]{v.symbol}[/bold]  [cyan dim]{v.file}[/cyan dim]")
+            console.print(f"    [dim]{v.reason}[/dim]")
         console.print()
-        for gap in report.ai_analysis.test_gaps:
-            console.print(f"  [dim]◇[/dim]  {gap.behaviour}")
-            console.print(f"     [cyan dim]{gap.location}[/cyan dim]")
+    if equiv_verdicts:
+        console.print("  [bold dim]~ Refactors (semantically equivalent)[/bold dim]")
+        console.print()
+        for v in equiv_verdicts:
+            console.print(f"  [dim]~[/dim] [bold]{v.symbol}[/bold]  [cyan dim]{v.file}[/cyan dim]")
+            console.print(f"    [dim]{v.reason}[/dim]")
         console.print()
 
-    # ── Security Signals ──────────────────────────────────────────────────────
+
+def _render_test_gaps_section(console: Console, report: ImpactReport) -> None:
+    if not report.ai_analysis.test_gaps:
+        return
+    console.print(Rule("TEST GAPS", style="bright_blue"))
+    console.print(f"  [dim]{len(report.ai_analysis.test_gaps)} behaviour(s) not covered[/dim]")
+    console.print()
+    for gap in report.ai_analysis.test_gaps:
+        console.print(f"  [dim]◇[/dim]  {gap.behaviour}")
+        console.print(f"     [cyan dim]{gap.location}[/cyan dim]")
+    console.print()
+
+
+def _render_security_section(console: Console, report: ImpactReport) -> None:
     has_signals = bool(report.ai_analysis.security_signals)
     has_dep_issues = bool(report.dependency_issues)
-    if has_signals or has_dep_issues:
-        high_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "high")
-        med_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "medium")
-        low_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "low")
-        console.print(Rule("SECURITY SIGNALS", style="bright_red"))
+    if not has_signals and not has_dep_issues:
+        return
+    high_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "high")
+    med_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "medium")
+    low_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "low")
+    console.print(Rule("SECURITY SIGNALS", style="bright_red"))
+    console.print(
+        "  [dim]⚠ Not a security audit — signals for human review, not verdicts[/dim]"
+    )
+    if has_signals:
         console.print(
-            "  [dim]⚠ Not a security audit — signals for human review, not verdicts[/dim]"
+            f"  [bright_red]{high_s} high[/bright_red]  ·  "
+            f"[yellow]{med_s} medium[/yellow]  ·  "
+            f"[bright_blue]{low_s} low[/bright_blue]"
         )
-        if has_signals:
-            console.print(
-                f"  [bright_red]{high_s} high[/bright_red]  ·  "
-                f"[yellow]{med_s} medium[/yellow]  ·  "
-                f"[bright_blue]{low_s} low[/bright_blue]"
-            )
-        console.print()
-        for sig in report.ai_analysis.security_signals:
-            color = _sev_color(sig.severity, "bright_blue")
-            bullet = _sev(sig.severity).bullet
-            line_info = f" :{sig.line_number}" if sig.line_number else ""
-            console.print(
-                f"  [{color}]{bullet}[/{color}] {sig.description}"
-                f"  [{color}][bold]{sig.severity.upper()}[/bold][/{color}]"
-            )
-            console.print(f"    [cyan dim]{sig.file_path}{line_info}[/cyan dim]")
-            if sig.why_unusual:
-                console.print(f"    [dim]{sig.why_unusual}[/dim]")
-            if sig.suggested_action:
-                console.print(f"    [dim italic]→ {sig.suggested_action}[/dim italic]")
-            console.print()
-        if has_dep_issues:
-            console.print("  [bold]Dependency Issues[/bold]")
-            console.print()
-            for issue in report.dependency_issues:
-                color = _sev_color(issue.severity, "bright_blue")
-                bullet = _sev(issue.severity).bullet
-                console.print(
-                    f"  [{color}]{bullet}[/{color}] [{color}]{issue.package_name}[/{color}]"
-                    f" [dim]({issue.issue_type})[/dim]"
-                )
-                console.print(f"    [dim]{issue.description}[/dim]")
-                console.print()
-
-    # ── Historical Hotspots ───────────────────────────────────────────────────
-    if report.historical_hotspots:
-        console.print(Rule("HISTORICAL HOTSPOTS", style="bright_blue"))
+    console.print()
+    for sig in report.ai_analysis.security_signals:
+        color = _sev_color(sig.severity, "bright_blue")
+        bullet = _sev(sig.severity).bullet
+        line_info = f" :{sig.line_number}" if sig.line_number else ""
         console.print(
-            "  [dim]Files most frequently in blast radii across past analyses[/dim]"
+            f"  [{color}]{bullet}[/{color}] {sig.description}"
+            f"  [{color}][bold]{sig.severity.upper()}[/bold][/{color}]"
         )
+        console.print(f"    [cyan dim]{sig.file_path}{line_info}[/cyan dim]")
+        if sig.why_unusual:
+            console.print(f"    [dim]{sig.why_unusual}[/dim]")
+        if sig.suggested_action:
+            console.print(f"    [dim italic]→ {sig.suggested_action}[/dim italic]")
         console.print()
-        table = Table(
-            box=None,
-            show_header=True,
-            header_style="dim",
-            pad_edge=False,
-            padding=(0, 2),
-        )
-        table.add_column("File", style="cyan", no_wrap=True)
-        table.add_column("Appearances", justify="right", style="dim")
-        for h in report.historical_hotspots:
-            table.add_row(h.file, str(h.appearances))
-        console.print(table)
+    if has_dep_issues:
+        console.print("  [bold]Dependency Issues[/bold]")
         console.print()
+        for issue in report.dependency_issues:
+            color = _sev_color(issue.severity, "bright_blue")
+            bullet = _sev(issue.severity).bullet
+            console.print(
+                f"  [{color}]{bullet}[/{color}] [{color}]{issue.package_name}[/{color}]"
+                f" [dim]({issue.issue_type})[/dim]"
+            )
+            console.print(f"    [dim]{issue.description}[/dim]")
+            console.print()
 
-    # ── Footer ────────────────────────────────────────────────────────────────
-    if output or json_output or sarif_output:
-        console.print(Rule(style="bright_blue"))
-        if output:
-            console.print(f"  [dim]Report written to[/dim]  [cyan]{output}[/cyan]")
-        if json_output:
-            console.print(f"  [dim]JSON written to[/dim]   [cyan]{json_output}[/cyan]")
-        if sarif_output:
-            console.print(f"  [dim]SARIF written to[/dim]  [cyan]{sarif_output}[/cyan]")
-        console.print(Rule(style="bright_blue"))
+
+def _render_hotspots_section(console: Console, report: ImpactReport) -> None:
+    if not report.historical_hotspots:
+        return
+    console.print(Rule("HISTORICAL HOTSPOTS", style="bright_blue"))
+    console.print(
+        "  [dim]Files most frequently in blast radii across past analyses[/dim]"
+    )
+    console.print()
+    table = Table(
+        box=None,
+        show_header=True,
+        header_style="dim",
+        pad_edge=False,
+        padding=(0, 2),
+    )
+    table.add_column("File", style="cyan", no_wrap=True)
+    table.add_column("Appearances", justify="right", style="dim")
+    for h in report.historical_hotspots:
+        table.add_row(h.file, str(h.appearances))
+    console.print(table)
+    console.print()
+
+
+def _render_footer_section(
+    console: Console,
+    output: str | None,
+    json_output: str | None,
+    sarif_output: str | None,
+) -> None:
+    if not output and not json_output and not sarif_output:
+        return
+    console.print(Rule(style="bright_blue"))
+    if output:
+        console.print(f"  [dim]Report written to[/dim]  [cyan]{output}[/cyan]")
+    if json_output:
+        console.print(f"  [dim]JSON written to[/dim]   [cyan]{json_output}[/cyan]")
+    if sarif_output:
+        console.print(f"  [dim]SARIF written to[/dim]  [cyan]{sarif_output}[/cyan]")
+    console.print(Rule(style="bright_blue"))
+
+
+def render_terminal(
+    report: ImpactReport,
+    console: Console,
+    output: str | None = None,
+    json_output: str | None = None,
+    sarif_output: str | None = None,
+) -> None:
+    sha_range = f"{report.base_sha[:7]}..{report.head_sha[:7]}"
+    _render_header_section(console, report, sha_range)
+    _render_summary_section(console, report)
+    _render_blast_radius_section(console, report)
+    _render_interface_changes_section(console, report)
+    _render_decisions_section(console, report)
+    _render_anomalies_section(console, report)
+    _render_semantic_section(console, report)
+    _render_test_gaps_section(console, report)
+    _render_security_section(console, report)
+    _render_hotspots_section(console, report)
+    _render_footer_section(console, output, json_output, sarif_output)
 
 
 def render_verdict_terminal(verdict: Verdict, console: Console) -> None:

@@ -32,16 +32,18 @@ def test_both_empty_returns_empty_list():
     assert symbols == []
 
 
-def test_new_file_mutates_changed_symbols_in_place():
+def test_new_file_returns_symbols():
     f = make_file(before="", after="def foo(): pass\n")
     returned = classify_changed_file(f)
-    assert f.changed_symbols is returned
+    assert len(returned) == 1
+    assert returned[0].change_type == "new_file"
 
 
-def test_deleted_file_mutates_changed_symbols_in_place():
+def test_deleted_file_returns_symbols():
     f = make_file(before="def foo(): pass\n", after="")
     returned = classify_changed_file(f)
-    assert f.changed_symbols is returned
+    assert len(returned) == 1
+    assert returned[0].change_type == "deleted_file"
 
 
 # ---------------------------------------------------------------------------

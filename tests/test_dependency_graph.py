@@ -4,23 +4,25 @@ import git
 from unittest.mock import patch
 
 from pr_impact.dependency_graph import (
-    _extract_imports,
-    _find_go_module_for_file,
     _list_repo_files,
-    _load_tsconfig_aliases,
-    _probe_js_extensions,
-    _read_file,
-    _resolve_csharp_import,
-    _resolve_go_import,
-    _resolve_java_import,
-    _resolve_java_wildcard,
-    _resolve_js_import,
-    _resolve_python_module,
-    _resolve_ruby_require,
-    _resolve_ruby_require_relative,
     build_import_graph,
     get_blast_radius,
     get_imported_symbols,
+)
+from pr_impact.language_resolvers import (
+    _probe_js_extensions,
+    extract_imports_for_file as _extract_imports,
+    find_go_module_for_file as _find_go_module_for_file,
+    load_tsconfig_aliases as _load_tsconfig_aliases,
+    read_file as _read_file,
+    resolve_csharp_import as _resolve_csharp_import,
+    resolve_go_import as _resolve_go_import,
+    resolve_java_import as _resolve_java_import,
+    resolve_java_wildcard as _resolve_java_wildcard,
+    resolve_js_import as _resolve_js_import,
+    resolve_python_module as _resolve_python_module,
+    resolve_ruby_require as _resolve_ruby_require,
+    resolve_ruby_require_relative as _resolve_ruby_require_relative,
 )
 
 # ---------------------------------------------------------------------------
@@ -660,9 +662,10 @@ def test_extract_imports_ruby_require_relative():
 # ---------------------------------------------------------------------------
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
+@patch("pr_impact.dependency_graph.read_file")
 @patch("pr_impact.dependency_graph.git.Repo")
-def test_build_import_graph_go_reads_module(mock_repo, mock_read):
+def test_build_import_graph_go_reads_module(mock_repo, mock_dg_read, mock_lr_read):
     mock_repo.return_value.git.ls_files.return_value = "cmd/main.go\npkg/util/helpers.go"
 
     def fake_read(repo, path):
@@ -672,14 +675,16 @@ def test_build_import_graph_go_reads_module(mock_repo, mock_read):
             return 'import "github.com/user/myapp/pkg/util"\n'
         return ""
 
-    mock_read.side_effect = fake_read
+    mock_dg_read.side_effect = fake_read
+    mock_lr_read.side_effect = fake_read
     graph = build_import_graph("/repo", ["go"])
     assert "pkg/util/helpers.go" in graph.get("cmd/main.go", [])
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
+@patch("pr_impact.dependency_graph.read_file")
 @patch("pr_impact.dependency_graph.git.Repo")
-def test_build_import_graph_go_skips_test_files(mock_repo, mock_read):
+def test_build_import_graph_go_skips_test_files(mock_repo, mock_dg_read, mock_lr_read):
     """_test.go files must not appear as nodes in the dependency graph."""
     mock_repo.return_value.git.ls_files.return_value = (
         "cmd/main.go\npkg/util/helpers.go\npkg/util/helpers_test.go"
@@ -690,7 +695,8 @@ def test_build_import_graph_go_skips_test_files(mock_repo, mock_read):
             return "module github.com/user/myapp\n"
         return ""
 
-    mock_read.side_effect = fake_read
+    mock_dg_read.side_effect = fake_read
+    mock_lr_read.side_effect = fake_read
     graph = build_import_graph("/repo", ["go"])
     assert "pkg/util/helpers_test.go" not in graph
 
@@ -832,7 +838,7 @@ def test_go_vendor_files_excluded():
 # ---------------------------------------------------------------------------
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_find_go_module_for_file_at_root(mock_read):
     def fake_read(repo, path):
         if path == "go.mod":
@@ -845,7 +851,7 @@ def test_find_go_module_for_file_at_root(mock_read):
     assert module_root == ""  # go.mod is at repo root
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_find_go_module_for_file_in_subdirectory(mock_read):
     def fake_read(repo, path):
         if path == "services/auth/go.mod":
@@ -858,7 +864,7 @@ def test_find_go_module_for_file_in_subdirectory(mock_read):
     assert module_root == "services/auth"
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_find_go_module_for_file_missing_returns_empty(mock_read):
     mock_read.return_value = ""
     module_name, module_root = _find_go_module_for_file("/repo", "cmd/main.go")
@@ -866,7 +872,7 @@ def test_find_go_module_for_file_missing_returns_empty(mock_read):
     assert module_root == ""
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_find_go_module_for_file_cache_reuse(mock_read):
     """Second call for a file in the same directory must not re-read go.mod."""
     mock_read.return_value = "module github.com/user/myapp\n"
@@ -877,7 +883,7 @@ def test_find_go_module_for_file_cache_reuse(mock_read):
     assert mock_read.call_count == call_count_after_first  # no extra reads
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_find_go_module_for_file_nested_preferred_over_root(mock_read):
     """A nested go.mod must take precedence over a root-level one."""
     def fake_read(repo, path):
@@ -960,7 +966,7 @@ def test_resolve_js_import_no_alias_no_baseurl_returns_none():
     assert result is None
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_parses_paths(mock_read):
     mock_read.return_value = """{
   "compilerOptions": {
@@ -976,7 +982,7 @@ def test_load_tsconfig_aliases_parses_paths(mock_read):
     assert paths == {"@/*": ["src/*"], "@utils": ["src/utils/index.ts"]}
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_missing_returns_empty(mock_read):
     mock_read.return_value = ""
     base_url, paths = _load_tsconfig_aliases("/repo")
@@ -984,7 +990,7 @@ def test_load_tsconfig_aliases_missing_returns_empty(mock_read):
     assert paths == {}
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_malformed_returns_empty(mock_read):
     mock_read.return_value = "{ this is not valid json !!!"
     base_url, paths = _load_tsconfig_aliases("/repo")
@@ -992,7 +998,7 @@ def test_load_tsconfig_aliases_malformed_returns_empty(mock_read):
     assert paths == {}
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_strips_comments(mock_read):
     mock_read.return_value = """{
   // tsconfig with comments
@@ -1009,7 +1015,7 @@ def test_load_tsconfig_aliases_strips_comments(mock_read):
     assert "@/*" in paths
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_follows_extends(mock_read):
     """Paths defined only in the extended config are inherited by the child."""
     def fake_read(repo, path):
@@ -1025,7 +1031,7 @@ def test_load_tsconfig_aliases_follows_extends(mock_read):
     assert paths == {"@/*": ["src/*"]}
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_child_overrides_parent(mock_read):
     """Child compilerOptions take precedence over inherited values."""
     def fake_read(repo, path):
@@ -1041,7 +1047,7 @@ def test_load_tsconfig_aliases_child_overrides_parent(mock_read):
     assert paths == {"@/*": ["src/*"]}  # inherited from parent
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_normalizes_dot_slash_base_url(mock_read):
     """Leading './' and bare '.' in baseUrl are stripped to repo-relative form."""
     def fake_read(repo, path):
@@ -1054,7 +1060,7 @@ def test_load_tsconfig_aliases_normalizes_dot_slash_base_url(mock_read):
     assert base_url == "src"
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_normalizes_dot_base_url(mock_read):
     """A bare '.' baseUrl (repo root) is returned as an empty string."""
     def fake_read(repo, path):
@@ -1067,7 +1073,7 @@ def test_load_tsconfig_aliases_normalizes_dot_base_url(mock_read):
     assert base_url == ""
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_normalizes_dot_slash_path_targets(mock_read):
     """Leading './' on path targets is stripped so callers get plain paths."""
     def fake_read(repo, path):
@@ -1080,7 +1086,7 @@ def test_load_tsconfig_aliases_normalizes_dot_slash_path_targets(mock_read):
     assert paths == {"@/*": ["src/*"]}
 
 
-@patch("pr_impact.dependency_graph._read_file")
+@patch("pr_impact.language_resolvers.read_file")
 def test_load_tsconfig_aliases_cycle_does_not_loop(mock_read):
     """A circular extends chain terminates without error."""
     def fake_read(repo, path):

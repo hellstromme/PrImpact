@@ -159,7 +159,6 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
                 signature_after=None,
             )
         )
-        file.changed_symbols = symbols
         return symbols
 
     if not file.content_after:
@@ -172,7 +171,6 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
                 signature_after=None,
             )
         )
-        file.changed_symbols = symbols
         return symbols
 
     # --- Extract definitions (AST-first, regex fallback) ---
@@ -198,7 +196,6 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
             defs_after = _extract_ts_defs(file.content_after)
         _exported = _is_exported_ts
     else:
-        file.changed_symbols = symbols
         return symbols
 
     touched = _names_touched_in_diff(file.diff)
@@ -275,7 +272,6 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
             )
         )
 
-    file.changed_symbols = symbols
     return symbols
 
 

@@ -14,14 +14,16 @@ from pr_impact.cli import (
     _format_pr_title,
     _get_github_token,
     _invert_graph,
-    _load_config,
     _print_banner,
-    _read_toml_config,
     _resolve_refs,
     _run_pipeline,
     _warn_no_github_token,
     _write_outputs,
     main,
+)
+from pr_impact.config import (
+    load_config as _load_config,
+    read_toml_config as _read_toml_config,
 )
 from pr_impact.models import AIAnalysis, Anomaly, BlastRadiusEntry, RefsResult
 from tests.helpers import make_file, make_report
@@ -1047,7 +1049,7 @@ def test_write_outputs_sarif_error_does_not_raise(tmp_path):
 
 def test_read_toml_config_returns_none_when_file_missing(monkeypatch, tmp_path):
     """Line 68: CONFIG_PATH does not exist → return None immediately."""
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", tmp_path / "nonexistent.toml")
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", tmp_path / "nonexistent.toml")
     assert _read_toml_config() is None
 
 
@@ -1055,7 +1057,7 @@ def test_read_toml_config_parses_valid_toml(monkeypatch, tmp_path):
     """Happy path: valid TOML returns the parsed dict."""
     cfg = tmp_path / "config.toml"
     cfg.write_bytes(b'anthropic_api_key = "sk-test"\n')
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
     result = _read_toml_config()
     assert result == {"anthropic_api_key": "sk-test"}
 
@@ -1064,7 +1066,7 @@ def test_read_toml_config_returns_none_on_invalid_toml(monkeypatch, tmp_path):
     """Lines 79-80: file exists but is malformed TOML → except block returns None."""
     cfg = tmp_path / "config.toml"
     cfg.write_text("this is not = = valid toml !!\n", encoding="utf-8")
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
     assert _read_toml_config() is None
 
 
@@ -1075,9 +1077,9 @@ def test_read_toml_config_returns_none_on_invalid_toml(monkeypatch, tmp_path):
 
 def test_load_config_does_nothing_when_file_absent(monkeypatch, tmp_path):
     """File absent and CONFIG_PATH.exists() is False → silent return, no warning."""
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", tmp_path / "nonexistent.toml")
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", tmp_path / "nonexistent.toml")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    with patch("pr_impact.cli.stderr") as mock_stderr:
+    with patch("pr_impact.config._stderr") as mock_stderr:
         _load_config()
     mock_stderr.print.assert_not_called()
 
@@ -1086,8 +1088,8 @@ def test_load_config_warns_when_config_file_unparseable(monkeypatch, tmp_path):
     """Lines 87-89: file exists but can't be parsed → prints error and returns."""
     cfg = tmp_path / "config.toml"
     cfg.write_text("bad toml == ===\n", encoding="utf-8")
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
-    with patch("pr_impact.cli.stderr") as mock_stderr:
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
+    with patch("pr_impact.config._stderr") as mock_stderr:
         _load_config()
     mock_stderr.print.assert_called_once()
     assert "Could not parse" in mock_stderr.print.call_args[0][0]
@@ -1097,7 +1099,7 @@ def test_load_config_returns_early_when_no_api_key_in_config(monkeypatch, tmp_pa
     """Line 93: config exists but has no anthropic_api_key → return without touching env."""
     cfg = tmp_path / "config.toml"
     cfg.write_bytes(b'github_token = "tok"\n')
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     _load_config()
     assert os.environ.get("ANTHROPIC_API_KEY") is None
@@ -1107,10 +1109,10 @@ def test_load_config_warns_on_unresolved_env_var_in_api_key(monkeypatch, tmp_pat
     """Lines 99-103: api_key is an env var placeholder that isn't expanded → prints error."""
     cfg = tmp_path / "config.toml"
     cfg.write_bytes(b'anthropic_api_key = "$UNSET_PRIMPACT_KEY_XYZ"\n')
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("UNSET_PRIMPACT_KEY_XYZ", raising=False)
-    with patch("pr_impact.cli.stderr") as mock_stderr:
+    with patch("pr_impact.config._stderr") as mock_stderr:
         _load_config()
     mock_stderr.print.assert_called_once()
     assert "environment variable" in mock_stderr.print.call_args[0][0]
@@ -1120,7 +1122,7 @@ def test_load_config_does_not_overwrite_existing_api_key(monkeypatch, tmp_path):
     """Line 94-95: ANTHROPIC_API_KEY already in env → config value is ignored."""
     cfg = tmp_path / "config.toml"
     cfg.write_bytes(b'anthropic_api_key = "from-config"\n')
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "already-set")
     _load_config()
     assert os.environ["ANTHROPIC_API_KEY"] == "already-set"
@@ -1134,7 +1136,7 @@ def test_load_config_does_not_overwrite_existing_api_key(monkeypatch, tmp_path):
 def test_get_github_token_returns_none_when_no_config_file(monkeypatch, tmp_path):
     """Lines 148-150: GITHUB_TOKEN absent and no config file → None."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", tmp_path / "nonexistent.toml")
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", tmp_path / "nonexistent.toml")
     assert _get_github_token() is None
 
 
@@ -1143,7 +1145,7 @@ def test_get_github_token_returns_none_when_not_in_config(monkeypatch, tmp_path)
     cfg = tmp_path / "config.toml"
     cfg.write_bytes(b'anthropic_api_key = "sk-test"\n')
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
     assert _get_github_token() is None
 
 
@@ -1152,7 +1154,7 @@ def test_get_github_token_returns_value_from_config(monkeypatch, tmp_path):
     cfg = tmp_path / "config.toml"
     cfg.write_bytes(b'github_token = "ghp-config-token"\n')
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
     assert _get_github_token() == "ghp-config-token"
 
 
@@ -1162,7 +1164,7 @@ def test_get_github_token_returns_none_on_unresolved_env_var(monkeypatch, tmp_pa
     cfg.write_bytes(b'github_token = "$UNSET_GH_TOKEN_XYZ"\n')
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("UNSET_GH_TOKEN_XYZ", raising=False)
-    monkeypatch.setattr("pr_impact.cli.CONFIG_PATH", cfg)
+    monkeypatch.setattr("pr_impact.config.CONFIG_PATH", cfg)
     assert _get_github_token() is None
 
 

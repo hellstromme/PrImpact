@@ -13,7 +13,14 @@ def test_pipeline_modules_do_not_cross_import():
     """
     pkg = Path(__file__).parent.parent / "pr_impact"
     # Exempt: cli (orchestrator), models/prompts (shared data), ast_extractor/history (shared utilities), __init__
-    exempt = {"__init__", "models", "prompts", "cli", "ast_extractor", "history"}
+    # Also exempt: helper modules called by exactly one pipeline module each
+    #   - config (called by cli only)
+    #   - language_resolvers (called by dependency_graph only)
+    #   - ai_client, ai_context (called by ai_layer only)
+    exempt = {
+        "__init__", "models", "prompts", "cli", "ast_extractor", "history",
+        "config", "language_resolvers", "ai_client", "ai_context",
+    }
 
     violations: list[str] = []
     for pyfile in sorted(pkg.rglob("*.py")):
@@ -43,7 +50,13 @@ def test_pipeline_modules_do_not_cross_import():
                     if alias.name.startswith("pr_impact.") and len(alias.name.split(".")) >= 2
                 ]
             for imported_module in imported_modules:
-                if imported_module not in ("models", "prompts", "ast_extractor", "history"):
+                if imported_module not in (
+                    "models", "prompts", "ast_extractor", "history",
+                    # Helper modules — each called by exactly one pipeline module:
+                    "ai_client", "ai_context",       # called by ai_layer only
+                    "language_resolvers",             # called by dependency_graph only
+                    "config",                         # called by cli only
+                ):
                     violations.append(f"{pyfile.name} imports {imported_module}")
 
     assert violations == [], "Cross-module imports detected:\n" + "\n".join(violations)
