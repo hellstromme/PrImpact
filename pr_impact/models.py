@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+Severity = Literal["high", "medium", "low"]
+
 _LANGUAGE_MAP: dict[str, str] = {
     ".py": "python",
     ".ts": "typescript",
@@ -80,7 +82,7 @@ class Assumption:
 class Anomaly:
     description: str
     location: str
-    severity: str  # 'low' | 'medium' | 'high'
+    severity: Severity
 
 
 @dataclass
@@ -95,7 +97,7 @@ class SecuritySignal:
     file_path: str
     line_number: int | None
     signal_type: str  # "network_call" | "credential" | "encoded_payload" | "dynamic_exec" | "shell_invoke" | "suspicious_import"
-    severity: str     # "high" | "medium" | "low"
+    severity: Severity
     why_unusual: str
     suggested_action: str
 
@@ -105,7 +107,7 @@ class DependencyIssue:
     package_name: str
     issue_type: str   # "typosquat" | "version_change" | "vulnerability"
     description: str
-    severity: str     # "high" | "medium" | "low"
+    severity: Severity
 
 
 @dataclass
