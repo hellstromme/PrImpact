@@ -1,8 +1,8 @@
 # Primpact — Architecture Document
 
-**Version:** 0.3  
+**Version:** 0.4  
 **Status:** Current  
-**Last updated:** 2026-04-10
+**Last updated:** 2026-04-11
 
 ---
 
@@ -23,6 +23,8 @@
    - 5.8 [github.py — GitHub API Helpers](#58-githubpy--github-api-helpers)
    - 5.9 [models.py — Shared Data Types](#59-modelspy--shared-data-types)
    - 5.10 [security.py — Security Signal Detection](#510-securitypy--security-signal-detection)
+   - 5.11 [ast_extractor.py — AST Wrappers](#511-ast_extractorpy--ast-wrappers)
+   - 5.12 [history.py — Historical Pattern Learning](#512-historypy--historical-pattern-learning)
 6. [Pipeline Orchestration](#6-pipeline-orchestration)
 7. [External Interfaces](#7-external-interfaces)
 8. [Context Budget Strategy](#8-context-budget-strategy)
@@ -92,12 +94,14 @@ git_analysis  dep_graph  classifier  ai_layer ◄── prompts.py
 pr_impact/
   cli.py               # Entry point, argument parsing, pipeline orchestration
   git_analysis.py      # Git interaction — diffs, file contents, commit history
-  dependency_graph.py  # Regex-based import graph builder and blast radius BFS
-  classifier.py        # Changed symbol classification by impact type
-  ai_layer.py          # Claude API calls — summary, decisions, anomalies, test gaps, security scoring
+  dependency_graph.py  # AST-first import graph builder and blast radius BFS
+  classifier.py        # Changed symbol classification by impact type (AST-first, regex fallback)
+  ai_layer.py          # Claude API calls — summary, decisions, anomalies, test gaps, security scoring, semantic equivalence
   prompts.py           # All prompt templates (separated from logic)
   reporter.py          # Assembles and renders the final Markdown, JSON, and SARIF reports
   github.py            # GitHub API helpers — PR resolution, remote detection, PR listing
+  ast_extractor.py     # tree-sitter AST wrappers — extract_imports() and extract_symbols()
+  history.py           # SQLite history: save_run(), load_hotspots(), load_anomaly_patterns()
   models.py            # Shared dataclasses used across all modules
   security.py          # Deterministic security signal detection and dependency integrity checks
 ```
@@ -135,6 +139,9 @@ class ChangedSymbol:
     change_type: str        # See classifier section for full type list
     signature_before: str | None
     signature_after: str | None
+    params: list[str]           # Parameter names extracted from signature (v0.4)
+    decorators: list[str]       # Decorator names (v0.4)
+    return_type: str | None     # Return type annotation if present (v0.4)
 ```
 
 ### `BlastRadiusEntry`
@@ -218,6 +225,30 @@ class Verdict:
     blockers: list[VerdictBlocker]
 ```
 
+### `SemanticVerdict`
+
+The result of the semantic equivalence check for a single changed symbol (v0.4).
+
+```python
+@dataclass
+class SemanticVerdict:
+    file: str
+    symbol: str
+    verdict: str    # "equivalent" | "risky" | "normal"
+    reason: str     # Plain-English explanation from the model
+```
+
+### `HistoricalHotspot`
+
+A file that has appeared repeatedly in blast radii across past runs (v0.4).
+
+```python
+@dataclass
+class HistoricalHotspot:
+    file: str
+    appearances: int    # Number of past runs in which this file appeared in the blast radius
+```
+
 ### `AIAnalysis`
 
 The structured output from the Claude API layer.
@@ -231,6 +262,7 @@ class AIAnalysis:
     anomalies: list[Anomaly]
     test_gaps: list[TestGap]
     security_signals: list[SecuritySignal]  # AI-scored; populated by call 4 when signals detected
+    semantic_verdicts: list[SemanticVerdict]  # Populated by call 5 when substantial diffs present (v0.4)
 ```
 
 ### `Decision`
@@ -311,6 +343,7 @@ class ImpactReport:
     interface_changes: list[InterfaceChange]
     ai_analysis: AIAnalysis
     dependency_issues: list[DependencyIssue]  # Deterministic; populated before any AI call
+    historical_hotspots: list[HistoricalHotspot]  # Files frequently in blast radius across past runs (v0.4)
 ```
 
 ---
@@ -331,7 +364,10 @@ pr-impact analyse \
   [--json report.json] \
   [--sarif report.sarif] \
   [--max-depth 3] \
-  [--fail-on-severity high]
+  [--fail-on-severity high] \
+  [--check-osv] \
+  [--verdict] [--verdict-json verdict.json] \
+  [--history-db /path/to/history.db] [--no-history]
 ```
 
 #### Responsibilities
@@ -346,6 +382,8 @@ pr-impact analyse \
 - Display progress output via `rich` to `stderr`
 - Fail fast with a clear error message if `ANTHROPIC_API_KEY` is not set
 - Exit with code 1 if `--fail-on-severity` threshold is met by any anomaly
+- Load historical hotspots and anomaly patterns from the history database before the pipeline (unless `--no-history`)
+- Save the completed `ImpactReport` to the history database after step 8 (unless `--no-history`)
 
 ---
 
@@ -384,7 +422,7 @@ Uses `gitpython`. Responsible for all interaction with the local git repository.
 
 ### 5.3 `dependency_graph.py` — Import Graph
 
-Builds an import graph for the whole codebase using regex-based import extraction. AST parsing is explicitly deferred to v0.4.
+Builds an import graph for the whole codebase. Uses `ast_extractor.py` for AST-based import extraction where available, falling back to regex for unsupported languages or parse failures.
 
 #### Import patterns extracted
 
@@ -441,7 +479,7 @@ Builds an import graph for the whole codebase using regex-based import extractio
 
 ### 5.4 `classifier.py` — Change Classification
 
-Classifies each changed file and symbol by impact type. Uses regex against diff content and file content. No AST parsing in v0.1.
+Classifies each changed file and symbol by impact type. Uses `ast_extractor.py` for symbol extraction where available, falling back to regex against diff content and file content.
 
 #### Change types
 
@@ -475,9 +513,9 @@ Classifies each changed file and symbol by impact type. Uses regex against diff 
 
 ### 5.5 `ai_layer.py` — Claude API Integration
 
-Makes three or four Claude API calls per analysis run. Handles context budget management. This is the only module that performs network I/O.
+Makes three to five Claude API calls per analysis run. Handles context budget management. This is the only module that performs network I/O.
 
-#### `run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals=None) -> AIAnalysis`
+#### `run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals=None, anomaly_patterns=None) -> AIAnalysis`
 
 Assembles context for each prompt, makes API calls in sequence, parses the JSON responses, and returns a populated `AIAnalysis` object.
 
@@ -487,8 +525,11 @@ Assembles context for each prompt, makes API calls in sequence, parses the JSON 
 | 2 | Anomaly Detection | `AIAnalysis.anomalies` | Always |
 | 3 | Test Gap Analysis | `AIAnalysis.test_gaps` | Always |
 | 4 | Security Signal Scoring | `AIAnalysis.security_signals` | Only when `pattern_signals` is non-empty |
+| 5 | Semantic Equivalence | `AIAnalysis.semantic_verdicts` | Only when substantial diffs present (v0.4) |
 
 Call 4 takes the raw pattern signals from `security.py` and asks the model to assess each in the context of the file's stated purpose and existing patterns, adjusting severity and adding contextual explanation. If the AI call fails or returns unexpected JSON, `security_signals` falls back to the raw `pattern_signals`.
+
+Call 5 receives before/after signatures for changed symbols and classifies each as `"equivalent"` (a refactor or reformat with no behavioural change), `"risky"` (a small-looking diff that alters branching logic or state), or `"normal"` (a genuine, non-trivial change). This lets the report direct reviewer attention to what actually matters. Historical anomaly patterns from `history.py` are included as additional context when available.
 
 #### `run_verdict_analysis(ai_analysis, dependency_issues) -> Verdict`
 
@@ -550,6 +591,18 @@ Receives: full diffs of changed files; existing test files for the changed modul
 
 Instructs the model to identify changed or new behaviours with no corresponding test. Focus areas are: new code paths (especially error paths and edge cases), changed logic in existing functions, and new exported symbols with no test file. Trivial getters, setters, and purely structural changes are explicitly excluded. Returns JSON with a `test_gaps` list.
 
+#### Prompt 4: Security Signal Scoring
+
+Receives: raw pattern signals from `security.py`; before-signatures of the affected files; full diff context.
+
+Instructs the model to assess whether each signal is consistent with the purpose and existing patterns of the file it appears in. Returns JSON with a `security_signals` list, each with an adjusted `severity` and a `why_unusual` and `suggested_action` field.
+
+#### Prompt 5: Semantic Equivalence (v0.4)
+
+Receives: before/after signatures and diffs for each substantially changed symbol; historical anomaly patterns when available.
+
+Instructs the model to classify each changed symbol as `equivalent` (refactor/reformat with no behavioural change), `risky` (small-looking diff that alters branching, state, or data flow), or `normal` (genuine non-trivial change). Returns JSON with a `semantic_verdicts` list. `equivalent` verdicts are called out in the report to save reviewer attention; `risky` verdicts are surfaced prominently.
+
 ---
 
 ### 5.7 `reporter.py` — Output Rendering
@@ -589,6 +642,12 @@ Downstream risk: N files across N dependency hops
 
 ## Test Gaps
 {each TestGap}
+
+## Semantic Equivalence
+{each SemanticVerdict — "equivalent" collapsed, "risky" highlighted}
+
+## Historical Hotspots
+{each HistoricalHotspot — files frequently appearing in past blast radii}
 ```
 
 #### `render_json(report: ImpactReport) -> str`
@@ -671,11 +730,62 @@ Per-file failures are skipped silently; unexpected top-level errors propagate to
 
 ---
 
+### 5.11 `ast_extractor.py` — AST Wrappers
+
+Wraps the `tree-sitter` library to provide language-aware AST parsing. Called by `dependency_graph.py` and `classifier.py`; neither module calls `tree-sitter` directly.
+
+#### `extract_imports(file_path, content, language) -> list[str] | None`
+
+- Parse `content` using the appropriate tree-sitter grammar for `language`
+- Walk the AST to extract import paths/module names
+- Returns a list of resolved import strings, or `None` if parsing fails (callers fall back to regex)
+- Handles dynamic imports, re-exports, and barrel file patterns correctly
+
+#### `extract_symbols(file_path, content, language) -> list[ChangedSymbol] | None`
+
+- Parse `content` and extract all top-level function and class definitions
+- Populate `name`, `kind`, `params`, `decorators`, and `return_type` from AST nodes
+- Returns `None` if parsing fails (callers fall back to regex)
+
+Failures are never propagated: the function always returns `None` rather than raising, so callers can fall back to regex without error handling.
+
+---
+
+### 5.12 `history.py` — Historical Pattern Learning
+
+Maintains a local SQLite database of past analysis runs. History is best-effort: all functions in this module catch their own exceptions and never affect exit codes or pipeline output.
+
+Default database path: `<repo>/.primpact/history.db`. Overridable via `--history-db`. Skipped entirely when `--no-history` is set.
+
+#### `save_run(db_path, report) -> None`
+
+- Persist the current `ImpactReport` to the history database after a successful run
+- Records: run timestamp, base/head SHAs, changed files, blast radius entries, anomaly descriptions
+
+#### `load_hotspots(db_path, limit=10) -> list[HistoricalHotspot]`
+
+- Query the database for files that have appeared most frequently in past blast radii
+- Returns up to `limit` `HistoricalHotspot` entries ordered by appearance count descending
+- Returns an empty list if the database does not exist or the query fails
+
+#### `load_anomaly_patterns(db_path) -> list[str]`
+
+- Return a list of anomaly description strings from past runs
+- Used to give the anomaly detection prompt (call 2) a sense of what has been flagged before, helping calibrate what is truly unusual for this codebase vs. a recurring known pattern
+- Returns an empty list on any failure
+
+---
+
 ## 6. Pipeline Orchestration
 
-The pipeline runs as eight sequential steps inside `cli.py`. Steps 1–6 are deterministic; step 7 is the only network call.
+The pipeline runs as eight sequential steps inside `cli.py`. Steps 1–6b are deterministic; step 7 is the only network call.
 
 ```
+Pre-run  history.load_hotspots(db_path)
+           → list[HistoricalHotspot]
+         history.load_anomaly_patterns(db_path)
+           → list[str]  (passed to ai_layer as context)
+
 Step 1  git_analysis.get_changed_files()
           → list[ChangedFile] (changed_symbols empty)
 
@@ -701,17 +811,20 @@ Step 6a security.detect_pattern_signals(changed_files)
 Step 6b security.check_dependency_integrity(changed_files, osv_check)
           → list[DependencyIssue]
 
-Step 7  ai_layer.run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals)
-          → AIAnalysis (3 API calls; 4 when pattern_signals is non-empty)
+Step 7  ai_layer.run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals, anomaly_patterns)
+          → AIAnalysis (3 API calls; 4 when pattern_signals is non-empty; 5 when substantial diffs present)
 
 Step 8  reporter.render_markdown(report) + reporter.render_json(report) + reporter.render_sarif(report)
           → str (Markdown), str (JSON), str (SARIF)
 
-Optional  ai_layer.run_verdict_analysis(ai_analysis, dependency_issues)
+Post-run history.save_run(db_path, report)
+           (best-effort; failures are silently swallowed)
+
+Optional ai_layer.run_verdict_analysis(ai_analysis, dependency_issues)
           → Verdict  (only when --verdict or --verdict-json is given; 1 additional API call)
 ```
 
-The `ImpactReport` is assembled in `cli.py` after step 7, combining all outputs from steps 1–7 before passing to step 8.
+The `ImpactReport` is assembled in `cli.py` after step 7, combining all outputs from steps 1–7 (including historical hotspots) before passing to step 8.
 
 **Performance target:** Steps 1–6b complete in under 5 seconds on a typical repository. Step 7 is network-bound and depends on Claude API response time.
 
@@ -725,7 +838,7 @@ The `ImpactReport` is assembled in `cli.py` after step 7, combining all outputs 
 
 ### Claude API
 
-`ai_layer.py` makes HTTPS POST requests to the Anthropic API at `https://api.anthropic.com/v1/messages`. Authentication is via the `ANTHROPIC_API_KEY` environment variable. The tool makes exactly three API calls per successful run. All calls are made sequentially.
+`ai_layer.py` makes HTTPS POST requests to the Anthropic API at `https://api.anthropic.com/v1/messages`. Authentication is via the `ANTHROPIC_API_KEY` environment variable. The tool makes three to five API calls per successful run (always 3; +1 when security signals are detected; +1 when substantial diffs are present). All calls are made sequentially.
 
 ### GitHub API
 
@@ -743,15 +856,17 @@ The Claude API context window is finite. The following rules govern what is incl
 
 | Priority | Content | Included in |
 |---|---|---|
-| 1 (always) | Full diffs of changed files | All three prompts |
+| 1 (always) | Full diffs of changed files | All prompts |
 | 2 (always) | Signatures of distance-1 blast radius files | Prompts 1 and 2 |
 | 3 (if budget allows) | Signatures of distance-2 blast radius files | Prompts 1 and 2 |
 | 4 (prompt-specific) | Test files for changed modules | Prompt 3 only |
 | 5 (prompt-specific) | Signatures of up to 5 neighbouring files | Prompt 2 only |
+| 6 (prompt-specific) | Pattern signals + before-signatures | Prompt 4 only |
+| 7 (prompt-specific) | Before/after signatures + historical anomaly patterns | Prompt 5 only |
 
 Diffs are truncated at 8,000 tokens if the total exceeds the budget. Truncation is applied uniformly across all changed files rather than dropping files entirely where possible.
 
-**Signature extraction** is used to include blast radius context efficiently. A signature contains: import statements, function and class definitions with decorators, and return type annotations — but not the function body. This is extracted with regex and reduces token cost by roughly 80% compared to including full file content.
+**Signature extraction** is used to include blast radius context efficiently. A signature contains: import statements, function and class definitions with decorators, and return type annotations — but not the function body. Since v0.4 this is extracted via `ast_extractor.py` (tree-sitter) with a regex fallback, reducing token cost by roughly 80% compared to including full file content.
 
 ---
 
@@ -789,10 +904,18 @@ Machine-readable. Full serialisation of the `ImpactReport` dataclass. Intended f
 ## 11. Dependencies
 
 ```
-gitpython      # Git interaction (get_changed_files, get_git_churn, get_pr_metadata)
-anthropic      # Claude API client (ai_layer)
-click          # CLI argument parsing (cli)
-rich           # Progress display and formatted stderr output (cli)
+gitpython           # Git interaction (get_changed_files, get_git_churn, get_pr_metadata)
+anthropic           # Claude API client (ai_layer)
+click               # CLI argument parsing (cli)
+rich                # Progress display and formatted stderr output (cli)
+tree-sitter         # AST parsing core (ast_extractor)
+tree-sitter-python  # Python grammar for tree-sitter (ast_extractor)
+tree-sitter-typescript  # TypeScript/TSX grammar (ast_extractor)
+tree-sitter-javascript  # JavaScript grammar (ast_extractor)
+tree-sitter-c-sharp     # C# grammar (ast_extractor)
+tree-sitter-java        # Java grammar (ast_extractor)
+tree-sitter-go          # Go grammar (ast_extractor)
+tree-sitter-ruby        # Ruby grammar (ast_extractor)
 ```
 
 All dependencies are available on PyPI. Python 3.11 or later is required for `str | None` union syntax.
@@ -832,6 +955,8 @@ startup; its values are applied only if the corresponding env var is not already
 | `--check-osv` | off | Query the OSV API for CVEs in newly added dependencies (requires network) |
 | `--verdict` | off | Run agent verdict analysis after the main pipeline; exit 2 if blockers found |
 | `--verdict-json` | (none) | Write verdict JSON to this file path (implies `--verdict`) |
+| `--history-db` | `<repo>/.primpact/history.db` | Path to the SQLite history database (v0.4) |
+| `--no-history` | off | Skip reading and writing the history database for this run (v0.4) |
 
 If neither `--output` nor `--json` is provided, the Markdown report is printed to `stdout`.
 
@@ -839,21 +964,21 @@ If neither `--output` nor `--json` is provided, the Markdown report is printed t
 
 ## 13. Design Decisions and Rationale
 
-### Regex over AST for import extraction
+### AST-first, regex fallback for import and symbol extraction
 
-**Decision:** Use regex-based import extraction rather than AST parsing (tree-sitter or the language's own parser).
+**Decision:** Use tree-sitter AST parsing as the primary extraction method, with regex as a fallback for parse failures or unsupported edge cases.
 
-**Rationale:** Tree-sitter requires native binaries and adds setup complexity that conflicts with the "no instrumentation tax" principle. For MVP, regex is sufficient to extract import relationships accurately enough for blast radius calculation. The diff context lines provide enough signal for the classifier without full AST traversal.
+**Rationale:** AST parsing correctly handles dynamic imports, conditional imports, and barrel file re-exports that regex misses. tree-sitter grammars are available as PyPI packages, keeping the setup cost within the "no instrumentation tax" principle. Regex fallback ensures graceful degradation: if a grammar is unavailable or parsing fails, the tool still produces a useful (if less accurate) report.
 
-**Risk:** Regex will miss dynamic imports, conditional imports, and barrel file re-exports. These edge cases are acceptable for v0.1. AST parsing is explicitly planned for v0.4.
+**Risk:** tree-sitter adds native binary dependencies per language. Grammar packages must be kept in sync with the languages supported. The fallback path means some test surfaces are harder to cover exhaustively.
 
-### Three separate prompt calls
+### Three to five separate prompt calls
 
-**Decision:** Make three separate API calls (summary+decisions+assumptions, anomalies, test gaps) rather than one large call.
+**Decision:** Make separate API calls per analysis type (summary+decisions+assumptions, anomalies, test gaps, security scoring, semantic equivalence) rather than one large call.
 
-**Rationale:** Each task requires different context. Anomaly detection needs neighbouring file signatures; test gap analysis needs test files; summary needs blast radius signatures. Combining all three into one prompt would require including all context types simultaneously, burning tokens on irrelevant material for each task. Separate calls also make it easier to handle partial failures gracefully.
+**Rationale:** Each task requires different context. Anomaly detection needs neighbouring file signatures; test gap analysis needs test files; summary needs blast radius signatures; semantic equivalence needs before/after signatures. Combining all into one prompt would require all context types simultaneously, burning tokens on irrelevant material for each task. Separate calls also make it easier to handle partial failures gracefully — a failed security scoring call does not invalidate the anomaly analysis.
 
-**Risk:** Three calls increase latency and API cost by approximately 3×. At current pricing this is acceptable; at scale it may require optimisation.
+**Risk:** Up to five calls increase latency and API cost. Calls 4 and 5 are conditional so the worst case is bounded. At current pricing this is acceptable; at scale it may require optimisation.
 
 ### BFS depth capped at 3
 
@@ -887,11 +1012,8 @@ If neither `--output` nor `--json` is provided, the Markdown report is printed t
 
 ## 14. Known Limitations and Deferred Work
 
-### v0.1 known limitations
+### Current known limitations
 
-- Import extraction does not handle dynamic imports (`import()`, `__import__()`, `importlib.import_module()`)
-- Re-exports via barrel files (`index.ts`) may inflate the blast radius with false positives
-- Relative import resolution may be inaccurate for deeply nested package structures
 - The classifier cannot distinguish between overloaded function signatures in TypeScript
 - C# `using` resolution maps namespace declarations to files; a file with no `namespace` declaration is not reachable via the import graph
 - C# symbol classification (interface/internal detection) is not implemented; `.cs` files produce blast radius and import graph entries but no `ChangedSymbol` records
@@ -916,12 +1038,14 @@ If neither `--output` nor `--json` is provided, the Markdown report is printed t
 - Agent verdict analysis — `PROMPT_VERDICT` / `--verdict` / `--verdict-json` for agentic loop control
 - SARIF output extended to include `primpact/security-signal` and `primpact/dependency-issue` rules
 
-### Deferred to v0.4
+### Delivered in v0.4
 
-- AST-based import extraction via tree-sitter (replacing regex)
-- Symbol-level blast radius (currently file-level only)
-- Semantic equivalence detection (identifying refactors that look significant but aren't)
-- Historical pattern learning via local SQLite database
+- AST-based import and symbol extraction via tree-sitter (`ast_extractor.py`), with regex fallback
+- Re-export / barrel file support in import graph
+- Richer `ChangedSymbol` fields: `params`, `decorators`, `return_type`
+- Semantic equivalence detection — 5th AI call (`PROMPT_SEMANTIC_EQUIVALENCE`) classifies changes as equivalent/risky/normal
+- Historical pattern learning via SQLite (`history.py`, `--history-db`, `--no-history`)
+- Historical hotspots section in Markdown and terminal reports
 
 ### Explicitly out of scope (all versions)
 
