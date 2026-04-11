@@ -515,7 +515,7 @@ Classifies each changed file and symbol by impact type. Uses `ast_extractor.py` 
 
 Makes three to five Claude API calls per analysis run. Handles context budget management. This is the only module that performs network I/O.
 
-#### `run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals=None, anomaly_patterns=None) -> AIAnalysis`
+#### `run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals=None, anomaly_history=None, hotspots=None) -> AIAnalysis`
 
 Assembles context for each prompt, makes API calls in sequence, parses the JSON responses, and returns a populated `AIAnalysis` object.
 
@@ -780,11 +780,11 @@ Default database path: `<repo>/.primpact/history.db`. Overridable via `--history
 
 The pipeline runs as eight sequential steps inside `cli.py`. Steps 1–6b are deterministic; step 7 is the only network call.
 
-```
+```text
 Pre-run  history.load_hotspots(db_path)
-           → list[HistoricalHotspot]
+           → list[HistoricalHotspot]  (passed as hotspots to ai_layer)
          history.load_anomaly_patterns(db_path)
-           → list[str]  (passed to ai_layer as context)
+           → list[str]  (passed as anomaly_history to ai_layer)
 
 Step 1  git_analysis.get_changed_files()
           → list[ChangedFile] (changed_symbols empty)
@@ -811,7 +811,7 @@ Step 6a security.detect_pattern_signals(changed_files)
 Step 6b security.check_dependency_integrity(changed_files, osv_check)
           → list[DependencyIssue]
 
-Step 7  ai_layer.run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals, anomaly_patterns)
+Step 7  ai_layer.run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals, anomaly_history, hotspots)
           → AIAnalysis (3 API calls; 4 when pattern_signals is non-empty; 5 when substantial diffs present)
 
 Step 8  reporter.render_markdown(report) + reporter.render_json(report) + reporter.render_sarif(report)
