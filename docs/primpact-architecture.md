@@ -513,7 +513,7 @@ Classifies each changed file and symbol by impact type. Uses `ast_extractor.py` 
 
 ### 5.5 `ai_layer.py` — Claude API Integration
 
-Makes three to five Claude API calls per analysis run. Handles context budget management. This is the only module that performs network I/O.
+Makes three to five Claude API calls per analysis run and is the only module that performs Claude API network I/O. Handles context budget management. Note that other optional network paths exist: `github.py` handles GitHub API interactions, and `security.py` performs OSV vulnerability lookups when the `--check-osv` flag is used.
 
 #### `run_ai_analysis(changed_files, blast_radius, repo_path, pattern_signals=None, anomaly_history=None, hotspots=None) -> AIAnalysis`
 
@@ -734,18 +734,18 @@ Per-file failures are skipped silently; unexpected top-level errors propagate to
 
 Wraps the `tree-sitter` library to provide language-aware AST parsing. Called by `dependency_graph.py` and `classifier.py`; neither module calls `tree-sitter` directly.
 
-#### `extract_imports(file_path, content, language) -> list[str] | None`
+#### `extract_imports(source, language) -> list[ASTImport] | None`
 
-- Parse `content` using the appropriate tree-sitter grammar for `language`
+- Parse `source` using the appropriate tree-sitter grammar for `language`
 - Walk the AST to extract import paths/module names
-- Returns a list of resolved import strings, or `None` if parsing fails (callers fall back to regex)
+- Returns a list of `ASTImport` wrappers (each with `specifier`, `imported_names`, and `is_reexport` fields), or `None` if parsing fails (callers fall back to regex)
 - Handles dynamic imports, re-exports, and barrel file patterns correctly
 
-#### `extract_symbols(file_path, content, language) -> list[ChangedSymbol] | None`
+#### `extract_symbols(source, language) -> list[ASTSymbol] | None`
 
-- Parse `content` and extract all top-level function and class definitions
+- Parse `source` and extract all top-level function and class definitions
 - Populate `name`, `kind`, `params`, `decorators`, and `return_type` from AST nodes
-- Returns `None` if parsing fails (callers fall back to regex)
+- Returns a list of `ASTSymbol` wrappers, or `None` if parsing fails (callers fall back to regex)
 
 Failures are never propagated: the function always returns `None` rather than raising, so callers can fall back to regex without error handling.
 
@@ -762,29 +762,30 @@ Default database path: `<repo>/.primpact/history.db`. Overridable via `--history
 - Persist the current `ImpactReport` to the history database after a successful run
 - Records: run timestamp, base/head SHAs, changed files, blast radius entries, anomaly descriptions
 
-#### `load_hotspots(db_path, limit=10) -> list[HistoricalHotspot]`
+#### `load_hotspots(db_path, repo_path, limit=10) -> list[dict]`
 
-- Query the database for files that have appeared most frequently in past blast radii
-- Returns up to `limit` `HistoricalHotspot` entries ordered by appearance count descending
+- Query the database for files that have appeared most frequently in past blast radii for `repo_path`
+- Returns up to `limit` dicts ordered by appearance count descending; each dict has keys `"file"` (str) and `"appearances"` (int)
 - Returns an empty list if the database does not exist or the query fails
 
-#### `load_anomaly_patterns(db_path) -> list[str]`
+#### `load_anomaly_patterns(db_path, repo_path, limit=10) -> list[dict]`
 
-- Return a list of anomaly description strings from past runs
+- Return recurring anomaly patterns from past runs for `repo_path` (only patterns seen in at least 2 separate runs)
 - Used to give the anomaly detection prompt (call 2) a sense of what has been flagged before, helping calibrate what is truly unusual for this codebase vs. a recurring known pattern
+- Each dict has keys `"file"` (str), `"description"` (str), and `"run_count"` (int)
 - Returns an empty list on any failure
 
 ---
 
 ## 6. Pipeline Orchestration
 
-The pipeline runs as eight sequential steps inside `cli.py`. Steps 1–6b are deterministic; step 7 is the only network call.
+The pipeline runs as eight sequential steps inside `cli.py`. Steps 1–6b are deterministic; within the core Claude analysis pipeline, step 7 is the only network call (optional external checks — OSV lookups in `pr_impact/security.py` triggered by `--check-osv`, and GitHub API calls — are excluded from this restriction).
 
 ```text
-Pre-run  history.load_hotspots(db_path)
-           → list[HistoricalHotspot]  (passed as hotspots to ai_layer)
-         history.load_anomaly_patterns(db_path)
-           → list[str]  (passed as anomaly_history to ai_layer)
+Pre-run  history.load_hotspots(db_path, repo_path)
+           → list[dict]  keys: "file", "appearances"  (passed as hotspots to ai_layer)
+         history.load_anomaly_patterns(db_path, repo_path)
+           → list[dict]  keys: "file", "description", "run_count"  (passed as anomaly_history to ai_layer)
 
 Step 1  git_analysis.get_changed_files()
           → list[ChangedFile] (changed_symbols empty)
