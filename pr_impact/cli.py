@@ -18,7 +18,8 @@ from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
-from .models import AIAnalysis, ImpactReport, RefsResult
+from .history import get_run_count, load_anomaly_patterns, load_hotspots, save_run
+from .models import AIAnalysis, HistoricalHotspot, ImpactReport, RefsResult
 from .reporter import render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
 from .security import check_dependency_integrity, detect_pattern_signals
 
@@ -214,6 +215,8 @@ def _run_pipeline(
     max_depth: int,
     progress,
     check_osv: bool = False,
+    anomaly_history: list[dict] | None = None,
+    hotspots: list[dict] | None = None,
 ) -> tuple:
     """Execute all pipeline steps with an injected progress object.
 
@@ -310,11 +313,16 @@ def _run_pipeline(
         stderr.print(f"[yellow]Warning:[/yellow] PR metadata lookup failed: {e}")
         metadata = {}
 
-    # Step 7: AI analysis (4 API calls when security signals present)
+    # Step 7: AI analysis (up to 5 API calls when all features active)
     call_count = 4 if pattern_signals else 3
-    progress.update(task, description=f"Running AI analysis ({call_count} API calls)...")
+    progress.update(task, description=f"Running AI analysis ({call_count}+ API calls)...")
     try:
-        ai_analysis = run_ai_analysis(changed_files, blast_radius, repo, pattern_signals or None)
+        ai_analysis = run_ai_analysis(
+            changed_files, blast_radius, repo,
+            pattern_signals or None,
+            anomaly_history=anomaly_history,
+            hotspots=hotspots,
+        )
     except Exception as e:
         stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")
         ai_analysis = AIAnalysis()
@@ -450,6 +458,19 @@ def main() -> None:
     default=None,
     help="Also write agent verdict JSON to this file (implies --verdict)",
 )
+@click.option(
+    "--history-db",
+    "history_db",
+    default=None,
+    help="Path to the history SQLite database (default: <repo>/.primpact/history.db)",
+)
+@click.option(
+    "--no-history",
+    "no_history",
+    is_flag=True,
+    default=False,
+    help="Skip reading from and writing to the history database",
+)
 def analyse(
     repo: str,
     pr_number: int | None,
@@ -463,6 +484,8 @@ def analyse(
     check_osv: bool,
     run_verdict: bool,
     verdict_output: str | None,
+    history_db: str | None,
+    no_history: bool,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
@@ -497,6 +520,20 @@ def analyse(
     else:
         refs = RefsResult(base=base, head=head)
 
+    # Resolve history DB path and load historical context
+    _db_path = history_db or os.path.join(repo, ".primpact", "history.db")
+    anomaly_history: list[dict] | None = None
+    hotspots: list[dict] | None = None
+    if not no_history:
+        run_count = get_run_count(_db_path, repo)
+        if run_count >= 1:
+            hotspots = load_hotspots(_db_path, repo) or None
+            anomaly_history = load_anomaly_patterns(_db_path, repo) or None
+            if hotspots or anomaly_history:
+                stderr.print(
+                    f"[dim]History: {run_count} prior runs — calibrating anomaly detection.[/dim]"
+                )
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -504,7 +541,12 @@ def analyse(
         transient=True,
     ) as progress:
         changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
-            _run_pipeline(repo, repo_obj, refs, max_depth, progress, check_osv=check_osv)
+            _run_pipeline(
+                repo, repo_obj, refs, max_depth, progress,
+                check_osv=check_osv,
+                anomaly_history=anomaly_history,
+                hotspots=hotspots,
+            )
         )
 
     # Build title: from resolved PR or fall back to first commit message / SHA range
@@ -527,10 +569,18 @@ def analyse(
         interface_changes=interface_changes,
         ai_analysis=ai_analysis,
         dependency_issues=dependency_issues,
+        historical_hotspots=[
+            HistoricalHotspot(file=h["file"], appearances=h["appearances"])
+            for h in (hotspots or [])
+        ],
     )
 
     _write_outputs(report, output, json_output, sarif_output)
     render_terminal(report, Console(), output, json_output, sarif_output)
+
+    # Save run to history (fire-and-forget; never affects exit code)
+    if not no_history:
+        save_run(_db_path, report, repo)
 
     # Collect both exit conditions before exiting so neither silently suppresses the other.
     # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),

@@ -31,8 +31,7 @@ primpact:
         --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" \
         --head "$CI_COMMIT_SHA" \
         --output pr_impact_report.md \
-        --json pr_impact_report.json \
-        --fail-on-severity high
+        --json pr_impact_report.json
   after_script:
     # Post the report as a collapsible MR note (upsert: update if already posted)
     - |
@@ -77,4 +76,4 @@ primpact:
       - pr_impact_report.md
       - pr_impact_report.json
     expire_in: 30 days
-  allow_failure: false  # set to true for advisory-only (never blocks the MR)
+  allow_failure: false  # PrImpact is advisory-only; anomalies appear in the report but never block the MR

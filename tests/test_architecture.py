@@ -4,15 +4,16 @@ import ast
 from pathlib import Path
 
 
-def test_pipeline_modules_only_import_models_and_prompts():
+def test_pipeline_modules_do_not_cross_import():
     """No pipeline module may import another pipeline module.
 
-    Only models.py and prompts.py (pure-data modules) are shared across the
-    package. cli.py is the sole orchestrator and is exempt from this rule.
+    Shared modules exempt from this rule: models, prompts (pure data),
+    ast_extractor and history (shared utilities), cli (orchestrator), __init__.
+    All other pipeline modules must only import from that exempt set.
     """
     pkg = Path(__file__).parent.parent / "pr_impact"
-    # Exempt: cli (orchestrator), models/prompts (shared data), __init__
-    exempt = {"__init__", "models", "prompts", "cli"}
+    # Exempt: cli (orchestrator), models/prompts (shared data), ast_extractor/history (shared utilities), __init__
+    exempt = {"__init__", "models", "prompts", "cli", "ast_extractor", "history"}
 
     violations: list[str] = []
     for pyfile in sorted(pkg.rglob("*.py")):
@@ -42,7 +43,7 @@ def test_pipeline_modules_only_import_models_and_prompts():
                     if alias.name.startswith("pr_impact.") and len(alias.name.split(".")) >= 2
                 ]
             for imported_module in imported_modules:
-                if imported_module not in ("models", "prompts"):
+                if imported_module not in ("models", "prompts", "ast_extractor", "history"):
                     violations.append(f"{pyfile.name} imports {imported_module}")
 
     assert violations == [], "Cross-module imports detected:\n" + "\n".join(violations)

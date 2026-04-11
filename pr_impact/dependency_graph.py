@@ -6,6 +6,7 @@ from pathlib import Path
 
 import git
 
+from .ast_extractor import extract_imports as ast_extract_imports
 from .models import BlastRadiusEntry, resolve_language
 
 # --- Import extraction patterns ---
@@ -403,6 +404,24 @@ def _extract_imports(
 ) -> list[str]:
     resolved: list[str] = []
 
+    # --- AST-first path (Python and JS/TS only; others remain regex-based) ---
+    if language in ("python", "javascript", "typescript"):
+        ast_imports = ast_extract_imports(content, language)
+        if ast_imports is not None:
+            for ast_imp in ast_imports:
+                spec = ast_imp.specifier
+                if language == "python":
+                    r = _resolve_python_module(spec, source_file, all_files)
+                    if r:
+                        resolved.append(r)
+                else:
+                    r = _resolve_js_import(spec, source_file, all_files, ts_base_url, ts_paths)
+                    if r:
+                        # Track re-exports as pass-through edges (barrel file support)
+                        resolved.append(r)
+            return list(set(resolved))
+        # Fall through to regex path if AST returned None
+
     if language == "python":
         for m in _PY_IMPORT.finditer(content):
             r = _resolve_python_module(m.group(1), source_file, all_files)
@@ -546,7 +565,11 @@ def get_blast_radius(
 
 
 def get_imported_symbols(file_path: str, imported_from: str) -> list[str]:
-    """Extract the named symbols that file_path imports from imported_from."""
+    """Extract the named symbols that file_path imports from imported_from.
+
+    Uses AST extraction for Python and JS/TS (v0.4); falls back to regex for
+    all languages if AST is unavailable.
+    """
     if not file_path or not imported_from:
         return []
     try:
@@ -555,7 +578,23 @@ def get_imported_symbols(file_path: str, imported_from: str) -> list[str]:
     except Exception:
         return []
 
+    lang = resolve_language(file_path)
     symbols: list[str] = []
+
+    # AST-first for Python and JS/TS — richer and more accurate named-import extraction
+    if lang in ("python", "javascript", "typescript"):
+        ast_imports = ast_extract_imports(content, lang)
+        if ast_imports is not None:
+            # Only collect names from imports that originate from the target module
+            from_stem = Path(imported_from).stem
+            for ast_imp in ast_imports:
+                spec = ast_imp.specifier.lstrip("./")
+                spec_stem = spec.split("/")[-1].split(".")[-1] if spec else ""
+                if spec_stem == from_stem:
+                    symbols.extend(ast_imp.imported_names)
+            return list(set(s for s in symbols if s))
+
+    # Regex fallback (also handles Java, Go, C#, Ruby which have no AST path above)
 
     # Python: from X import a, b, c
     py_from = re.compile(r"^from\s+[\w.]+\s+import\s+(.+)$", re.MULTILINE)

@@ -42,8 +42,7 @@ jobs:
             --pr ${{ github.event.pull_request.number }} \
             --output pr_impact_report.md \
             --json pr_impact_report.json \
-            --sarif pr_impact_report.sarif \
-            --fail-on-severity high
+            --sarif pr_impact_report.sarif
 
       - name: Post report as PR comment
         if: always() && steps.analysis.outcome != 'skipped'

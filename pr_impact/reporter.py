@@ -116,6 +116,22 @@ def render_markdown(report: ImpactReport) -> str:
             lines.append(f"  Location: `{anomaly.location}`")
             lines.append("")
 
+    # Semantic Equivalence
+    risky = [v for v in report.ai_analysis.semantic_verdicts if v.verdict == "risky"]
+    equivalent = [v for v in report.ai_analysis.semantic_verdicts if v.verdict == "equivalent"]
+    if risky or equivalent:
+        lines.append("## Semantic Analysis")
+        if risky:
+            lines.append("### ⚠ Logic Changes (small diff, significant impact)")
+            for v in risky:
+                lines.append(f"- **`{v.symbol}`** in `{v.file}`: {v.reason}")
+            lines.append("")
+        if equivalent:
+            lines.append("### ~ Refactors (semantically equivalent)")
+            for v in equivalent:
+                lines.append(f"- **`{v.symbol}`** in `{v.file}`: {v.reason}")
+            lines.append("")
+
     # Test Gaps
     if report.ai_analysis.test_gaps:
         lines.append("## Test Gaps")
@@ -152,6 +168,19 @@ def render_markdown(report: ImpactReport) -> str:
                 icon = _sev(issue.severity).icon
                 lines.append(f"- {icon} **{issue.package_name}** ({issue.issue_type}): {issue.description}")
             lines.append("")
+
+    # Historical Hotspots
+    if report.historical_hotspots:
+        lines.append("## Historical Hotspots")
+        lines.append(
+            "_Files that have appeared most frequently in blast radii across past analyses._"
+        )
+        lines.append("")
+        lines.append("| File | Appearances |")
+        lines.append("|------|-------------|")
+        for h in report.historical_hotspots:
+            lines.append(f"| `{h.file}` | {h.appearances} |")
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -283,6 +312,24 @@ def render_sarif(report: ImpactReport) -> str:
                 "level": level,
                 "message": {"text": issue.description},
             })
+
+    risky_verdicts = [v for v in report.ai_analysis.semantic_verdicts if v.verdict == "risky"]
+    if risky_verdicts:
+        rules.append({
+            "id": "primpact/semantic-risk",
+            "name": "SemanticRisk",
+            "shortDescription": {"text": "Small diff with disproportionate semantic impact"},
+        })
+        for v in risky_verdicts:
+            loc = _parse_location(v.file)
+            result = {
+                "ruleId": "primpact/semantic-risk",
+                "level": "warning",
+                "message": {"text": f"{v.symbol}: {v.reason}"},
+            }
+            if loc:
+                result["locations"] = [loc]
+            results.append(result)
 
     sarif = {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
@@ -450,6 +497,27 @@ def render_terminal(
             console.print(f"    [cyan dim]{anomaly.location}[/cyan dim]")
             console.print()
 
+    # ── Semantic Analysis ─────────────────────────────────────────────────────
+    risky_verdicts = [v for v in report.ai_analysis.semantic_verdicts if v.verdict == "risky"]
+    equiv_verdicts = [v for v in report.ai_analysis.semantic_verdicts if v.verdict == "equivalent"]
+    if risky_verdicts or equiv_verdicts:
+        console.print(Rule("SEMANTIC ANALYSIS", style="bright_blue"))
+        console.print()
+        if risky_verdicts:
+            console.print("  [bold yellow]⚠ Logic changes (small diff, significant impact)[/bold yellow]")
+            console.print()
+            for v in risky_verdicts:
+                console.print(f"  [yellow]◉[/yellow] [bold]{v.symbol}[/bold]  [cyan dim]{v.file}[/cyan dim]")
+                console.print(f"    [dim]{v.reason}[/dim]")
+            console.print()
+        if equiv_verdicts:
+            console.print("  [bold dim]~ Refactors (semantically equivalent)[/bold dim]")
+            console.print()
+            for v in equiv_verdicts:
+                console.print(f"  [dim]~[/dim] [bold]{v.symbol}[/bold]  [cyan dim]{v.file}[/cyan dim]")
+                console.print(f"    [dim]{v.reason}[/dim]")
+            console.print()
+
     # ── Test Gaps ─────────────────────────────────────────────────────────────
     if report.ai_analysis.test_gaps:
         console.print(Rule("TEST GAPS", style="bright_blue"))
@@ -504,6 +572,27 @@ def render_terminal(
                 )
                 console.print(f"    [dim]{issue.description}[/dim]")
                 console.print()
+
+    # ── Historical Hotspots ───────────────────────────────────────────────────
+    if report.historical_hotspots:
+        console.print(Rule("HISTORICAL HOTSPOTS", style="bright_blue"))
+        console.print(
+            "  [dim]Files most frequently in blast radii across past analyses[/dim]"
+        )
+        console.print()
+        table = Table(
+            box=None,
+            show_header=True,
+            header_style="dim",
+            pad_edge=False,
+            padding=(0, 2),
+        )
+        table.add_column("File", style="cyan", no_wrap=True)
+        table.add_column("Appearances", justify="right", style="dim")
+        for h in report.historical_hotspots:
+            table.add_row(h.file, str(h.appearances))
+        console.print(table)
+        console.print()
 
     # ── Footer ────────────────────────────────────────────────────────────────
     if output or json_output or sarif_output:

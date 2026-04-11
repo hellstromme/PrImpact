@@ -15,6 +15,7 @@ from .models import (
     ChangedFile,
     Decision,
     DependencyIssue,
+    SemanticVerdict,
     SecuritySignal,
     TestGap,
     Verdict,
@@ -24,6 +25,7 @@ from .models import (
 from .prompts import (
     PROMPT_ANOMALY_DETECTION,
     PROMPT_SECURITY_SIGNALS,
+    PROMPT_SEMANTIC_EQUIVALENCE,
     PROMPT_SUMMARY_DECISIONS_ASSUMPTIONS,
     PROMPT_TEST_GAP_ANALYSIS,
     PROMPT_VERDICT,
@@ -216,6 +218,37 @@ def _build_changed_files_before_signatures(changed_files: list[ChangedFile]) -> 
     return "\n\n".join(parts) if parts else "(none)"
 
 
+def _build_signatures_before_after(changed_files: list[ChangedFile]) -> str:
+    """Build a compact before/after signature comparison for semantic equivalence detection."""
+    parts: list[str] = []
+    for f in changed_files:
+        lang = resolve_language(f.path)
+        before_sigs = _extract_signatures(f.content_before, lang) if f.content_before else "(new file)"
+        after_sigs = _extract_signatures(f.content_after, lang) if f.content_after else "(deleted file)"
+        if before_sigs != after_sigs:
+            parts.append(
+                f"### {f.path}\n"
+                f"**Before:**\n{before_sigs}\n\n"
+                f"**After:**\n{after_sigs}"
+            )
+    return "\n\n".join(parts) if parts else "(no signature changes)"
+
+
+def _should_run_semantic_equivalence(changed_files: list[ChangedFile]) -> bool:
+    """Return True if the semantic equivalence call is worth making."""
+    if not changed_files:
+        return False
+    # Run when any file has >20 changed lines or has interface-level changes
+    for f in changed_files:
+        diff_lines = f.diff.count("\n")
+        if diff_lines > 20:
+            return True
+        for sym in f.changed_symbols:
+            if sym.change_type in ("interface_changed", "interface_added", "interface_removed"):
+                return True
+    return False
+
+
 # --- API call ---
 
 
@@ -312,6 +345,8 @@ def run_ai_analysis(
     blast_radius: list[BlastRadiusEntry],
     repo_path: str,
     pattern_signals: list[SecuritySignal] | None = None,
+    anomaly_history: list[dict] | None = None,
+    hotspots: list[dict] | None = None,
 ) -> AIAnalysis:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -354,22 +389,24 @@ def run_ai_analysis(
         if isinstance(a, dict)
     ]
 
-    # Call 2: anomaly detection
+    # Call 2: anomaly detection (with optional historical context)
     before_sigs = _build_changed_files_before_signatures(changed_files)
     try:
         neighbour_sigs = _find_neighbouring_signatures(changed_files, repo_path)
     except Exception as exc:
         print(f"[pr-impact] Neighbour signature collection failed: {exc}", file=sys.stderr)
         neighbour_sigs = "(none)"
-    data2 = _call_api(
-        client,
-        PROMPT_ANOMALY_DETECTION.format(
-            changed_files_diff=diffs_ctx,
-            changed_files_before_signatures=before_sigs,
-            neighbouring_signatures=neighbour_sigs,
-        ),
-        "call2_anomalies",
+
+    historical_ctx = _build_historical_context(anomaly_history, hotspots)
+    anomaly_prompt = PROMPT_ANOMALY_DETECTION.format(
+        changed_files_diff=diffs_ctx,
+        changed_files_before_signatures=before_sigs,
+        neighbouring_signatures=neighbour_sigs,
     )
+    if historical_ctx:
+        anomaly_prompt = anomaly_prompt + f"\n\n{historical_ctx}"
+
+    data2 = _call_api(client, anomaly_prompt, "call2_anomalies")
     result.anomalies = [
         Anomaly(
             description=a.get("description", ""),
@@ -440,7 +477,58 @@ def run_ai_analysis(
             # AI call returned empty or unexpected shape — fall back to raw pattern signals
             result.security_signals = pattern_signals
 
+    # Call 5: semantic equivalence detection (optional — only when diffs are substantial)
+    if _should_run_semantic_equivalence(changed_files):
+        sigs_before_after = _build_signatures_before_after(changed_files)
+        data5 = _call_api(
+            client,
+            PROMPT_SEMANTIC_EQUIVALENCE.format(
+                changed_files_diff=diffs_ctx,
+                signatures_before_after=sigs_before_after,
+            ),
+            "call5_semantic",
+        )
+        # Response may be a list or a dict wrapping a list
+        if isinstance(data5, list):
+            raw_verdicts = data5
+        elif isinstance(data5, dict):
+            raw_verdicts = data5.get("verdicts", data5.get("results", []))
+        else:
+            raw_verdicts = []
+        if isinstance(raw_verdicts, list):
+            result.semantic_verdicts = [
+                SemanticVerdict(
+                    file=v.get("file", ""),
+                    symbol=v.get("symbol", ""),
+                    verdict=v.get("verdict", "normal"),
+                    reason=v.get("reason", ""),
+                )
+                for v in raw_verdicts
+                if isinstance(v, dict) and v.get("verdict") in ("equivalent", "risky")
+            ]
+
     return result
+
+
+def _build_historical_context(
+    anomaly_history: list[dict] | None,
+    hotspots: list[dict] | None,
+) -> str:
+    """Build a historical context section to append to the anomaly detection prompt."""
+    parts: list[str] = []
+    if hotspots:
+        lines = [f"- {h['file']} ({h['appearances']} appearances)" for h in hotspots[:10]]
+        parts.append(
+            "## Historical context for this repo\n"
+            "Files that frequently appear in blast radii (architectural hotspots):\n"
+            + "\n".join(lines)
+        )
+    if anomaly_history:
+        lines = [f"- {a['file']}: {a['description']}" for a in anomaly_history[:10]]
+        parts.append(
+            "Recurring anomaly patterns from past analyses:\n" + "\n".join(lines)
+        )
+    return "\n\n".join(parts)
 
 
 def run_verdict_analysis(

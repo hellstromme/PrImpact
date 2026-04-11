@@ -141,6 +141,42 @@ Existing test files for these modules:
 {test_files}
 """
 
+PROMPT_SEMANTIC_EQUIVALENCE = """\
+You are analysing code changes to classify whether each changed symbol is semantically
+equivalent to what it replaced, or whether it introduces genuinely new behaviour.
+
+You will be given:
+- The diff for each changed file, including before and after signatures
+
+For each changed function or class, assess whether the change is:
+- "equivalent": a refactor, rename, or reformat — the observable behaviour is
+  unchanged (e.g. extract method, rename variable,
+  add type annotations that don't change runtime behaviour)
+- "risky": a small-looking diff that alters branching logic, adds a new code path, changes
+  state transitions, or modifies return values in a non-obvious way
+- "normal": a genuine, straightforward change that fits neither category above
+
+Only flag "equivalent" when you are confident the behaviour is unchanged.
+Only flag "risky" when a small diff has disproportionate semantic impact.
+Leave "normal" changes unlabelled — only return entries for "equivalent" and "risky".
+
+Respond in JSON — an array (may be empty):
+[
+  {{
+    "file": "path/to/file.py",
+    "symbol": "function_or_class_name",
+    "verdict": "equivalent | risky",
+    "reason": "one sentence explaining the classification"
+  }}
+]
+
+Changed files (diff with before/after context):
+{changed_files_diff}
+
+Signatures before and after:
+{signatures_before_after}
+"""
+
 PROMPT_VERDICT = """\
 You are a merge-readiness gate for a pull request being worked on by an AI agent.
 
