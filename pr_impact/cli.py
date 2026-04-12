@@ -160,6 +160,67 @@ def _print_pr_table(prs: list[dict]) -> None:
     stderr.print(table)
 
 
+def _resolve_explicit_pr(
+    owner: str,
+    repo_name: str,
+    pr_number: int,
+    github_token: str | None,
+    fetch_remote: str,
+) -> RefsResult:
+    """Path A: fetch refs for an explicit --pr number from the GitHub API."""
+    try:
+        pr_data = fetch_pr(owner, repo_name, pr_number, github_token)
+    except RuntimeError as e:
+        stderr.print(f"[bold red]Error:[/bold red] {e}")
+        sys.exit(1)
+    return RefsResult(
+        base=pr_data["base"]["sha"],
+        head=pr_data["head"]["sha"],
+        pr_title=_format_pr_title(pr_number, pr_data.get("title")),
+        fetch_pr_number=pr_number,
+        fetch_base_ref=pr_data.get("base", {}).get("ref"),
+        fetch_remote=fetch_remote,
+    )
+
+
+def _resolve_interactive_pr(
+    owner: str,
+    repo_name: str,
+    github_token: str | None,
+    fetch_remote: str,
+) -> RefsResult:
+    """Path D: list open PRs and prompt the user to pick one (interactive terminals only)."""
+    if github_token is None:
+        _warn_no_github_token()
+    try:
+        open_prs = fetch_open_prs(owner, repo_name, github_token)
+    except RuntimeError as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Could not fetch open PRs: {e}. Falling back to HEAD~1 → HEAD.")
+        return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+    if not open_prs:
+        stderr.print("[yellow]No open PRs found — analysing HEAD~1 → HEAD.[/yellow]")
+        return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+    _print_pr_table(open_prs)
+    sys.stderr.flush()
+    pr_numbers = {str(p["number"]) for p in open_prs}
+    chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
+    if chosen not in pr_numbers:
+        stderr.print(f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list.")
+        sys.exit(1)
+    selected = next(p for p in open_prs if str(p["number"]) == chosen)
+    selected_num = selected["number"]
+    return RefsResult(
+        base=selected["base"]["sha"],
+        head=selected["head"]["sha"],
+        pr_title=_format_pr_title(selected_num, selected.get("title")),
+        fetch_pr_number=selected_num,
+        fetch_base_ref=selected.get("base", {}).get("ref"),
+        fetch_remote=fetch_remote,
+    )
+
+
 def _resolve_refs(
     repo_obj: git.Repo,
     pr_number: int | None,
@@ -193,55 +254,148 @@ def _resolve_refs(
     owner, repo_name, fetch_remote = github_remote
 
     if not _interactive:
-        # Path A: explicit --pr with a known remote
-        try:
-            pr_data = fetch_pr(owner, repo_name, pr_number, github_token)
-        except RuntimeError as e:
-            stderr.print(f"[bold red]Error:[/bold red] {e}")
-            sys.exit(1)
-        return RefsResult(
-            base=pr_data["base"]["sha"],
-            head=pr_data["head"]["sha"],
-            pr_title=_format_pr_title(pr_number, pr_data.get("title")),
-            fetch_pr_number=pr_number,
-            fetch_base_ref=pr_data.get("base", {}).get("ref"),
-            fetch_remote=fetch_remote,
-        )
+        return _resolve_explicit_pr(owner, repo_name, pr_number, github_token, fetch_remote)
 
     if _stdin_is_interactive():
-        # Path D: interactive terminal — list open PRs and let the user pick
-        if github_token is None:
-            _warn_no_github_token()
-        try:
-            open_prs = fetch_open_prs(owner, repo_name, github_token)
-        except RuntimeError as e:
-            stderr.print(f"[yellow]Warning:[/yellow] Could not fetch open PRs: {e}. Falling back to HEAD~1 → HEAD.")
-            return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
-
-        if not open_prs:
-            stderr.print("[yellow]No open PRs found — analysing HEAD~1 → HEAD.[/yellow]")
-            return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
-
-        _print_pr_table(open_prs)
-        sys.stderr.flush()
-        pr_numbers = {str(p["number"]) for p in open_prs}
-        chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
-        if chosen not in pr_numbers:
-            stderr.print(f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list.")
-            sys.exit(1)
-        selected = next(p for p in open_prs if str(p["number"]) == chosen)
-        selected_num = selected["number"]
-        return RefsResult(
-            base=selected["base"]["sha"],
-            head=selected["head"]["sha"],
-            pr_title=_format_pr_title(selected_num, selected.get("title")),
-            fetch_pr_number=selected_num,
-            fetch_base_ref=selected.get("base", {}).get("ref"),
-            fetch_remote=fetch_remote,
-        )
+        return _resolve_interactive_pr(owner, repo_name, github_token, fetch_remote)
 
     # Path E: non-interactive (CI / piped) — skip discovery, fall back silently
     return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+
+def _validate_ref_options(
+    pr_number: int | None, base: str | None, head: str | None
+) -> None:
+    """Exit 1 if --pr is combined with --base or --head (mutually exclusive)."""
+    if pr_number is not None and (base is not None or head is not None):
+        stderr.print(
+            "[bold red]Error:[/bold red] --pr cannot be combined with --base or --head. "
+            "When --pr is given, the PR provides both SHAs from GitHub."
+        )
+        sys.exit(1)
+
+
+def _normalize_direct_refs(
+    pr_number: int | None, base: str | None, head: str | None
+) -> tuple[str | None, str | None]:
+    """Apply HEAD / HEAD~1 defaults when explicit SHAs are given without --pr."""
+    if pr_number is None and (base is not None or head is not None):
+        if head is None:
+            head = "HEAD"
+        if base is None:
+            base = f"{head}~1"
+    return base, head
+
+
+def _load_historical_context(
+    db_path: str, repo: str, no_history: bool
+) -> tuple[list[dict] | None, list[dict] | None]:
+    """Load anomaly history and hotspots from the history DB.
+
+    Returns (anomaly_history, hotspots); both None when history is disabled or empty.
+    """
+    if no_history:
+        return None, None
+    run_count = get_run_count(db_path, repo)
+    if run_count < 1:
+        return None, None
+    hotspots = load_hotspots(db_path, repo) or None
+    anomaly_history = load_anomaly_patterns(db_path, repo) or None
+    if hotspots or anomaly_history:
+        stderr.print(f"[dim]History: {run_count} prior runs — calibrating anomaly detection.[/dim]")
+    return anomaly_history, hotspots
+
+
+def _build_pr_title(refs: RefsResult, metadata: dict) -> str:
+    """Pick a display title: PR title from GitHub, first commit line, or SHA range."""
+    if refs.pr_title is not None:
+        return refs.pr_title
+    commits = metadata.get("commits", [])
+    if commits:
+        return commits[0].splitlines()[0]
+    return f"Changes {refs.base[:7]}..{refs.head[:7]}"
+
+
+def _build_report(
+    pr_title: str,
+    refs: RefsResult,
+    changed_files: list,
+    blast_radius: list,
+    interface_changes: list,
+    ai_analysis,
+    dependency_issues: list,
+    hotspots: list[dict] | None,
+) -> ImpactReport:
+    """Package all pipeline results into an ImpactReport."""
+    return ImpactReport(
+        pr_title=pr_title,
+        base_sha=refs.base,
+        head_sha=refs.head,
+        changed_files=changed_files,
+        blast_radius=blast_radius,
+        interface_changes=interface_changes,
+        ai_analysis=ai_analysis,
+        dependency_issues=dependency_issues,
+        historical_hotspots=[
+            HistoricalHotspot(file=h["file"], appearances=h["appearances"])
+            for h in (hotspots or [])
+        ],
+    )
+
+
+def _check_severity_threshold(fail_on_severity: str, anomalies: list) -> bool:
+    """Return True if any anomaly meets or exceeds the threshold; prints a warning if so."""
+    if fail_on_severity == "none":
+        return False
+    threshold = _SEVERITY_ORDER[fail_on_severity]
+    breaching = [a for a in anomalies if _SEVERITY_ORDER.get(a.severity, 0) >= threshold]
+    if breaching:
+        stderr.print(
+            f"[bold red]--fail-on-severity={fail_on_severity}:[/bold red] "
+            f"{len(breaching)} anomaly/anomalies at or above threshold"
+        )
+        return True
+    return False
+
+
+def _run_verdict_if_requested(
+    run_verdict: bool,
+    verdict_output: str | None,
+    ai_analysis,
+    dependency_issues: list,
+) -> tuple:
+    """Run verdict analysis when requested; render and write results.
+
+    Returns (verdict | None, agent_should_continue: bool).
+    """
+    if not run_verdict and verdict_output is None:
+        return None, False
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=Console(stderr=True),
+        transient=True,
+    ) as progress:
+        progress.add_task("Running verdict analysis (1 API call)...", total=None)
+        try:
+            verdict = run_verdict_analysis(ai_analysis, dependency_issues)
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Verdict analysis failed: {e}")
+            return None, False
+
+    render_verdict_terminal(verdict, Console())
+
+    if verdict_output is not None:
+        try:
+            Path(verdict_output).write_text(
+                json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
+            )
+            stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Could not write verdict to {verdict_output!r}: {e}")
+
+    return verdict, verdict.agent_should_continue
 
 
 @click.group()
@@ -323,47 +477,22 @@ def analyse(
     except Exception as e:
         stderr.print(f"[yellow]Warning:[/yellow] Could not load config: {e}")
 
-    # --pr cannot be combined with --base or --head
-    if pr_number is not None and (base is not None or head is not None):
-        stderr.print(
-            "[bold red]Error:[/bold red] --pr cannot be combined with --base or --head. "
-            "When --pr is given, the PR provides both SHAs from GitHub."
-        )
-        sys.exit(1)
+    _validate_ref_options(pr_number, base, head)
+    base, head = _normalize_direct_refs(pr_number, base, head)
 
-    # Direct SHA mode: apply head/base defaults before opening the repo
-    if pr_number is None and (base is not None or head is not None):
-        if head is None:
-            head = "HEAD"
-        if base is None:
-            base = f"{head}~1"
-
-    # Open the repo early — needed for both PR resolution and the pipeline
     try:
         repo_obj = git.Repo(repo)
     except Exception as e:
         stderr.print(f"[bold red]Error:[/bold red] Could not open git repository: {e}")
         sys.exit(1)
 
-    # Resolve refs: GitHub PR lookup or HEAD~1..HEAD fallback
     if pr_number is not None or (base is None and head is None):
         refs = _resolve_refs(repo_obj, pr_number, base, head)
     else:
         refs = RefsResult(base=base, head=head)
 
-    # Resolve history DB path and load historical context
-    _db_path = history_db or os.path.join(repo, ".primpact", "history.db")
-    anomaly_history: list[dict] | None = None
-    hotspots: list[dict] | None = None
-    if not no_history:
-        run_count = get_run_count(_db_path, repo)
-        if run_count >= 1:
-            hotspots = load_hotspots(_db_path, repo) or None
-            anomaly_history = load_anomaly_patterns(_db_path, repo) or None
-            if hotspots or anomaly_history:
-                stderr.print(
-                    f"[dim]History: {run_count} prior runs — calibrating anomaly detection.[/dim]"
-                )
+    db_path = history_db or os.path.join(repo, ".primpact", "history.db")
+    anomaly_history, hotspots = _load_historical_context(db_path, repo, no_history)
 
     with Progress(
         SpinnerColumn(),
@@ -390,85 +519,25 @@ def analyse(
                     stderr.print(exc.message)
             sys.exit(exc.code)
 
-    # Build title: from resolved PR or fall back to first commit message / SHA range
-    if refs.pr_title is not None:
-        pr_title = refs.pr_title
-    else:
-        commits = metadata.get("commits", [])
-        pr_title = (
-            commits[0].splitlines()[0]
-            if commits
-            else f"Changes {refs.base[:7]}..{refs.head[:7]}"
-        )
-
-    report = ImpactReport(
-        pr_title=pr_title,
-        base_sha=refs.base,
-        head_sha=refs.head,
-        changed_files=changed_files,
-        blast_radius=blast_radius,
-        interface_changes=interface_changes,
-        ai_analysis=ai_analysis,
-        dependency_issues=dependency_issues,
-        historical_hotspots=[
-            HistoricalHotspot(file=h["file"], appearances=h["appearances"])
-            for h in (hotspots or [])
-        ],
+    report = _build_report(
+        _build_pr_title(refs, metadata),
+        refs, changed_files, blast_radius, interface_changes,
+        ai_analysis, dependency_issues, hotspots,
     )
-
     _write_outputs(report, output, json_output, sarif_output)
     render_terminal(report, Console(), output, json_output, sarif_output)
 
     # Save run to history (fire-and-forget; never affects exit code)
     if not no_history:
-        save_run(_db_path, report, repo)
+        save_run(db_path, report, repo)
 
     # Collect both exit conditions before exiting so neither silently suppresses the other.
     # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),
     # because exit 2 carries a concrete remediation list for an agent loop.
-    severity_exit = False
-    if fail_on_severity != "none":
-        threshold = _SEVERITY_ORDER[fail_on_severity]
-        breaching = [
-            a for a in report.ai_analysis.anomalies
-            if _SEVERITY_ORDER.get(a.severity, 0) >= threshold
-        ]
-        if breaching:
-            stderr.print(
-                f"[bold red]--fail-on-severity={fail_on_severity}:[/bold red] "
-                f"{len(breaching)} anomaly/anomalies at or above threshold"
-            )
-            severity_exit = True
-
-    verdict_continue = False
-    if run_verdict or verdict_output is not None:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=Console(stderr=True),
-            transient=True,
-        ) as progress:
-            progress.add_task("Running verdict analysis (1 API call)...", total=None)
-            try:
-                verdict = run_verdict_analysis(report.ai_analysis, report.dependency_issues)
-            except Exception as e:
-                stderr.print(f"[yellow]Warning:[/yellow] Verdict analysis failed: {e}")
-                verdict = None
-
-        if verdict is not None:
-            render_verdict_terminal(verdict, Console())
-
-            if verdict_output is not None:
-                try:
-                    Path(verdict_output).write_text(
-                        json.dumps(dataclasses.asdict(verdict), indent=2), encoding="utf-8"
-                    )
-                    stderr.print(f"[dim]Verdict written to[/dim] [cyan]{verdict_output}[/cyan]")
-                except Exception as e:
-                    stderr.print(f"[yellow]Warning:[/yellow] Could not write verdict to {verdict_output!r}: {e}")
-
-            if verdict.agent_should_continue:
-                verdict_continue = True
+    severity_exit = _check_severity_threshold(fail_on_severity, report.ai_analysis.anomalies)
+    _, verdict_continue = _run_verdict_if_requested(
+        run_verdict, verdict_output, report.ai_analysis, report.dependency_issues
+    )
 
     if verdict_continue:
         sys.exit(2)

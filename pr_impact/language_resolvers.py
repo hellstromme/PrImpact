@@ -12,8 +12,26 @@ Called only by dependency_graph.py.
 import json
 import os
 import re
+from dataclasses import dataclass, field
 
 from .ast_extractor import extract_imports as ast_extract_imports
+from .utils import read_file_safe
+
+
+@dataclass
+class ImportResolutionConfig:
+    """Language-specific context for import resolution.
+
+    Assembled once per graph build in build_import_graph() and passed to
+    extract_imports_for_file() for every file in the loop. Fields not relevant
+    to a file's language are silently ignored by the resolver.
+    """
+
+    cs_namespace_map: dict[str, list[str]] | None = None
+    go_module_name: str = ""
+    go_module_root: str = ""
+    ts_base_url: str = ""
+    ts_paths: dict[str, list[str]] | None = field(default_factory=dict)
 
 
 def _posix(path: str) -> str:
@@ -22,12 +40,7 @@ def _posix(path: str) -> str:
 
 
 def read_file(repo_path: str, rel_path: str) -> str:
-    try:
-        full = os.path.join(repo_path, rel_path)
-        with open(full, encoding="utf-8", errors="replace") as fh:
-            return fh.read()
-    except Exception:
-        return ""
+    return read_file_safe(os.path.join(repo_path, rel_path))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -396,16 +409,17 @@ def extract_imports_for_file(
     source_file: str,
     language: str,
     all_files: set[str],
-    cs_namespace_map: dict[str, list[str]] | None = None,
-    go_module_name: str = "",
-    go_module_root: str = "",
-    ts_base_url: str = "",
-    ts_paths: dict[str, list[str]] | None = None,
+    config: ImportResolutionConfig | None = None,
 ) -> list[str]:
     """Return repo-relative paths of files imported by source_file.
 
     Uses AST extraction for Python/JS/TS with a regex fallback for all languages.
+    Language-specific settings (TypeScript aliases, C# namespace map, Go module
+    info) are passed via *config*; defaults to empty config when omitted.
     """
+    if config is None:
+        config = ImportResolutionConfig()
+
     resolved: list[str] = []
 
     # --- AST-first path (Python and JS/TS only; others remain regex-based) ---
@@ -419,7 +433,7 @@ def extract_imports_for_file(
                     if r:
                         resolved.append(r)
                 else:
-                    r = resolve_js_import(spec, source_file, all_files, ts_base_url, ts_paths)
+                    r = resolve_js_import(spec, source_file, all_files, config.ts_base_url, config.ts_paths)
                     if r:
                         # Track re-exports as pass-through edges (barrel file support)
                         resolved.append(r)
@@ -437,20 +451,20 @@ def extract_imports_for_file(
                 resolved.append(r)
     elif language in ("javascript", "typescript"):
         for m in _JS_IMPORT_FROM.finditer(content):
-            r = resolve_js_import(m.group(1), source_file, all_files, ts_base_url, ts_paths)
+            r = resolve_js_import(m.group(1), source_file, all_files, config.ts_base_url, config.ts_paths)
             if r:
                 resolved.append(r)
         for m in _JS_REQUIRE.finditer(content):
-            r = resolve_js_import(m.group(1), source_file, all_files, ts_base_url, ts_paths)
+            r = resolve_js_import(m.group(1), source_file, all_files, config.ts_base_url, config.ts_paths)
             if r:
                 resolved.append(r)
         for m in _JS_PLAIN_IMPORT.finditer(content):
-            r = resolve_js_import(m.group(1), source_file, all_files, ts_base_url, ts_paths)
+            r = resolve_js_import(m.group(1), source_file, all_files, config.ts_base_url, config.ts_paths)
             if r:
                 resolved.append(r)
     elif language == "csharp":
         for m in _CS_USING.finditer(content):
-            resolved.extend(resolve_csharp_import(m.group(1), cs_namespace_map or {}))
+            resolved.extend(resolve_csharp_import(m.group(1), config.cs_namespace_map or {}))
     elif language == "java":
         for m in _JAVA_IMPORT.finditer(content):
             if m.group(2):  # wildcard import (group 2 = '.*')
@@ -466,10 +480,10 @@ def extract_imports_for_file(
                     resolved.append(r)
     elif language == "go":
         for m in _GO_IMPORT_SINGLE.finditer(content):
-            resolved.extend(resolve_go_import(m.group(1), go_module_name, go_module_root, all_files))
+            resolved.extend(resolve_go_import(m.group(1), config.go_module_name, config.go_module_root, all_files))
         for block in _GO_IMPORT_BLOCK.finditer(content):
             for path_m in _GO_IMPORT_PATH.finditer(block.group(1)):
-                resolved.extend(resolve_go_import(path_m.group(1), go_module_name, go_module_root, all_files))
+                resolved.extend(resolve_go_import(path_m.group(1), config.go_module_name, config.go_module_root, all_files))
     elif language == "ruby":
         for m in _RUBY_REQUIRE.finditer(content):
             r = resolve_ruby_require(m.group(1), source_file, all_files)

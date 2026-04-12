@@ -16,6 +16,7 @@ import git
 from .ast_extractor import extract_imports as ast_extract_imports
 from .language_resolvers import (
     _CS_USING,
+    ImportResolutionConfig,
     extract_imports_for_file,
     find_go_module_for_file,
     load_tsconfig_aliases,
@@ -86,10 +87,14 @@ def build_import_graph(repo_path: str, language_filter: list[str]) -> dict[str, 
             go_module_name, go_module_root = find_go_module_for_file(
                 repo_path, rel_path, go_module_cache
             )
-        imports = extract_imports_for_file(
-            content, rel_path, lang, all_files, cs_namespace_map,
-            go_module_name, go_module_root, ts_base_url, ts_paths,
+        cfg = ImportResolutionConfig(
+            cs_namespace_map=cs_namespace_map,
+            go_module_name=go_module_name,
+            go_module_root=go_module_root,
+            ts_base_url=ts_base_url,
+            ts_paths=ts_paths,
         )
+        imports = extract_imports_for_file(content, rel_path, lang, all_files, cfg)
         graph[rel_path] = imports
 
     return graph
