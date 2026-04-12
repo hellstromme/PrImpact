@@ -129,7 +129,9 @@ Respond in JSON:
   "test_gaps": [
     {{
       "behaviour": "description of the untested behaviour in plain English",
-      "location": "file and function"
+      "location": "file and function",
+      "severity": "high|medium|low",
+      "gap_type": "security|functional|branch|other"
     }}
   ]
 }}

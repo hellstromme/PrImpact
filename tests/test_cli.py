@@ -17,9 +17,13 @@ from pr_impact.cli import (
     _check_severity_threshold,
     _format_pr_title,
     _get_github_token,
+    _load_historical_context,
     _normalize_direct_refs,
     _print_banner,
+    _resolve_explicit_pr,
+    _resolve_interactive_pr,
     _resolve_refs,
+    _run_verdict_if_requested,
     _validate_ref_options,
     _warn_no_github_token,
     _write_outputs,
@@ -29,7 +33,7 @@ from pr_impact.config import (
     load_config as _load_config,
     read_toml_config as _read_toml_config,
 )
-from pr_impact.models import AIAnalysis, Anomaly, BlastRadiusEntry, ImpactReport, RefsResult
+from pr_impact.models import AIAnalysis, Anomaly, BlastRadiusEntry, ImpactReport, RefsResult, Verdict
 from tests.helpers import make_file, make_report
 
 _ENV = {"ANTHROPIC_API_KEY": "test-key"}
@@ -1797,3 +1801,123 @@ class TestBuildReport:
         report = _build_report("title", refs, [], [], [], AIAnalysis(), [], None)
         assert report.base_sha == "aaa"
         assert report.head_sha == "bbb"
+
+    def test_all_pipeline_fields_propagate(self):
+        refs = RefsResult(base="abc", head="def")
+        f = make_file("src/foo.py")
+        blast = [BlastRadiusEntry(path="src/bar.py", distance=1, imported_symbols=[], churn_score=None)]
+        ai = AIAnalysis(summary="ok")
+        report = _build_report("title", refs, [f], blast, [], ai, [], None)
+        assert len(report.changed_files) == 1
+        assert len(report.blast_radius) == 1
+        assert report.ai_analysis.summary == "ok"
+
+
+class TestResolveExplicitPr:
+    def test_fetch_pr_runtime_error_exits_1(self):
+        with patch("pr_impact.cli.fetch_pr", side_effect=RuntimeError("not found")):
+            with pytest.raises(SystemExit) as exc:
+                _resolve_explicit_pr("owner", "repo", 42, None, "origin")
+        assert exc.value.code == 1
+
+    def test_successful_fetch_returns_refs_result(self):
+        pr_data = {
+            "base": {"sha": "base_sha", "ref": "main"},
+            "head": {"sha": "head_sha"},
+            "title": "feat: something",
+        }
+        with patch("pr_impact.cli.fetch_pr", return_value=pr_data):
+            result = _resolve_explicit_pr("owner", "repo", 7, "tok", "origin")
+        assert result.base == "base_sha"
+        assert result.head == "head_sha"
+        assert result.fetch_pr_number == 7
+        assert result.fetch_base_ref == "main"
+
+
+class TestResolveInteractivePr:
+    def test_fetch_open_prs_runtime_error_returns_fallback(self):
+        with patch("pr_impact.cli.fetch_open_prs", side_effect=RuntimeError("timeout")):
+            result = _resolve_interactive_pr("owner", "repo", None, "origin")
+        assert result.base == _FALLBACK_BASE
+        assert result.head == _FALLBACK_HEAD
+
+    def test_no_open_prs_returns_fallback(self):
+        with patch("pr_impact.cli.fetch_open_prs", return_value=[]):
+            result = _resolve_interactive_pr("owner", "repo", "tok", "origin")
+        assert result.base == _FALLBACK_BASE
+        assert result.head == _FALLBACK_HEAD
+
+
+class TestLoadHistoricalContext:
+    def test_no_history_flag_returns_none_none(self):
+        anomaly_history, hotspots = _load_historical_context("/db", "/repo", no_history=True)
+        assert anomaly_history is None
+        assert hotspots is None
+
+    def test_run_count_zero_returns_none_none(self):
+        with patch("pr_impact.cli.get_run_count", return_value=0):
+            anomaly_history, hotspots = _load_historical_context("/db", "/repo", no_history=False)
+        assert anomaly_history is None
+        assert hotspots is None
+
+    def test_run_count_positive_loads_context(self):
+        with patch("pr_impact.cli.get_run_count", return_value=3), \
+             patch("pr_impact.cli.load_hotspots", return_value=[{"file": "f.py", "appearances": 2}]), \
+             patch("pr_impact.cli.load_anomaly_patterns", return_value=[{"file": "f.py", "description": "x", "run_count": 2}]):
+            anomaly_history, hotspots = _load_historical_context("/db", "/repo", no_history=False)
+        assert hotspots is not None
+        assert anomaly_history is not None
+
+    def test_empty_history_results_return_none(self):
+        with patch("pr_impact.cli.get_run_count", return_value=5), \
+             patch("pr_impact.cli.load_hotspots", return_value=[]), \
+             patch("pr_impact.cli.load_anomaly_patterns", return_value=[]):
+            anomaly_history, hotspots = _load_historical_context("/db", "/repo", no_history=False)
+        assert hotspots is None
+        assert anomaly_history is None
+
+
+class TestRunVerdictIfRequested:
+    def _clean_verdict(self):
+        return Verdict(status="clean", agent_should_continue=False, rationale="ok", blockers=[])
+
+    def _blocker_verdict(self):
+        return Verdict(status="blocked", agent_should_continue=True, rationale="stop", blockers=[])
+
+    def test_early_return_when_not_requested(self):
+        verdict, should_continue = _run_verdict_if_requested(False, None, AIAnalysis(), [])
+        assert verdict is None
+        assert should_continue is False
+
+    def test_exception_from_analysis_returns_none_false(self):
+        with patch("pr_impact.cli.run_verdict_analysis", side_effect=ValueError("API down")), \
+             patch("pr_impact.cli.render_verdict_terminal"):
+            verdict, should_continue = _run_verdict_if_requested(True, None, AIAnalysis(), [])
+        assert verdict is None
+        assert should_continue is False
+
+    def test_file_write_error_does_not_raise(self, tmp_path):
+        v = self._clean_verdict()
+        with patch("pr_impact.cli.run_verdict_analysis", return_value=v), \
+             patch("pr_impact.cli.render_verdict_terminal"), \
+             patch("pr_impact.cli.Path") as mock_path:
+            mock_path.return_value.write_text.side_effect = PermissionError("denied")
+            verdict, should_continue = _run_verdict_if_requested(True, "v.json", AIAnalysis(), [])
+        assert verdict is v
+        assert should_continue is False  # agent_should_continue is False on clean verdict
+
+    def test_returns_verdict_and_agent_flag(self):
+        v = self._blocker_verdict()
+        with patch("pr_impact.cli.run_verdict_analysis", return_value=v), \
+             patch("pr_impact.cli.render_verdict_terminal"):
+            verdict, should_continue = _run_verdict_if_requested(True, None, AIAnalysis(), [])
+        assert verdict is v
+        assert should_continue is True
+
+    def test_triggered_by_verdict_output_alone(self):
+        v = self._clean_verdict()
+        with patch("pr_impact.cli.run_verdict_analysis", return_value=v), \
+             patch("pr_impact.cli.render_verdict_terminal"), \
+             patch("pr_impact.cli.Path"):
+            verdict, _ = _run_verdict_if_requested(False, "v.json", AIAnalysis(), [])
+        assert verdict is v

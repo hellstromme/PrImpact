@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PrImpact | Security Signals &amp; Anomalies</title>
+<script type='text/javascript' nonce='p+8tMEjOu7OzAygU1scQOg==' src='https://contribution.usercontent.google.com/5FTcR34GMokjYEIDE0wepY0mepH_aHm1GEJgNVoguTbkJCL7jLJWNOQO2sJaF7DeYParJkTD29FLTJuaqf-58__e54en5-Tq6rxbP-QBuhgpJv72Sf9GqA8kZXF_XWX9TTlvBmIdvvZGKicBqoHFviXFD7ZsFDh-L2z656nNr848JDbLC_RSpIHUZ09VyCRoauwq1gLOUvvvTWuKom6CS8on6hy_F9fsubBZO5m4l6P1131zK0BkuHbl1ilA57v1z1Muw-5P73N5tOko-YBgUpdIHvQx6NCiHMjpNe0nq2iTM13DpxBi0GsYBKd2IF-UBRPAwfP7dFtRsIbRrYfNOiulusmbitCfCfS8FgCTdAav7eapI6AsqlOv-6VRDmTLE0DlmC7b-F0O3ulkJb4SCxu8t7XbFgKGajyCW4lrpxOMapPbMCS6vmcRiVzcn739gpGTDZvzKIXLSHD-Y8f77kg9gKAl5S-DRAqIpqXGj5glsKcM9moFltkwsDBm7F9iAsDYBk_t-F1CtrU8lFh09oJ6jQXUW8oPa3SnICoz_55QbjqAMym9Ta09ed3AscAj9KYnsjl26SFEF7L7QUsWj5hCVTfUq4TjbGIRO4KerTfdPyRsVlYuYaeM7fMSO1IbdfN1_UjwfmAgfAvx3DI8uPXU3YCBQ2MDuv_l-2nJZRW8Ce0BVdedDSZ7jfHX-tcHPAlrWWoNvtvgcXQ9I61MEzqQU7Q0ypTFzMPpvM4U7a4U3jDS_qBYH45wJuATLiAyir7_RLjTrQmrsplFQsKC6pyZKP-q48hF7bXAlw'></script><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>.material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+    vertical-align: middle
+    }
+body {
+    font-family: "Inter", sans-serif;
+    background-color: #10141a;
+    color: #dfe2eb
+    }
+.mono {
+    font-family: "JetBrains Mono", monospace
+    }
+.headline {
+    font-family: "Space Grotesk", sans-serif
+    }
+/* Custom scrollbar for terminal feel */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px
+    }
+::-webkit-scrollbar-track {
+    background: #0a0e14
+    }
+::-webkit-scrollbar-thumb {
+    background: #3e4a3d;
+    border-radius: 3px
+    }
+.kinetic-gradient {
+    background: linear-gradient(135deg, #6fdd78 0%, #34a547 100%)
+    }
+.grain {
+    position: relative
+    }
+.grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.02;
+    pointer-events: none;
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuCVZA_uaLGkrCN9f9q-gSwl48nkVvzunFHn3jky1Y3IWjSCFjmLnpHQMt2cwRxY15h2XIUpoeyUu_uwLUZVjkg97KmCY-VbfwLha7_1j5Z3yBtpgaqF5A4pu3GBoqtBAhNRbuKF52vlwOZ0zodOPAxlJx7_MEo6Ecn5PUG_vA6GZ0nWh4n0JifrV0Sw5KsiQTk-9w7kUG_0iUE_NW1wxiAQjp3DnosamhwiTgH26EkyjGo2idWJxcbptZzi9PNLULVASGTBmWKV8_c)
+    }</style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-secondary-fixed-variant": "#5f4100",
+                      "on-tertiary-fixed-variant": "#93000d",
+                      "on-surface": "#dfe2eb",
+                      "error": "#ffb4ab",
+                      "primary-fixed": "#8bfb91",
+                      "on-secondary-container": "#392600",
+                      "surface-container-highest": "#31353c",
+                      "primary-container": "#34a547",
+                      "surface-container-lowest": "#0a0e14",
+                      "error-container": "#93000a",
+                      "secondary": "#fabc45",
+                      "on-error-container": "#ffdad6",
+                      "surface-container": "#1c2026",
+                      "on-primary": "#00390e",
+                      "on-background": "#dfe2eb",
+                      "primary-fixed-dim": "#6fdd78",
+                      "on-tertiary-container": "#5c0005",
+                      "inverse-primary": "#006e23",
+                      "on-secondary": "#422c00",
+                      "on-tertiary-fixed": "#410002",
+                      "secondary-container": "#bd8708",
+                      "surface-container-low": "#181c22",
+                      "surface-tint": "#6fdd78",
+                      "primary": "#6fdd78",
+                      "tertiary-container": "#fe554d",
+                      "secondary-fixed-dim": "#fabc45",
+                      "inverse-on-surface": "#2d3137",
+                      "on-surface-variant": "#becab9",
+                      "on-secondary-fixed": "#271900",
+                      "on-primary-container": "#00320b",
+                      "surface-container-high": "#262a31",
+                      "outline": "#889484",
+                      "tertiary-fixed-dim": "#ffb4ac",
+                      "surface-variant": "#31353c",
+                      "inverse-surface": "#dfe2eb",
+                      "on-tertiary": "#690007",
+                      "on-primary-fixed-variant": "#005319",
+                      "surface": "#10141a",
+                      "surface-bright": "#353940",
+                      "on-error": "#690005",
+                      "secondary-fixed": "#ffdeaa",
+                      "on-primary-fixed": "#002106",
+                      "tertiary": "#ffb4ac",
+                      "background": "#10141a",
+                      "surface-dim": "#10141a",
+                      "tertiary-fixed": "#ffdad6",
+                      "outline-variant": "#3e4a3d"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "fontFamily": {
+                      "headline": ["Space Grotesk"],
+                      "body": ["Inter"],
+                      "label": ["Inter"]
+              }
+            },
+          }
+        }
+      </script>
+</head>
+<body class="bg-background text-on-surface grain overflow-hidden">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 py-3 bg-[#10141a] border-b border-[#3e4a3d]/15 font-[&#39;Space_Grotesk&#39;] tracking-tight">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold text-[#2EA043] font-[&#39;Space_Grotesk&#39;]">PrImpact</span>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-slate-400 font-medium hover:text-slate-200 transition-colors duration-200" href="#">Dashboard</a>
+<a class="text-slate-400 font-medium hover:text-slate-200 transition-colors duration-200" href="#">Impact Trees</a>
+<a class="text-slate-400 font-medium hover:text-slate-200 transition-colors duration-200" href="#">History</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative group">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-primary cursor-pointer transition-colors">notifications</span>
+<div class="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full"></div>
+</div>
+<span class="material-symbols-outlined text-slate-400 hover:text-primary cursor-pointer transition-colors">settings</span>
+<div class="w-8 h-8 rounded bg-surface-container-highest border border-outline-variant flex items-center justify-center overflow-hidden">
+<img alt="User profile settings" data-alt="Stylized minimalist avatar of a software engineer with glasses and a green hoodie on a dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAXK6q2GdMiM3_pEdQ237fQA87LCXy1C_wEMc1ZDDYyncmzAbqPN64EmqIj1CsytzX1eya0Vufmj-D0DRAeyBLcLHZ4SEKQoZPtkytqudTZOPDm2ah1lQek6wLQkAbApUl2KmG0E5Wn3bfbHX6uU14MqlAZmI5UBoabVhKaOCXq-wxfEU7omtgmt1dRM2DM2H0K_MTNo2ZG0fQO8HFYc9KeymFdF0VuJeK5YjkrpLDY_ZpBixf14f2ay8XOnRIKTX6Tfa-QB5Tmx-M"/>
+</div>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col pt-20 bg-[#0a0e14] w-64 border-r border-[#3e4a3d]/15 z-40">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 bg-primary-container/20 rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-primary" data-icon="biotech">biotech</span>
+</div>
+<div>
+<h3 class="text-sm font-bold headline text-on-surface">Impact Agent</h3>
+<p class="text-[10px] text-slate-500 uppercase tracking-widest">Analysis v2.4.1</p>
+</div>
+</div>
+<button class="w-full kinetic-gradient text-on-primary-fixed py-2 rounded text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                New Analysis
+            </button>
+</div>
+<nav class="flex-1 px-4 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-[#181c22] rounded transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Summary</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-[#181c22] rounded transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="hub">hub</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Blast Radius</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-[#2EA043] font-bold bg-[#181c22] border-r-2 border-[#2EA043] rounded transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="security">security</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Security</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-[#181c22] rounded transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Dependencies</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-[#181c22] rounded transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="biotech">biotech</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Test Gaps</span>
+</a>
+</nav>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 pt-20 h-screen flex flex-col">
+<!-- Header & Filters Area -->
+<div class="px-8 py-6 flex flex-col gap-6">
+<div class="flex justify-between items-end">
+<div>
+<h1 class="text-3xl font-bold headline text-on-surface tracking-tight mb-1">Security Signals &amp; Anomalies</h1>
+<p class="text-slate-500 text-sm max-w-2xl">Heuristic-based scanning of code changes to identify potential supply chain risks, credential leaks, and suspicious execution patterns.</p>
+</div>
+<div class="flex gap-4">
+<div class="bg-surface-container px-3 py-2 rounded border border-outline-variant flex items-center gap-3">
+<span class="text-[10px] uppercase font-bold text-slate-500">Scan Health</span>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-xs font-bold text-primary">Active</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Filter Bar -->
+<div class="flex items-center justify-between bg-surface-container-low p-2 rounded border border-outline-variant/30">
+<div class="flex items-center gap-2">
+<div class="flex items-center gap-1 bg-surface-container-high px-3 py-1.5 rounded text-xs font-medium text-slate-300 border border-outline-variant/20">
+<span class="material-symbols-outlined text-sm" data-icon="filter_list">filter_list</span>
+<span>Severity: All</span>
+</div>
+<div class="flex items-center gap-1 bg-surface-container-high px-3 py-1.5 rounded text-xs font-medium text-slate-300 border border-outline-variant/20">
+<span class="material-symbols-outlined text-sm" data-icon="category">category</span>
+<span>Type: All Signals</span>
+</div>
+<div class="h-6 w-px bg-outline-variant/30 mx-2"></div>
+<span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest px-2">6 Anomalies Detected</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">search</span>
+<input class="bg-surface-container-lowest border-none text-xs rounded pl-9 pr-4 py-2 w-64 focus:ring-1 focus:ring-primary text-on-surface placeholder:text-slate-600" placeholder="Search signals or files..." type="text"/>
+</div>
+</div>
+</div>
+</div>
+<!-- Content Grid (Split View Inspired) -->
+<div class="flex-1 overflow-hidden flex px-8 pb-8 gap-6">
+<!-- List View (Left Column) -->
+<div class="w-[450px] flex flex-col gap-3 overflow-y-auto pr-2">
+<!-- Entry 1: High Severity -->
+<div class="bg-surface-container-high border-l-4 border-tertiary p-4 cursor-pointer hover:bg-surface-bright transition-all group">
+<div class="flex justify-between items-start mb-2">
+<span class="px-2 py-0.5 bg-tertiary-container/20 text-tertiary text-[10px] font-bold uppercase tracking-wider rounded border border-tertiary/30">High Severity</span>
+<span class="mono text-[10px] text-slate-500">SEC-9021</span>
+</div>
+<h4 class="font-bold text-sm mb-1 group-hover:text-primary transition-colors">Hardcoded API Credential</h4>
+<p class="mono text-[11px] text-slate-400 truncate">src/auth/providers/aws_client.py:142</p>
+<div class="mt-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-slate-500" data-icon="history">history</span>
+<span class="text-[10px] text-slate-500">Added 4h ago by @jenkins-bot</span>
+</div>
+</div>
+<!-- Entry 2: Medium Severity -->
+<div class="bg-surface-container-low border-l-4 border-secondary p-4 cursor-pointer hover:bg-surface-bright transition-all group">
+<div class="flex justify-between items-start mb-2">
+<span class="px-2 py-0.5 bg-secondary-container/20 text-secondary text-[10px] font-bold uppercase tracking-wider rounded border border-secondary/30">Medium Severity</span>
+<span class="mono text-[10px] text-slate-500">ANM-442</span>
+</div>
+<h4 class="font-bold text-sm mb-1 group-hover:text-primary transition-colors">Suspicious Network Call</h4>
+<p class="mono text-[11px] text-slate-400 truncate">scripts/install_deps.sh:22</p>
+<div class="mt-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-slate-500" data-icon="bolt">bolt</span>
+<span class="text-[10px] text-slate-500">External Domain Request</span>
+</div>
+</div>
+<!-- Entry 3: Low Severity -->
+<div class="bg-surface-container-low border-l-4 border-primary p-4 cursor-pointer hover:bg-surface-bright transition-all group">
+<div class="flex justify-between items-start mb-2">
+<span class="px-2 py-0.5 bg-primary-container/20 text-primary text-[10px] font-bold uppercase tracking-wider rounded border border-primary/30">Low Severity</span>
+<span class="mono text-[10px] text-slate-500">SEC-105</span>
+</div>
+<h4 class="font-bold text-sm mb-1 group-hover:text-primary transition-colors">Unsafe Dynamic Execution</h4>
+<p class="mono text-[11px] text-slate-400 truncate">lib/utils/parsers.ts:89</p>
+<div class="mt-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-slate-500" data-icon="code">code</span>
+<span class="text-[10px] text-slate-500">eval() detected</span>
+</div>
+</div>
+<!-- Entry 4: Medium Severity -->
+<div class="bg-surface-container-low border-l-4 border-secondary p-4 cursor-pointer hover:bg-surface-bright transition-all group">
+<div class="flex justify-between items-start mb-2">
+<span class="px-2 py-0.5 bg-secondary-container/20 text-secondary text-[10px] font-bold uppercase tracking-wider rounded border border-secondary/30">Medium Severity</span>
+<span class="mono text-[10px] text-slate-500">ANM-501</span>
+</div>
+<h4 class="font-bold text-sm mb-1 group-hover:text-primary transition-colors">Abnormal Dependency Shift</h4>
+<p class="mono text-[11px] text-slate-400 truncate">package-lock.json:1052</p>
+<div class="mt-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-slate-500" data-icon="swap_horiz">swap_horiz</span>
+<span class="text-[10px] text-slate-500">Version jump &gt; 5.0.0</span>
+</div>
+</div>
+</div>
+<!-- Detail View (Right Column) -->
+<div class="flex-1 bg-surface-container-low border border-outline-variant/30 rounded-lg overflow-hidden flex flex-col">
+<!-- Detail Header -->
+<div class="bg-surface-container p-6 border-b border-outline-variant/30">
+<div class="flex justify-between items-center mb-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-tertiary bg-tertiary-container/10 p-2 rounded" data-icon="gpp_maybe">gpp_maybe</span>
+<div>
+<h2 class="headline text-xl font-bold">Hardcoded API Credential</h2>
+<p class="mono text-xs text-slate-400">Signal Identifier: SEC-9021-XPRT</p>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="bg-surface-container-highest px-4 py-2 rounded text-xs font-bold hover:bg-surface-bright transition-all border border-outline-variant/50">Mute Signal</button>
+<button class="bg-primary-container text-on-primary-container px-4 py-2 rounded text-xs font-bold hover:opacity-90 transition-all">Assign Reviewer</button>
+</div>
+</div>
+<div class="flex gap-6">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1">Impact Level</span>
+<span class="text-sm font-semibold text-tertiary">Critical System Risk</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1">Detection Origin</span>
+<span class="text-sm font-semibold">Heuristic: SecretScan-V3</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1">False Positive Rate</span>
+<span class="text-sm font-semibold text-primary">0.02% (Extremely Low)</span>
+</div>
+</div>
+</div>
+<!-- Detail Content -->
+<div class="flex-1 overflow-y-auto p-6 space-y-8">
+<!-- Evidence Section -->
+<section>
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="terminal">terminal</span>
+                            Code Evidence
+                        </h3>
+<div class="bg-surface-container-lowest p-4 rounded border border-outline-variant/20 mono text-xs leading-relaxed">
+<div class="flex gap-4 opacity-50">
+<span>140</span>
+<span># Initialize Client</span>
+</div>
+<div class="flex gap-4 opacity-50">
+<span>141</span>
+<span>client = boto3.client('s3')</span>
+</div>
+<div class="flex gap-4 bg-tertiary-container/10 border-l-2 border-tertiary -mx-4 px-4 py-0.5">
+<span class="text-tertiary">142</span>
+<span class="text-on-surface">AWS_SECRET_KEY = "AKIA-88XJ-KL-PROD-9001" <span class="bg-tertiary text-on-tertiary px-1 text-[10px] font-bold rounded ml-2">Potential Leak</span></span>
+</div>
+<div class="flex gap-4 opacity-50">
+<span>143</span>
+<span>client.connect(key=AWS_SECRET_KEY)</span>
+</div>
+</div>
+</section>
+<!-- Why it was flagged -->
+<section class="grid grid-cols-2 gap-8">
+<div>
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-3">Analysis Reasoning</h3>
+<div class="text-sm text-slate-300 space-y-3 leading-relaxed">
+<p>Our scanner detected a string pattern matching the <span class="text-primary font-medium">AWS Access Key ID</span> specification within a non-environment variable assignment.</p>
+<p>Static strings in source code are vulnerable to repository leaks and bypass corporate credential rotation policies.</p>
+</div>
+</div>
+<div>
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-3">Suggested Action</h3>
+<div class="bg-surface-container-highest/40 p-4 border border-primary/20 rounded">
+<ul class="text-sm text-slate-300 space-y-2">
+<li class="flex gap-2">
+<span class="text-primary font-bold">1.</span>
+<span>Move the literal to <code class="mono text-xs bg-surface-container-lowest px-1 rounded text-primary">AWS_VAULT</code>.</span>
+</li>
+<li class="flex gap-2">
+<span class="text-primary font-bold">2.</span>
+<span>Rotate the leaked key immediately in AWS Console.</span>
+</li>
+<li class="flex gap-2">
+<span class="text-primary font-bold">3.</span>
+<span>Purge Git history of commit SHA <code class="mono text-xs text-secondary">8f12a3d</code>.</span>
+</li>
+</ul>
+</div>
+</div>
+</section>
+<!-- Human Review Required -->
+<section class="bg-surface-container p-4 border border-outline-variant/30 rounded flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full border-2 border-dashed border-outline-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-slate-500" data-icon="person_search">person_search</span>
+</div>
+<div>
+<p class="text-sm font-bold">Human Review Required</p>
+<p class="text-xs text-slate-500">Security Lead must sign off on this resolution path.</p>
+</div>
+</div>
+<button class="bg-surface-bright text-xs font-bold px-4 py-2 rounded hover:text-primary transition-colors">Request Approval</button>
+</section>
+</div>
+</div>
+</div>
+</main>
+<!-- Visual Polish: Status Floating Element -->
+<div class="fixed bottom-6 right-6 z-50">
+<div class="bg-surface-container px-4 py-3 rounded border border-outline-variant shadow-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+<div class="flex -space-x-2">
+<img alt="Reviewer 1" class="w-6 h-6 rounded-full border border-surface bg-surface-container-high" data-alt="Female developer profile with brown hair and serious expression in small circular icon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCdBIGtF4UDbOZLbEUD2KEnrqmugiFvu9keR1qE7sWoFAThN2rq-aKWYvBzgO1YtjmMUe63-tg0gU7JGC_HvJnItzLE4zslyJlHTZWfhfUbf-OQ2L7lBYVePtFgxetfunCvyvRiaB-MuQpHBXyHESqOXUhta0ddpeQw8Ku0PvxjuL1l0vE0PKhPl4ZHGe50kzUMKfRHqw3XD3qWxhT4tsJPbqZ9krDcwrlKEECYGgPtxSqQWaTgH0-Olj_LjQRE-jTkRcEDvWwlp1U"/>
+<img alt="Reviewer 2" class="w-6 h-6 rounded-full border border-surface bg-surface-container-high" data-alt="Male developer profile with glasses and a blue shirt in small circular icon" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAt-5udvOCIQDeNCc_GqOXXKbktF8gpm2dfpm-Z-Aa7HZGOnljvUV0JqUQyKnstOrPIQaCO5Ed-MyKy0oqSriBVoeqcI6dChsEE97hEnN7F8SIQ1hk7JKVfsnK-I4fI7pHWpH2KebekorlPTaIAb2d19DraXvNvsMB_k5crXsjHCPAp8f7zInicpdE9C5NjlY5PkPO6VOC4f8fp63cdG-yceFDRwA-qqmwb6w6pIDOcTi12U59rzq4A7bxG4kMojio3iy6-IF0H8D8"/>
+<div class="w-6 h-6 rounded-full border border-surface bg-surface-container-highest flex items-center justify-center text-[8px] font-bold">+2</div>
+</div>
+<div class="h-6 w-px bg-outline-variant"></div>
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Current Reviewers</span>
+<span class="text-xs font-semibold text-primary">Live Session Active</span>
+</div>
+</div>
+</div>
+</body></html>

@@ -725,14 +725,20 @@ def test_sarif_low_anomaly_maps_to_note():
     assert parsed["runs"][0]["results"][0]["level"] == "note"
 
 
-def test_sarif_test_gap_maps_to_note():
+def test_sarif_test_gap_level_maps_from_severity():
     report = make_report(
-        ai_analysis=AIAnalysis(test_gaps=[TestGap(behaviour="missing branch", location="src/thing.py")])
+        ai_analysis=AIAnalysis(test_gaps=[TestGap(behaviour="missing branch", location="src/thing.py", severity="low")])
     )
     parsed = json.loads(render_sarif(report))
     result = parsed["runs"][0]["results"][0]
     assert result["level"] == "note"
     assert result["ruleId"] == "primpact/test-gap"
+
+    report_high = make_report(
+        ai_analysis=AIAnalysis(test_gaps=[TestGap(behaviour="critical path untested", location="src/thing.py", severity="high")])
+    )
+    parsed_high = json.loads(render_sarif(report_high))
+    assert parsed_high["runs"][0]["results"][0]["level"] == "error"
 
 
 def test_sarif_anomaly_location_in_physical_location():

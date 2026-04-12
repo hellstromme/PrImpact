@@ -156,6 +156,8 @@ def run_ai_analysis(
         TestGap(
             behaviour=t.get("behaviour", ""),
             location=t.get("location", ""),
+            severity=t.get("severity", "medium"),
+            gap_type=t.get("gap_type", ""),
         )
         for t in data3.get("test_gaps", [])
         if isinstance(t, dict)

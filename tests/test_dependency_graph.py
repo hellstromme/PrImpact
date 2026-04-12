@@ -303,6 +303,39 @@ def test_csharp_empty_map_returns_empty():
 
 
 # ---------------------------------------------------------------------------
+# ImportResolutionConfig — dataclass defaults and field overrides
+# ---------------------------------------------------------------------------
+
+
+def test_import_resolution_config_defaults():
+    cfg = ImportResolutionConfig()
+    assert cfg.cs_namespace_map is None
+    assert cfg.go_module_name == ""
+    assert cfg.go_module_root == ""
+    assert cfg.ts_base_url == ""
+    assert cfg.ts_paths == {}
+
+
+def test_import_resolution_config_field_override():
+    cfg = ImportResolutionConfig(go_module_name="github.com/foo/bar", ts_base_url="/src")
+    assert cfg.go_module_name == "github.com/foo/bar"
+    assert cfg.ts_base_url == "/src"
+    # Unset fields retain defaults
+    assert cfg.cs_namespace_map is None
+    assert cfg.go_module_root == ""
+
+
+def test_extract_imports_with_none_config_creates_default():
+    """Passing config=None should behave identically to passing ImportResolutionConfig()."""
+    content = "import { foo } from './utils';\n"
+    all_files = {"src/utils.ts"}
+    result_none = _extract_imports(content, "src/app.ts", "typescript", all_files, None)
+    result_default = _extract_imports(content, "src/app.ts", "typescript", all_files, ImportResolutionConfig())
+    assert result_none == result_default
+    assert "src/utils.ts" in result_none
+
+
+# ---------------------------------------------------------------------------
 # _extract_imports: JS/TS and C# branches (Python covered by blast-radius tests)
 # ---------------------------------------------------------------------------
 

@@ -89,6 +89,8 @@ class Anomaly:
 class TestGap:
     behaviour: str  # The untested behaviour, in plain English
     location: str  # File and function
+    severity: Severity = "medium"
+    gap_type: str = ""  # "security" | "functional" | "branch" | "other"
 
 
 @dataclass
@@ -114,6 +116,7 @@ class DependencyIssue:
     issue_type: str   # "typosquat" | "version_change" | "vulnerability"
     description: str
     severity: Severity
+    license: str | None = None
 
 
 @dataclass

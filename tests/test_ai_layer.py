@@ -1817,3 +1817,32 @@ def test_run_verdict_always_uses_fixed_model(monkeypatch):
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         run_verdict_analysis(make_report().ai_analysis, [])
     assert client.messages.create.call_args[1]["model"] == MODEL
+
+
+# ---------------------------------------------------------------------------
+# ai_layer.py: module-level sys import — error messages reach stderr
+# ---------------------------------------------------------------------------
+
+
+def test_neighbour_sig_failure_warning_printed_to_stderr(monkeypatch, tmp_path, capsys):
+    """When find_neighbouring_signatures raises, warning is printed to stderr via sys.stderr."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client),          patch("pr_impact.ai_layer.find_neighbouring_signatures", side_effect=OSError("disk full")):
+        run_ai_analysis([make_file()], [], str(tmp_path))
+    assert "Neighbour signature collection failed" in capsys.readouterr().err
+
+
+def test_test_file_collection_failure_warning_printed_to_stderr(monkeypatch, tmp_path, capsys):
+    """When find_test_files raises, warning is printed to stderr via sys.stderr."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client),          patch("pr_impact.ai_layer.find_test_files", side_effect=OSError("permission denied")):
+        run_ai_analysis([make_file()], [], str(tmp_path))
+    assert "Test file collection failed" in capsys.readouterr().err

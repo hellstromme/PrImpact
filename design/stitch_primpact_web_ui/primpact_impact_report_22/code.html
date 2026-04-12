@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PrImpact | Impact Report #22</title>
+<script type='text/javascript' nonce='D+DXsYfTh9ZEM84OKewS5A==' src='https://contribution.usercontent.google.com/rfr_YhEkmDGYrjWsSRLGfpsxbXS9FZWCg_nDLCKx-8XrfLaVrGPNjgEyTLNjXuJLFYeHlzpzSMgIoM2bln8xSh1OCoqXSu5k4Pws7_9Pc0ffVQxsboXoEfdryxFnnXJdd_OUxCjb9iUDIIKAzDLIeMYQjMjHrMkBjxl1qH4p4iRtLhCUsfB6y7rYPFderkeTGPKrQelhcooBw_hBDVItEXqfFJNv5ppzaiB7eEBPsjyx3qep8OcMHuEVjA5OckSN4TcNA5nSB8cPgHNzLWtykgd7HvPQKMppGg7DIAVAAxSyxBSBNgetvBoVks_OzZQWgQjN8yfU3gpZNDZDs0VXEPqujls51-qbPSkvllgxBaU2kxRsToHmSA85gAq5RV9r1ehipMIvnm7L5JXMWZcsWrGfp1xumXn2fYeRRwre8HaHF0WNogQ20IOUNzp27RSW8w9KfByV92GermHeG1dYtI_Hy2jq7qPxpp5Ytf74Xu0eytaggX6vuVnenqivT-nGC0LuvunrrN1INbVVw6Bv3XEwDQjj4Tz3n0YEt4Y6uIn17DS5W1KxNSJOsl7EplYEYMpFKXJ2JSN-t4J2DA_M0fu2v8eBwmjGU_3RdvFfbjozzvYJlg77nj-6yZg45FPkrJ2ikFrEabs_kkfBqbmRRJJn3-gZCIrxBQiSr1sSXQpKrnQ2Yh4fBh8sM82RH7DSYyjohNkw6pI6_GPwlweCKWi-aryzC_Kjjf0fN1L7s_m0daIoKKtj9dNiXLO5HU-ureKkhF7hwmSdqpKIV0Z35UybGhwGq4y1NQPgBQ'></script><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>.material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+    vertical-align: middle
+    }
+body {
+    font-family: "Inter", sans-serif;
+    background-color: #10141a;
+    color: #dfe2eb;
+    -webkit-font-smoothing: antialiased
+    }
+.mono {
+    font-family: "JetBrains Mono", monospace
+    }
+.headline {
+    font-family: "Space Grotesk", sans-serif
+    }
+/* Noise texture simulation */
+.bg-noise {
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuBECEgl8kj3EBXJyO_xZGOStat_A8zJDjk6aZqjcBIC-0ZGTQMpdK6MOlCYo9PoUBGH39TyPC2tTpBfAY4HQ-KDv-vuDHHeC5NZ6T5AbrdH5gQwWxTmuZAaMuY2POSs1XztdJAuej6OgCVtqsC5V12Mi1lXsQwQWnYlYZCJJ38uSnlSqOuhAt2-9HnPMaM55MsxtiJv05kepL8OHVqAbNW63031jZabWOFIaVomatWtwT3iFfVzp69lCwT6Z1N71OIfPjARppkpL9Q);
+    opacity: 0.02;
+    pointer-events: none
+    }</style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-fixed-variant": "#5f4100",
+                        "on-tertiary-fixed-variant": "#93000d",
+                        "on-surface": "#dfe2eb",
+                        "error": "#ffb4ab",
+                        "primary-fixed": "#8bfb91",
+                        "on-secondary-container": "#392600",
+                        "surface-container-highest": "#31353c",
+                        "primary-container": "#34a547",
+                        "surface-container-lowest": "#0a0e14",
+                        "error-container": "#93000a",
+                        "secondary": "#fabc45",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1c2026",
+                        "on-primary": "#00390e",
+                        "on-background": "#dfe2eb",
+                        "primary-fixed-dim": "#6fdd78",
+                        "on-tertiary-container": "#5c0005",
+                        "inverse-primary": "#006e23",
+                        "on-secondary": "#422c00",
+                        "on-tertiary-fixed": "#410002",
+                        "secondary-container": "#bd8708",
+                        "surface-container-low": "#181c22",
+                        "surface-tint": "#6fdd78",
+                        "primary": "#6fdd78",
+                        "tertiary-container": "#fe554d",
+                        "secondary-fixed-dim": "#fabc45",
+                        "inverse-on-surface": "#2d3137",
+                        "on-surface-variant": "#becab9",
+                        "on-secondary-fixed": "#271900",
+                        "on-primary-container": "#00320b",
+                        "surface-container-high": "#262a31",
+                        "outline": "#889484",
+                        "tertiary-fixed-dim": "#ffb4ac",
+                        "surface-variant": "#31353c",
+                        "inverse-surface": "#dfe2eb",
+                        "on-tertiary": "#690007",
+                        "on-primary-fixed-variant": "#005319",
+                        "surface": "#10141a",
+                        "surface-bright": "#353940",
+                        "on-error": "#690005",
+                        "secondary-fixed": "#ffdeaa",
+                        "on-primary-fixed": "#002106",
+                        "tertiary": "#ffb4ac",
+                        "background": "#10141a",
+                        "surface-dim": "#10141a",
+                        "tertiary-fixed": "#ffdad6",
+                        "outline-variant": "#3e4a3d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            }
+        }
+    </script>
+</head>
+<body class="bg-surface text-on-surface overflow-x-hidden">
+<div class="fixed inset-0 bg-noise z-[-1]"></div>
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 py-3 bg-[#10141a] dark:bg-[#10141a] border-b border-[#3e4a3d]/15 font-[&#39;Space_Grotesk&#39;] tracking-tight">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold text-[#2EA043] font-[&#39;Space_Grotesk&#39;]">PrImpact</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-slate-400 font-medium hover:text-slate-200 hover:bg-[#181c22] transition-colors duration-200" href="#">Dashboard</a>
+<a class="text-[#2EA043] border-b-2 border-[#2EA043] pb-1" href="#">Impact Trees</a>
+<a class="text-slate-400 font-medium hover:text-slate-200 hover:bg-[#181c22] transition-colors duration-200" href="#">History</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-slate-400 hover:text-primary transition-all">notifications</button>
+<button class="material-symbols-outlined text-slate-400 hover:text-primary transition-all">settings</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest border border-outline-variant flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="close-up portrait of a professional software engineer in a dark office setting with blue rim lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBTNP5ITgI_9eHmiJclpa7AY8I7vRFK-hdEnTnbAemKqpfblHVD8y8VMuNs9IFrE8VazP38sPDLNJRS54vXCFV_LmxIjNAiVnXnGCUodktJBTOCWC-I7CGPZnRvzA-XLxAVgS1oRMM2xYwUiutyvmf08Q-jAuPz5E6wv6Esr9tdIa3cQVqdOjXeDOhY92KMjhoGALUyLU7QdL3nnLJx6BMCJqDoA5VPqNZa4Eo8MyPtjjSMlF-JDuA6PDc2sFaUNb6-iY0aL1mMLtg"/>
+</div>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col pt-20 bg-[#0a0e14] dark:bg-[#0a0e14] h-screen w-64 border-r border-outline-variant/10 z-40 hidden md:flex">
+<div class="px-6 py-4 flex flex-col gap-1 mb-6">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-primary/10 rounded flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: &#39;FILL&#39; 1;">smart_toy</span>
+</div>
+<div>
+<p class="text-on-surface font-bold text-sm tracking-wide">Impact Agent</p>
+<p class="text-slate-500 text-[10px] mono uppercase">Analysis v2.4.1</p>
+</div>
+</div>
+</div>
+<nav class="flex-1 flex flex-col px-3 gap-1">
+<a class="flex items-center gap-3 px-3 py-2 text-[#2EA043] font-bold bg-[#181c22] border-r-2 border-[#2EA043] hover:bg-[#181c22] transition-all scale-102 hover:translate-x-1 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Summary</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-300 hover:bg-[#181c22] transition-all scale-102 hover:translate-x-1 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="hub">hub</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Blast Radius</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-300 hover:bg-[#181c22] transition-all scale-102 hover:translate-x-1 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="security">security</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Security</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-300 hover:bg-[#181c22] transition-all scale-102 hover:translate-x-1 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Dependencies</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-300 hover:bg-[#181c22] transition-all scale-102 hover:translate-x-1 duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="biotech">biotech</span>
+<span class="font-[&#39;Inter&#39;] text-sm tracking-wide">Test Gaps</span>
+</a>
+</nav>
+<div class="p-6 mt-auto">
+<button class="w-full bg-gradient-to-r from-primary to-primary-container text-on-primary-fixed font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-all active:opacity-80 active:scale-95">
+<span class="material-symbols-outlined text-sm">add</span>
+                New Analysis
+            </button>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-0 md:ml-64 pt-20 pb-12 px-6 lg:px-12">
+<!-- Hero Header -->
+<div class="mb-10 animate-fade-in">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<span class="px-2 py-0.5 bg-surface-container-high text-primary border border-primary/20 mono text-xs font-medium rounded">PR #22</span>
+<span class="text-slate-500 mono text-xs tracking-widest">COMMIT: a7f82b1...d4e5f6g</span>
+</div>
+<h1 class="headline text-4xl font-extrabold text-on-surface mb-2 tracking-tight">Refactor Data Persistence Layer</h1>
+<div class="flex items-center gap-4 text-slate-400 text-sm">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">person</span>
+<span>dev_ops_alpha</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">calendar_today</span>
+<span>Oct 24, 2023 • 14:22 UTC</span>
+</div>
+</div>
+</div>
+<!-- Agent Verdict Banner -->
+<div class="bg-primary/10 border border-primary/30 p-4 rounded-lg flex items-center gap-6 min-w-[320px]">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-primary tracking-[0.2em] uppercase mb-1">Agent Verdict</span>
+<span class="headline text-2xl font-black text-primary leading-none">CLEAN</span>
+</div>
+<div class="h-10 w-px bg-primary/20"></div>
+<div class="flex flex-col">
+<span class="text-[10px] font-medium text-slate-400 tracking-wider mb-1">Confidence Score</span>
+<span class="headline text-2xl font-bold text-on-surface leading-none">98.4%</span>
+</div>
+<span class="material-symbols-outlined text-primary text-4xl ml-auto" style="font-variation-settings: &#39;FILL&#39; 1;">check_circle</span>
+</div>
+</div>
+</div>
+<!-- Summary & Top Stats Bento -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10">
+<!-- Prose Summary -->
+<div class="lg:col-span-8 bg-surface-container-low p-8 rounded-xl border border-outline-variant/10 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-32 h-32 bg-primary/5 blur-3xl rounded-full"></div>
+<h3 class="headline text-lg font-bold mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">subject</span>
+                    Executive Summary
+                </h3>
+<p class="text-on-surface/80 leading-relaxed max-w-3xl">
+                    PR #22 migrates the legacy <code class="mono text-primary bg-primary/10 px-1 rounded">StorageProvider</code> to the new asynchronous <code class="mono text-primary bg-primary/10 px-1 rounded">PersistentStore</code> interface. The change affects internal data handling but maintains 100% backward compatibility for downstream modules. Impact is concentrated within the <code class="mono text-slate-300">/core/storage</code> directory with minimal external side effects.
+                </p>
+<div class="mt-6 flex flex-wrap gap-4">
+<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-container border border-outline-variant/20 rounded-lg">
+<span class="material-symbols-outlined text-primary text-sm">history</span>
+<span class="text-xs font-medium">No Breaking Changes</span>
+</div>
+<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-container border border-outline-variant/20 rounded-lg">
+<span class="material-symbols-outlined text-primary text-sm">speed</span>
+<span class="text-xs font-medium">+12% Throughput</span>
+</div>
+</div>
+</div>
+<!-- Quick Pulse -->
+<div class="lg:col-span-4 bg-surface-container-low p-8 rounded-xl border border-outline-variant/10 flex flex-col justify-between">
+<h3 class="headline text-sm font-bold text-slate-500 uppercase tracking-widest mb-6">Security Signals</h3>
+<div class="flex items-center justify-between gap-4">
+<div class="text-center group">
+<div class="text-3xl font-black headline text-slate-400 group-hover:text-on-surface transition-colors">0</div>
+<div class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">High</div>
+</div>
+<div class="text-center group">
+<div class="text-3xl font-black headline text-secondary group-hover:brightness-125 transition-colors">1</div>
+<div class="text-[10px] font-bold text-secondary uppercase tracking-tighter">Medium</div>
+</div>
+<div class="text-center group">
+<div class="text-3xl font-black headline text-primary-fixed-dim group-hover:brightness-110 transition-colors">20</div>
+<div class="text-[10px] font-bold text-primary uppercase tracking-tighter">Low</div>
+</div>
+</div>
+<button class="mt-8 text-primary text-xs font-bold flex items-center gap-2 hover:underline">
+                    VIEW SECURITY DETAILS <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Blast Radius Section -->
+<div class="mb-10">
+<div class="flex items-center justify-between mb-6">
+<h3 class="headline text-2xl font-bold flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary">flare</span>
+                    Blast Radius
+                </h3>
+<div class="flex items-center gap-8">
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-bold text-slate-500 uppercase">Direct Impact</span>
+<span class="headline text-xl font-bold text-on-surface">11 Files</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-bold text-slate-500 uppercase">Downstream</span>
+<span class="headline text-xl font-bold text-secondary">6 Modules</span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container rounded-xl overflow-hidden border border-outline-variant/10">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-high/50 text-[10px] font-black text-slate-500 uppercase tracking-[0.1em]">
+<th class="px-6 py-4">File Path</th>
+<th class="px-6 py-4">Distance</th>
+<th class="px-6 py-4">Uses</th>
+<th class="px-6 py-4 text-right">Churn Profile</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/5">
+<tr class="hover:bg-surface-bright/20 transition-colors">
+<td class="px-6 py-4 mono text-sm text-on-surface">src/core/storage/provider.ts</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-primary/20 text-primary text-[10px] font-bold rounded">DIRECT</span>
+</td>
+<td class="px-6 py-4 mono text-sm">42</td>
+<td class="px-6 py-4 text-right">
+<div class="inline-flex items-center gap-1">
+<div class="w-1 h-3 bg-primary rounded-full"></div>
+<div class="w-1 h-5 bg-primary rounded-full"></div>
+<div class="w-1 h-4 bg-primary rounded-full"></div>
+<div class="w-1 h-6 bg-secondary rounded-full"></div>
+<div class="w-1 h-2 bg-slate-700 rounded-full"></div>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-surface-bright/20 transition-colors">
+<td class="px-6 py-4 mono text-sm text-on-surface">src/services/auth/session.ts</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-secondary/20 text-secondary text-[10px] font-bold rounded">L1 DIST</span>
+</td>
+<td class="px-6 py-4 mono text-sm">12</td>
+<td class="px-6 py-4 text-right">
+<div class="inline-flex items-center gap-1">
+<div class="w-1 h-2 bg-slate-700 rounded-full"></div>
+<div class="w-1 h-2 bg-slate-700 rounded-full"></div>
+<div class="w-1 h-3 bg-primary rounded-full"></div>
+<div class="w-1 h-1 bg-slate-700 rounded-full"></div>
+<div class="w-1 h-1 bg-slate-700 rounded-full"></div>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-surface-bright/20 transition-colors">
+<td class="px-6 py-4 mono text-sm text-on-surface">src/ui/components/UserDashboard.tsx</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-surface-container-highest text-slate-400 text-[10px] font-bold rounded">L2 DIST</span>
+</td>
+<td class="px-6 py-4 mono text-sm">8</td>
+<td class="px-6 py-4 text-right">
+<div class="inline-flex items-center gap-1">
+<div class="w-1 h-1 bg-slate-700 rounded-full"></div>
+<div class="w-1 h-1 bg-slate-700 rounded-full"></div>
+<div class="w-1 h-1 bg-slate-700 rounded-full"></div>
+<div class="w-1 h-2 bg-primary rounded-full"></div>
+<div class="w-1 h-1 bg-slate-700 rounded-full"></div>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Interface Changes -->
+<div class="mb-10">
+<h3 class="headline text-2xl font-bold flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-primary">code_blocks</span>
+                Interface Changes
+            </h3>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-px bg-outline-variant/10 border border-outline-variant/20 rounded-xl overflow-hidden">
+<!-- Before -->
+<div class="bg-surface-container-low p-6">
+<div class="flex items-center justify-between mb-4">
+<span class="text-[10px] font-black text-slate-500 uppercase">Legacy Interface</span>
+<span class="text-[10px] font-bold text-tertiary-container uppercase px-2 py-0.5 bg-tertiary/10 rounded">Removed</span>
+</div>
+<pre class="mono text-sm text-on-surface/60 overflow-x-auto"><span class="text-tertiary">interface</span> <span class="text-secondary">StorageProvider</span> {
+  <span class="text-on-surface/40">save</span>(data: string): <span class="text-tertiary">void</span>;
+  <span class="text-on-surface/40">load</span>(key: string): string;
+  <span class="text-on-surface/40">isReady</span>: <span class="text-tertiary">boolean</span>;
+}</pre>
+</div>
+<!-- After -->
+<div class="bg-surface-container-high p-6 border-l border-outline-variant/10">
+<div class="flex items-center justify-between mb-4">
+<span class="text-[10px] font-black text-slate-500 uppercase">Proposed Interface</span>
+<span class="text-[10px] font-bold text-primary uppercase px-2 py-0.5 bg-primary/10 rounded">Added</span>
+</div>
+<pre class="mono text-sm text-on-surface overflow-x-auto"><span class="text-primary-fixed-dim">interface</span> <span class="text-secondary">PersistentStore</span> {
+  <span class="text-primary-fixed-dim">async</span> <span class="text-primary">commit</span>(payload: Payload): <span class="text-primary-fixed-dim">Promise</span>&lt;<span class="text-tertiary">Result</span>&gt;;
+  <span class="text-primary-fixed-dim">async</span> <span class="text-primary">fetch</span>(id: <span class="text-secondary">UUID</span>): <span class="text-primary-fixed-dim">Promise</span>&lt;<span class="text-secondary">Data</span>&gt;;
+  <span class="text-on-surface/40">get</span> <span class="text-primary">status</span>(): <span class="text-secondary">StoreStatus</span>;
+}</pre>
+</div>
+</div>
+</div>
+<!-- Decisions & Assumptions -->
+<div class="mb-10">
+<h3 class="headline text-2xl font-bold flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-primary">psychology</span>
+                Decisions &amp; Assumptions
+            </h3>
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+<!-- Decision Card 1 -->
+<div class="bg-surface-container-low border border-outline-variant/15 p-6 rounded-xl hover:bg-surface-container-high transition-all">
+<div class="flex justify-between items-start mb-4">
+<span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-1 rounded">D-01</span>
+<div class="flex items-center gap-1 px-2 py-0.5 bg-primary/10 rounded text-[10px] font-bold text-primary">
+<span class="material-symbols-outlined text-[10px]">shield</span>
+                            LOW RISK
+                        </div>
+</div>
+<h4 class="font-bold text-on-surface mb-2">Async over Sync</h4>
+<p class="text-xs text-slate-400 leading-relaxed mb-4">
+                        Enforcing Promise-based storage prevents UI blocking on heavy write operations. Assumes environment supports ES2020.
+                    </p>
+<div class="pt-4 border-t border-outline-variant/10">
+<span class="text-[10px] font-bold text-slate-500 uppercase">Rationale</span>
+<p class="text-[11px] italic text-slate-300 mt-1">"System observability requires non-blocking I/O to maintain 60fps."</p>
+</div>
+</div>
+<!-- Decision Card 2 -->
+<div class="bg-surface-container-low border border-outline-variant/15 p-6 rounded-xl hover:bg-surface-container-high transition-all">
+<div class="flex justify-between items-start mb-4">
+<span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-1 rounded">D-02</span>
+<div class="flex items-center gap-1 px-2 py-0.5 bg-secondary/10 rounded text-[10px] font-bold text-secondary">
+<span class="material-symbols-outlined text-[10px]">warning</span>
+                            MED RISK
+                        </div>
+</div>
+<h4 class="font-bold text-on-surface mb-2">Adapter Pattern</h4>
+<p class="text-xs text-slate-400 leading-relaxed mb-4">
+                        Using an Adapter to shim the old interface. Risk of memory leak if listeners aren't properly detached.
+                    </p>
+<div class="pt-4 border-t border-outline-variant/10">
+<span class="text-[10px] font-bold text-slate-500 uppercase">Rationale</span>
+<p class="text-[11px] italic text-slate-300 mt-1">"Ensures no breaking changes for the web client during migration phase."</p>
+</div>
+</div>
+<!-- Decision Card 3 -->
+<div class="bg-surface-container-low border border-outline-variant/15 p-6 rounded-xl hover:bg-surface-container-high transition-all">
+<div class="flex justify-between items-start mb-4">
+<span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-1 rounded">D-03</span>
+<div class="flex items-center gap-1 px-2 py-0.5 bg-primary/10 rounded text-[10px] font-bold text-primary">
+<span class="material-symbols-outlined text-[10px]">shield</span>
+                            LOW RISK
+                        </div>
+</div>
+<h4 class="font-bold text-on-surface mb-2">JSON Serialization</h4>
+<p class="text-xs text-slate-400 leading-relaxed mb-4">
+                        Assuming all persisted objects are serializable. Private class fields will be dropped by the new serializer.
+                    </p>
+<div class="pt-4 border-t border-outline-variant/10">
+<span class="text-[10px] font-bold text-slate-500 uppercase">Rationale</span>
+<p class="text-[11px] italic text-slate-300 mt-1">"Standardizes the wire format for future multi-platform sync."</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Contextual FAB (Only for main screens) -->
+<div class="fixed bottom-8 right-8 z-50">
+<button class="flex items-center justify-center w-14 h-14 bg-primary text-on-primary-fixed rounded-xl shadow-2xl hover:scale-105 active:scale-95 transition-all group">
+<span class="material-symbols-outlined text-3xl" style="font-variation-settings: &#39;FILL&#39; 1;">bolt</span>
+<span class="absolute right-full mr-4 bg-surface-container-highest px-3 py-1.5 rounded-lg text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">RERUN ANALYSIS</span>
+</button>
+</div>
+</body></html>

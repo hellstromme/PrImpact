@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PrImpact - Impact Trees</title>
+<script type='text/javascript' nonce='j0dHjUby+q+ZN2EAEkpagA==' src='https://contribution.usercontent.google.com/Cc7SqbKGuq8fNUWiu-4BxPmdAplWkVfalfB16RMZCXIrE00MlbrLqV_N5lSuQ2wkG06fpsaudxQRGQxCkuhPG_NNoqM6B3ggmN-yrzoJb2K2Y-oZFpY0nsSwwv-9oiBJ3kDOu9gvblDn62lMdTC4UEi6a4q7dAXqRQOH2Ysv3Si72BHDThd81s1fS6mDXUk1GhjEfIYTZsfDDwxpwJ8CfPg4ZPXbB93NW_5tJVHLuFaN4YgQ_H1-dFND23fCZY1zvZ3ArC99g22qTAo-5GWVj4ZA9Dh6bTlS5yGvflpLQ6AQ_IolqIpNz7e2dScFwSaPQdjxShvIXaHNm3qvfWTGibqwBFtOzrX2nL__ncqr4EQeUjp8xNceo11HB0DuKvG37R_FHzkvEZEtegsfOGRIUPWW5BuIGPKPF6Id4HFcZJITmKH2BOdL4dOD338eT4s8U1Z4X8CyL19PnTrJIEjFwSfYOjQWAZV2WvGgk4xqyvv7gejkMzj-L08JdK449jeZQt5Nxp06Hq-WGwnbYt-ll8pMyYFmrxXX_J3qHwkIvGW8o8vWqzXUpV6SfVMRQ1zf1zMcn2MSR6lyq6qHST7WrHPsDR8MjUyGi4G0P2x4RFqrE1GzhX5RtvnL5AsyRqPCHD-mXT4cu5gjvrZmIvOJKBSdoUIMvftldINjqitjm_cWO8C8O_n-L4M7EAFsdRe_pUs1Z1GxFf6gik4oJc0nL4WF7jn0RYrY2kr_X6d08sbD3vr-FNGYIGTt6a0kaItdiUiyZhcm85D-dXe1S1NchgZzfEiFXfHBV3k14A'></script><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-container-highest": "#31353c",
+                      "primary-fixed": "#8bfb91",
+                      "on-surface-variant": "#becab9",
+                      "inverse-surface": "#dfe2eb",
+                      "surface-container-lowest": "#0a0e14",
+                      "error": "#ffb4ab",
+                      "on-tertiary": "#690007",
+                      "background": "#10141a",
+                      "surface-container-high": "#262a31",
+                      "on-error": "#690005",
+                      "surface-dim": "#10141a",
+                      "surface-variant": "#31353c",
+                      "primary-container": "#34a547",
+                      "on-primary-fixed": "#002106",
+                      "secondary": "#fabc45",
+                      "primary": "#6fdd78",
+                      "surface-bright": "#353940",
+                      "on-secondary-fixed": "#271900",
+                      "on-primary-container": "#00320b",
+                      "on-secondary-container": "#392600",
+                      "outline": "#889484",
+                      "on-primary-fixed-variant": "#005319",
+                      "on-error-container": "#ffdad6",
+                      "on-tertiary-container": "#5c0005",
+                      "surface": "#10141a",
+                      "surface-container": "#1c2026",
+                      "tertiary-container": "#fe554d",
+                      "primary-fixed-dim": "#6fdd78",
+                      "outline-variant": "#3e4a3d",
+                      "inverse-on-surface": "#2d3137",
+                      "on-tertiary-fixed-variant": "#93000d",
+                      "error-container": "#93000a",
+                      "surface-tint": "#6fdd78",
+                      "secondary-fixed-dim": "#fabc45",
+                      "secondary-fixed": "#ffdeaa",
+                      "on-secondary-fixed-variant": "#5f4100",
+                      "surface-container-low": "#181c22",
+                      "on-tertiary-fixed": "#410002",
+                      "on-secondary": "#422c00",
+                      "tertiary-fixed": "#ffdad6",
+                      "tertiary-fixed-dim": "#ffb4ac",
+                      "secondary-container": "#bd8708",
+                      "on-background": "#dfe2eb",
+                      "on-primary": "#00390e",
+                      "on-surface": "#dfe2eb",
+                      "tertiary": "#ffb4ac",
+                      "inverse-primary": "#006e23"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "fontFamily": {
+                      "headline": ["Space Grotesk"],
+                      "body": ["Inter"],
+                      "label": ["Inter"],
+                      "mono": ["JetBrains Mono"]
+              }
+            },
+          }
+        }
+      </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .grainy-bg {
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            opacity: 0.02;
+            pointer-events: none;
+        }
+        .tree-node-glow {
+            filter: drop-shadow(0 0 4px #6fdd7888);
+        }
+      </style>
+</head>
+<body class="bg-background text-on-surface font-body selection:bg-primary/30 selection:text-primary min-h-screen flex flex-col overflow-hidden">
+<div class="fixed inset-0 grainy-bg z-[100]"></div>
+<!-- Top Navigation Bar -->
+<header class="bg-[#10141a] dark:bg-[#10141a] flex justify-between items-center w-full px-6 py-3 z-50 docked full-width top-0">
+<div class="flex items-center gap-8">
+<h1 class="text-xl font-bold tracking-tighter text-[#dfe2eb] dark:text-[#dfe2eb] font-headline">PrImpact</h1>
+<nav class="hidden md:flex gap-6 font-[&#39;Space_Grotesk&#39;] tracking-tight">
+<a class="text-[#dfe2eb]/60 hover:bg-[#181c22] hover:text-[#2EA043] transition-colors px-2 py-1" href="#">Dashboard</a>
+<a class="text-[#2EA043] border-b-2 border-[#2EA043] pb-1 font-bold" href="#">Impact Trees</a>
+<a class="text-[#dfe2eb]/60 hover:bg-[#181c22] hover:text-[#2EA043] transition-colors px-2 py-1" href="#">History</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative flex items-center bg-surface-container-low px-3 py-1.5 rounded-lg border border-outline-variant/10">
+<span class="material-symbols-outlined text-on-surface-variant text-sm mr-2">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm w-48 font-mono placeholder:text-on-surface-variant/40" placeholder="Search architecture..." type="text"/>
+<span class="text-[10px] text-on-surface-variant/40 font-mono border border-outline-variant/30 px-1 rounded ml-2">CMD + K</span>
+</div>
+<div class="flex gap-2">
+<button class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary transition-colors">terminal</button>
+<button class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary transition-colors">settings</button>
+</div>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant/30">
+<img alt="User profile" data-alt="Close-up portrait of a tech professional with soft dramatic lighting on a dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAIjOumJDRI0pkSVW9R0rl3Xmx77zIXIasNysOIFi2nzWX6eZRJrtSP1d4WnFgQe5npXHDtFeYkj_Qa5nFF130IllyxtbfAS5lFo9nTIltM9ihbHUyN-0EIlGpm7oGffNrTpi3BqCn3P7HamUb2Ij__Zkp_p5pvbLv5aSVJZarE0EHz04cjxohqgCd7Lm5djWeZYn6ynFInaqL7a1g4QU51PYObkdJ3SaoxcSRCo6Kf7-geqnnMd3LNtPrrwFN2xDm1JBAaRDk5PkM"/>
+</div>
+</div>
+</header>
+<main class="flex flex-1 relative overflow-hidden">
+<!-- Sidebar Navigation -->
+<aside class="bg-[#0a0e14] dark:bg-[#0a0e14] flex flex-col h-full py-8 border-r border-[#181c22] w-64 shrink-0 z-40">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-10 h-10 bg-surface-container-highest rounded-lg flex items-center justify-center text-primary border border-outline-variant/20">
+<span class="material-symbols-outlined" style="font-variation-settings: &#39;FILL&#39; 1;">account_tree</span>
+</div>
+<div>
+<h2 class="font-headline font-bold text-on-surface text-sm tracking-tight uppercase">Impact Analysis</h2>
+<p class="font-mono text-[10px] text-on-surface-variant/50">v2.4.0-stable</p>
+</div>
+</div>
+</div>
+<nav class="flex-1 flex flex-col gap-1 px-3">
+<a class="flex items-center gap-3 px-4 py-3 text-sm font-[&#39;Space_Grotesk&#39;] uppercase tracking-widest text-[#dfe2eb]/40 hover:text-[#dfe2eb] hover:bg-[#181c22]/50 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+                    Summary
+                </a>
+<a class="flex items-center gap-3 px-4 py-3 text-sm font-[&#39;Space_Grotesk&#39;] uppercase tracking-widest text-[#2EA043] font-bold border-r-2 border-[#2EA043] bg-surface-container-low/30" href="#">
+<span class="material-symbols-outlined" data-icon="radar" style="font-variation-settings: &#39;FILL&#39; 1;">radar</span>
+                    Blast Radius
+                </a>
+<a class="flex items-center gap-3 px-4 py-3 text-sm font-[&#39;Space_Grotesk&#39;] uppercase tracking-widest text-[#dfe2eb]/40 hover:text-[#dfe2eb] hover:bg-[#181c22]/50 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="security">security</span>
+                    Security
+                </a>
+<a class="flex items-center gap-3 px-4 py-3 text-sm font-[&#39;Space_Grotesk&#39;] uppercase tracking-widest text-[#dfe2eb]/40 hover:text-[#dfe2eb] hover:bg-[#181c22]/50 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+                    Dependencies
+                </a>
+<a class="flex items-center gap-3 px-4 py-3 text-sm font-[&#39;Space_Grotesk&#39;] uppercase tracking-widest text-[#dfe2eb]/40 hover:text-[#dfe2eb] hover:bg-[#181c22]/50 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="biotech">biotech</span>
+                    Test Gaps
+                </a>
+</nav>
+<div class="px-6 mt-6">
+<button class="w-full bg-gradient-to-r from-primary to-primary-container text-on-primary-fixed py-2.5 rounded font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-sm">rebase_edit</span>
+                    Analyze Diff
+                </button>
+</div>
+<div class="mt-auto px-3 border-t border-outline-variant/10 pt-4">
+<a class="flex items-center gap-3 px-4 py-2 text-xs font-[&#39;Space_Grotesk&#39;] uppercase tracking-widest text-[#dfe2eb]/40 hover:text-[#dfe2eb] hover:bg-[#181c22]/50 transition-colors" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="description">description</span>
+                    Documentation
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-xs font-[&#39;Space_Grotesk&#39;] uppercase tracking-widest text-[#dfe2eb]/40 hover:text-[#dfe2eb] hover:bg-[#181c22]/50 transition-colors" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="help">help</span>
+                    Support
+                </a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<section class="flex-1 bg-surface relative flex flex-col">
+<!-- Breadcrumbs / View Controls -->
+<div class="flex items-center justify-between px-8 py-4 bg-surface-container-low">
+<div class="flex items-center gap-4">
+<div class="flex items-center text-xs font-mono text-on-surface-variant gap-2">
+<span class="text-primary/60">root</span>
+<span class="material-symbols-outlined text-[10px]">chevron_right</span>
+<span class="text-primary/60">services</span>
+<span class="material-symbols-outlined text-[10px]">chevron_right</span>
+<span class="text-primary">auth-gateway</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex bg-surface-container-highest rounded p-1 border border-outline-variant/10">
+<button class="px-3 py-1 text-[10px] uppercase tracking-wider font-bold bg-primary text-on-primary-fixed rounded">Tree</button>
+<button class="px-3 py-1 text-[10px] uppercase tracking-wider font-bold text-on-surface-variant hover:text-on-surface">Graph</button>
+</div>
+<button class="flex items-center gap-2 px-3 py-1 text-xs border border-outline-variant/30 text-on-surface-variant hover:border-primary/50 hover:text-primary transition-all">
+<span class="material-symbols-outlined text-sm">filter_alt</span>
+                        Filters
+                    </button>
+</div>
+</div>
+<!-- The Architectural Tree Visualization -->
+<div class="flex-1 relative overflow-hidden bg-[radial-gradient(circle_at_center,_#1c2026_0%,_#10141a_100%)]">
+<!-- SVG Simulation of a Tree/Graph -->
+<div class="absolute inset-0 flex items-center justify-center p-12">
+<svg class="w-full h-full max-w-5xl opacity-80" viewbox="0 0 1000 600">
+<!-- Connecting Lines -->
+<path class="opacity-30" d="M500,300 L300,150 M500,300 L700,150 M500,300 L300,450 M500,300 L700,450 M300,150 L150,100 M300,150 L150,200" fill="none" stroke="#6fdd78" stroke-dasharray="4,4" stroke-width="1.5"></path>
+<!-- Center Node -->
+<g class="cursor-pointer group">
+<circle class="tree-node-glow group-hover:r-36 transition-all" cx="500" cy="300" fill="#34a547" r="32"></circle>
+<circle class="animate-spin-slow" cx="500" cy="300" fill="none" r="40" stroke="#6fdd78" stroke-dasharray="2,2" stroke-width="1" style="animation: spin 10s linear infinite;"></circle>
+<text class="fill-on-surface font-headline font-bold text-xs" text-anchor="middle" x="500" y="360">ROOT_SERVICES</text>
+</g>
+<!-- Satellite Nodes -->
+<g class="cursor-pointer group">
+<circle cx="300" cy="150" fill="#1c2026" r="20" stroke="#6fdd78" stroke-width="2"></circle>
+<text class="fill-on-surface-variant font-mono text-[10px]" text-anchor="middle" x="300" y="190">auth-v2</text>
+<circle class="opacity-60" cx="300" cy="150" fill="none" r="26" stroke="#fabc45" stroke-dasharray="8,2" stroke-width="2"></circle>
+</g>
+<g class="cursor-pointer group">
+<circle cx="700" cy="150" fill="#1c2026" r="18" stroke="#6fdd78" stroke-width="2"></circle>
+<text class="fill-on-surface-variant font-mono text-[10px]" text-anchor="middle" x="700" y="190">payment-bridge</text>
+</g>
+<g class="cursor-pointer group">
+<circle cx="300" cy="450" fill="#1c2026" r="22" stroke="#ffb4ac" stroke-width="2"></circle>
+<text class="fill-tertiary font-mono text-[10px]" text-anchor="middle" x="300" y="490">legacy-data-sink</text>
+<path class="opacity-30" d="M278,450 L322,450" stroke="#ffb4ac" stroke-width="1"></path>
+</g>
+<g class="cursor-pointer group">
+<circle cx="700" cy="450" fill="#1c2026" r="24" stroke="#6fdd78" stroke-width="2"></circle>
+<text class="fill-on-surface-variant font-mono text-[10px]" text-anchor="middle" x="700" y="495">api-gateway</text>
+</g>
+</svg>
+</div>
+<!-- Floating Zoom Controls -->
+<div class="absolute bottom-6 right-6 flex flex-col gap-2">
+<button class="w-10 h-10 bg-surface-container-high border border-outline-variant/30 flex items-center justify-center text-on-surface hover:text-primary transition-all">
+<span class="material-symbols-outlined">add</span>
+</button>
+<button class="w-10 h-10 bg-surface-container-high border border-outline-variant/30 flex items-center justify-center text-on-surface hover:text-primary transition-all">
+<span class="material-symbols-outlined">remove</span>
+</button>
+<button class="w-10 h-10 bg-surface-container-high border border-outline-variant/30 flex items-center justify-center text-on-surface hover:text-primary transition-all">
+<span class="material-symbols-outlined">filter_center_focus</span>
+</button>
+</div>
+<!-- Node Metadata Card (Asymmetric Right Overlay) -->
+<div class="absolute top-6 right-6 w-80 bg-surface-container-highest/80 backdrop-blur-xl p-6 border border-outline-variant/20 shadow-2xl">
+<div class="flex justify-between items-start mb-6">
+<div>
+<span class="px-2 py-0.5 text-[9px] bg-primary-container text-on-primary-fixed rounded mb-2 inline-block font-bold">STABLE</span>
+<h3 class="font-headline font-bold text-xl text-on-surface">auth-gateway</h3>
+<p class="font-mono text-xs text-on-surface-variant/70">src/services/auth</p>
+</div>
+<span class="material-symbols-outlined text-primary">verified</span>
+</div>
+<div class="space-y-4">
+<div>
+<div class="flex justify-between text-[10px] uppercase tracking-wider text-on-surface-variant/50 mb-1">
+<span>Complexity Score</span>
+<span class="text-secondary">High (72)</span>
+</div>
+<div class="h-1 bg-surface-container w-full">
+<div class="h-full bg-secondary w-[72%]"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4 py-4 border-y border-outline-variant/10">
+<div>
+<p class="text-[10px] text-on-surface-variant/50 uppercase">Dependencies</p>
+<p class="text-lg font-headline font-bold text-on-surface">14</p>
+</div>
+<div>
+<p class="text-[10px] text-on-surface-variant/50 uppercase">Dependents</p>
+<p class="text-lg font-headline font-bold text-on-surface">3</p>
+</div>
+</div>
+<div>
+<p class="text-[10px] text-on-surface-variant/50 uppercase mb-2 tracking-widest">Recent Activity</p>
+<div class="space-y-2">
+<div class="flex items-center gap-2 text-[11px]">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+<span class="text-on-surface-variant">Update OAuth scope handlers</span>
+<span class="text-on-surface-variant/30 ml-auto">2h ago</span>
+</div>
+<div class="flex items-center gap-2 text-[11px]">
+<div class="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
+<span class="text-on-surface-variant">Internal refactor: token-svc</span>
+<span class="text-on-surface-variant/30 ml-auto">1d ago</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Health Metrics Footer (Bento Style) -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-0.5 bg-[#181c22] border-t border-outline-variant/10 shrink-0">
+<div class="bg-surface p-5 border-r border-outline-variant/5">
+<div class="flex justify-between items-center mb-2">
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant">Architectural Debt</span>
+<span class="material-symbols-outlined text-xs text-error">trending_up</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-headline font-bold text-on-surface">42.8</span>
+<span class="text-[10px] font-mono text-error">pts (+1.2)</span>
+</div>
+</div>
+<div class="bg-surface p-5 border-r border-outline-variant/5">
+<div class="flex justify-between items-center mb-2">
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant">Coupling Factor</span>
+<span class="material-symbols-outlined text-xs text-primary">check_circle</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-headline font-bold text-on-surface">0.14</span>
+<span class="text-[10px] font-mono text-primary">Optimal</span>
+</div>
+</div>
+<div class="bg-surface p-5 border-r border-outline-variant/5">
+<div class="flex justify-between items-center mb-2">
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant">Language Split</span>
+<span class="material-symbols-outlined text-xs text-on-surface-variant">data_usage</span>
+</div>
+<div class="flex gap-1 h-2 rounded-full overflow-hidden mt-3">
+<div class="h-full bg-primary w-[60%]" title="Python"></div>
+<div class="h-full bg-secondary w-[25%]" title="TypeScript"></div>
+<div class="h-full bg-surface-container-highest w-[15%]" title="Other"></div>
+</div>
+<div class="flex justify-between text-[10px] mt-2 font-mono">
+<span class="text-primary/70">PY 60%</span>
+<span class="text-secondary/70">TS 25%</span>
+</div>
+</div>
+<div class="bg-surface p-5">
+<div class="flex justify-between items-center mb-2">
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant">Impact Efficiency</span>
+<span class="material-symbols-outlined text-xs text-primary">electric_bolt</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-headline font-bold text-primary">94%</span>
+<div class="w-16 h-4 flex items-end gap-0.5">
+<div class="w-1 h-1 bg-primary/20"></div>
+<div class="w-1 h-2 bg-primary/40"></div>
+<div class="w-1 h-3 bg-primary/60"></div>
+<div class="w-1 h-4 bg-primary"></div>
+<div class="w-1 h-3 bg-primary/60"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Contextual FAB (Hidden on detail pages as per instructions, but available if triggered) -->
+<button class="fixed bottom-24 right-8 w-14 h-14 bg-gradient-to-br from-primary to-primary-container text-on-primary-fixed rounded-full shadow-lg hover:scale-105 transition-transform flex items-center justify-center group z-50">
+<span class="material-symbols-outlined text-3xl group-hover:rotate-90 transition-transform">add</span>
+</button>
+</body></html>
