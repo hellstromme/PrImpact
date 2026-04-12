@@ -92,10 +92,16 @@ class TestGap:
 
 
 @dataclass
+class SourceLocation:
+    file: str
+    line: int | None = None
+    symbol: str | None = None
+
+
+@dataclass
 class SecuritySignal:
     description: str
-    file_path: str
-    line_number: int | None
+    location: SourceLocation
     signal_type: str  # "network_call" | "credential" | "encoded_payload" | "dynamic_exec" | "shell_invoke" | "suspicious_import"
     severity: Severity
     why_unusual: str

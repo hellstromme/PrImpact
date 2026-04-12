@@ -1034,7 +1034,64 @@ def test_run_ai_analysis_non_int_line_number_becomes_none(monkeypatch, tmp_path)
     sig = _make_security_signal()
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
-    assert result.security_signals[0].line_number is None
+    assert result.security_signals[0].location.line is None
+
+
+def test_run_ai_analysis_parses_symbol_field_from_4th_call(monkeypatch, tmp_path):
+    """AI response containing a 'symbol' key populates SourceLocation.symbol."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([{
+        "description": "shell call", "file_path": "src/runner.py", "line_number": 5,
+        "symbol": "execute_command",
+        "signal_type": "shell_invoke", "severity": "high",
+        "why_unusual": "new", "suggested_action": "review",
+    }])
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
+    assert result.security_signals[0].location.symbol == "execute_command"
+
+
+def test_run_ai_analysis_non_str_symbol_becomes_none(monkeypatch, tmp_path):
+    """A non-string 'symbol' value in the AI response becomes None."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([{
+        "description": "sig", "file_path": "f.py", "line_number": 1,
+        "symbol": 42,  # non-string → should become None
+        "signal_type": "eval", "severity": "high",
+        "why_unusual": "u", "suggested_action": "s",
+    }])
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
+    assert result.security_signals[0].location.symbol is None
+
+
+def test_run_ai_analysis_absent_symbol_key_becomes_none(monkeypatch, tmp_path):
+    """A response without a 'symbol' key produces SourceLocation.symbol = None."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps([{
+        "description": "sig", "file_path": "f.py", "line_number": 1,
+        # no "symbol" key
+        "signal_type": "eval", "severity": "high",
+        "why_unusual": "u", "suggested_action": "s",
+    }])
+    client = _mock_client(r1, r2, r3, r4)
+    sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
+    assert result.security_signals[0].location.symbol is None
 
 
 # ---------------------------------------------------------------------------
@@ -1074,6 +1131,26 @@ def test_security_context_file_no_extractable_signatures_skipped():
     _, file_ctx = _build_security_signals_context([sig], [f])
     # No signatures extracted → file absent from context
     assert "src/data.py" not in file_ctx
+
+
+def test_security_context_signal_with_symbol_includes_symbol_in_text():
+    """When SourceLocation.symbol is set, it appears in the signals_text."""
+    from pr_impact.models import SourceLocation
+    sig = _make_security_signal()
+    sig.location = SourceLocation(file="src/auth.py", line=10, symbol="login_handler")
+    signals_text, _ = _build_security_signals_context([sig], [])
+    assert "login_handler" in signals_text
+
+
+def test_security_context_signal_without_symbol_produces_no_stray_colon():
+    """When SourceLocation.symbol is None, no colon appears between file and line."""
+    from pr_impact.models import SourceLocation
+    sig = _make_security_signal()
+    sig.location = SourceLocation(file="src/auth.py", line=5)
+    signals_text, _ = _build_security_signals_context([sig], [])
+    # Symbol absent → "(src/auth.py line 5)" with no extra colon before line
+    assert ":None" not in signals_text
+    assert "src/auth.py" in signals_text
 
 
 # ---------------------------------------------------------------------------

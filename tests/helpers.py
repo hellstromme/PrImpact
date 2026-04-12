@@ -11,6 +11,7 @@ from pr_impact.models import (
     ImpactReport,
     InterfaceChange,
     SecuritySignal,
+    SourceLocation,
     TestGap,
 )
 
@@ -32,10 +33,11 @@ def make_file(
 
 
 def make_security_signal(**kwargs) -> SecuritySignal:
+    file_path = kwargs.pop("file_path", "src/auth.py")
+    line_number = kwargs.pop("line_number", 10)
     defaults = dict(
         description="New shell invoke",
-        file_path="src/auth.py",
-        line_number=10,
+        location=SourceLocation(file=file_path, line=line_number),
         signal_type="shell_invoke",
         severity="high",
         why_unusual="No prior shell calls.",

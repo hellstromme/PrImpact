@@ -2,7 +2,6 @@ import dataclasses
 import json
 import os
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import click
@@ -14,16 +13,13 @@ from rich.table import Table
 from rich.text import Text
 from typing import Protocol
 
-from .ai_layer import run_ai_analysis, run_verdict_analysis
+from .ai_layer import run_verdict_analysis
+from .analyzer import AnalyzerExit, ImpactAnalyzer
 from .config import CONFIG_PATH, env_placeholder, load_config, read_toml_config
-from .classifier import classify_changed_file, get_interface_changes
-from .dependency_graph import build_import_graph, get_blast_radius
-from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .history import get_run_count, load_anomaly_patterns, load_hotspots, save_run
-from .models import AIAnalysis, HistoricalHotspot, ImpactReport, RefsResult
+from .models import HistoricalHotspot, ImpactReport, RefsResult
 from .reporter import render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
-from .security import check_dependency_integrity, detect_pattern_signals
 
 stderr = Console(stderr=True)
 
@@ -145,14 +141,6 @@ def _get_github_token() -> str | None:
     return expanded or None
 
 
-def _invert_graph(forward: dict[str, list[str]]) -> dict[str, list[str]]:
-    reverse: dict[str, list[str]] = defaultdict(list)
-    for src, targets in forward.items():
-        for tgt in targets:
-            reverse[tgt].append(src)
-    return dict(reverse)
-
-
 def _print_pr_table(prs: list[dict]) -> None:
     """Print a Rich table of open PRs to stderr for interactive selection."""
     title = "Open Pull Requests (first 100 shown)" if len(prs) == 100 else f"Open Pull Requests ({len(prs)} found)"
@@ -170,130 +158,6 @@ def _print_pr_table(prs: list[dict]) -> None:
             status,
         )
     stderr.print(table)
-
-
-def _run_pipeline(
-    repo: str,
-    repo_obj: git.Repo,
-    refs: RefsResult,
-    max_depth: int,
-    progress: _ProgressProtocol,
-    check_osv: bool = False,
-    anomaly_history: list[dict] | None = None,
-    hotspots: list[dict] | None = None,
-) -> tuple:
-    """Execute all pipeline steps with an injected progress object.
-
-    Returns (changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues).
-    Exits with code 1 on fatal git errors, code 0 when no supported files changed.
-    The ``progress`` parameter accepts any object with add_task/update/remove_task
-    methods; tests pass a MagicMock() to suppress spinner output.
-    """
-    # Ensure PR commits are present locally before diffing (no-op for up-to-date clones)
-    if refs.fetch_pr_number is not None:
-        try:
-            ensure_commits_present(
-                repo, refs.base, refs.head,
-                refs.fetch_remote, refs.fetch_pr_number, refs.fetch_base_ref,
-                repo=repo_obj,
-            )
-        except RuntimeError as e:
-            stderr.print(f"[yellow]Warning:[/yellow] {e}. Continuing — diff will fail if commits are still absent.")
-
-    # Step 1: get changed files
-    task = progress.add_task("Extracting changed files...", total=None)
-    try:
-        changed_files = get_changed_files(repo, refs.base, refs.head, repo=repo_obj)
-    except Exception as e:
-        stderr.print(f"[bold red]Error:[/bold red] Could not read git repository: {e}")
-        sys.exit(1)
-    progress.update(task, description=f"Found {len(changed_files)} changed file(s)")
-
-    if not changed_files:
-        stderr.print("No supported source files changed between the two SHAs.")
-        sys.exit(0)
-
-    # Step 2: build import graph
-    progress.update(task, description="Building import graph...")
-    languages = list({f.language for f in changed_files})
-    try:
-        forward_graph = build_import_graph(repo, languages)
-    except Exception as e:
-        stderr.print(f"[yellow]Warning:[/yellow] Import graph failed: {e}")
-        forward_graph = {}
-    reverse_graph = _invert_graph(forward_graph)
-
-    # Step 3: blast radius
-    progress.update(task, description="Calculating blast radius...")
-    changed_paths = [f.path for f in changed_files]
-    try:
-        blast_radius = get_blast_radius(reverse_graph, changed_paths, max_depth, repo)
-    except Exception as e:
-        stderr.print(f"[yellow]Warning:[/yellow] Blast radius calculation failed: {e}")
-        blast_radius = []
-
-    # Step 4: classify changed files
-    progress.update(task, description="Classifying changes...")
-    for f in changed_files:
-        try:
-            f.changed_symbols = classify_changed_file(f)
-        except Exception as e:
-            stderr.print(f"[yellow]Warning:[/yellow] Classifier failed for {f.path}: {e}")
-
-    # Step 5: interface changes
-    try:
-        interface_changes = get_interface_changes(changed_files, reverse_graph)
-    except Exception as e:
-        stderr.print(f"[yellow]Warning:[/yellow] Interface change detection failed: {e}")
-        interface_changes = []
-
-    # Step 6: git churn for blast radius entries
-    progress.update(task, description="Computing churn scores...")
-    for entry in blast_radius:
-        try:
-            entry.churn_score = get_git_churn(repo, entry.path, repo=repo_obj)
-        except Exception as e:
-            stderr.print(f"[yellow]Warning:[/yellow] Churn score failed for {entry.path}: {e}")
-            entry.churn_score = None
-
-    # Security: pattern signal detection (deterministic, fast, no API)
-    progress.update(task, description="Scanning for security signals...")
-    try:
-        pattern_signals = detect_pattern_signals(changed_files)
-    except Exception as e:
-        stderr.print(f"[yellow]Warning:[/yellow] Security signal detection failed: {e}")
-        pattern_signals = []
-
-    try:
-        dependency_issues = check_dependency_integrity(changed_files, osv_check=check_osv)
-    except Exception as e:
-        stderr.print(f"[yellow]Warning:[/yellow] Dependency integrity check failed: {e}")
-        dependency_issues = []
-
-    # Metadata (best-effort)
-    try:
-        metadata = get_pr_metadata(repo, refs.base, refs.head)
-    except Exception as e:
-        stderr.print(f"[yellow]Warning:[/yellow] PR metadata lookup failed: {e}")
-        metadata = {}
-
-    # Step 7: AI analysis (up to 5 API calls when all features active)
-    call_count = 4 if pattern_signals else 3
-    progress.update(task, description=f"Running AI analysis ({call_count}+ API calls)...")
-    try:
-        ai_analysis = run_ai_analysis(
-            changed_files, blast_radius, repo,
-            pattern_signals or None,
-            anomaly_history=anomaly_history,
-            hotspots=hotspots,
-        )
-    except Exception as e:
-        stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")
-        ai_analysis = AIAnalysis()
-
-    progress.remove_task(task)
-
-    return changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues
 
 
 def _resolve_refs(
@@ -507,14 +371,24 @@ def analyse(
         console=Console(stderr=True),
         transient=True,
     ) as progress:
-        changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
-            _run_pipeline(
-                repo, repo_obj, refs, max_depth, progress,
-                check_osv=check_osv,
-                anomaly_history=anomaly_history,
-                hotspots=hotspots,
-            )
+        analyzer = ImpactAnalyzer(
+            repo, repo_obj, refs,
+            max_depth=max_depth,
+            check_osv=check_osv,
+            anomaly_history=anomaly_history,
+            hotspots=hotspots,
         )
+        try:
+            changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
+                analyzer.run(progress)
+            )
+        except AnalyzerExit as exc:
+            if exc.message:
+                if exc.code != 0:
+                    stderr.print(f"[bold red]Error:[/bold red] {exc.message}")
+                else:
+                    stderr.print(exc.message)
+            sys.exit(exc.code)
 
     # Build title: from resolved PR or fall back to first commit message / SHA range
     if refs.pr_title is not None:
