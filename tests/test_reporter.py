@@ -16,6 +16,7 @@ from pr_impact.models import (
     DependencyIssue,
     InterfaceChange,
     SecuritySignal,
+    SourceLocation,
     TestGap,
     Verdict,
     VerdictBlocker,
@@ -853,8 +854,7 @@ def test_terminal_footer_shows_sarif_path():
 def _make_signal(severity: str = "high") -> SecuritySignal:
     return SecuritySignal(
         description="New network call in auth module",
-        file_path="src/auth/session.py",
-        line_number=47,
+        location=SourceLocation(file="src/auth/session.py", line=47),
         signal_type="network_call",
         severity=severity,
         why_unusual="No prior network access in this module.",
@@ -916,7 +916,7 @@ def test_markdown_security_signal_includes_line_number():
 
 def test_markdown_security_signal_no_line_number_when_none():
     sig = _make_signal()
-    sig.line_number = None
+    sig.location = SourceLocation(file=sig.location.file)
     report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
     md = render_markdown(report)
     assert "line None" not in md
@@ -1052,7 +1052,7 @@ def test_sarif_security_signal_includes_line_number_when_present():
 
 def test_sarif_security_signal_no_location_when_empty_file_path():
     sig = _make_signal()
-    sig.file_path = ""
+    sig.location = SourceLocation(file="")
     report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
     sarif = json.loads(render_sarif(report))
     results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
@@ -1133,7 +1133,7 @@ def test_terminal_security_signals_both_signals_and_dep_issues():
 def test_sarif_security_signal_no_region_when_line_number_is_none():
     """When line_number is None, SARIF location omits 'region' key."""
     sig = _make_signal()
-    sig.line_number = None
+    sig.location = SourceLocation(file=sig.location.file)
     report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
     sarif = json.loads(render_sarif(report))
     results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
@@ -1145,7 +1145,7 @@ def test_sarif_security_signal_no_region_when_line_number_is_none():
 def test_terminal_security_signal_no_colon_none_when_line_number_is_none():
     """When line_number is None, ':None' must not appear in terminal output."""
     sig = _make_signal()
-    sig.line_number = None
+    sig.location = SourceLocation(file=sig.location.file)
     report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
     out = _capture_terminal(report)
     assert ":None" not in out

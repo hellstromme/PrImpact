@@ -12,9 +12,10 @@ def test_pipeline_modules_do_not_cross_import():
     All other pipeline modules must only import from that exempt set.
     """
     pkg = Path(__file__).parent.parent / "pr_impact"
-    # Exempt: cli (orchestrator), models/prompts (shared data), ast_extractor/history (shared utilities), __init__
+    # Exempt: cli/analyzer (orchestrator layer), models/prompts (shared data),
+    # ast_extractor/history (shared utilities), __init__
     exempt = {
-        "__init__", "models", "prompts", "cli", "ast_extractor", "history",
+        "__init__", "models", "prompts", "cli", "analyzer", "ast_extractor", "history",
     }
 
     violations: list[str] = []

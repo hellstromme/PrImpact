@@ -30,6 +30,7 @@ from .models import (
     DependencyIssue,
     SemanticVerdict,
     SecuritySignal,
+    SourceLocation,
     TestGap,
     Verdict,
     VerdictBlocker,
@@ -184,8 +185,10 @@ def run_ai_analysis(
             result.security_signals = [
                 SecuritySignal(
                     description=s.get("description", ""),
-                    file_path=s.get("file_path", ""),
-                    line_number=s.get("line_number") if isinstance(s.get("line_number"), int) else None,
+                    location=SourceLocation(
+                        file=s.get("file_path", ""),
+                        line=s.get("line_number") if isinstance(s.get("line_number"), int) else None,
+                    ),
                     signal_type=s.get("signal_type", ""),
                     severity=s.get("severity", "low"),
                     why_unusual=s.get("why_unusual", ""),
@@ -269,7 +272,7 @@ def run_verdict_analysis(
         if not ai_analysis.security_signals:
             return "(none)"
         return "\n".join(
-            f"- [{s.severity.upper()}] {s.signal_type}: {s.description} ({s.file_path})"
+            f"- [{s.severity.upper()}] {s.signal_type}: {s.description} ({s.location.file})"
             for s in ai_analysis.security_signals
         )
 

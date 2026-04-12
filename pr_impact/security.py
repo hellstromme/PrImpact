@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .models import ChangedFile, DependencyIssue, SecuritySignal
+from .models import ChangedFile, DependencyIssue, SecuritySignal, SourceLocation
 
 # ---------------------------------------------------------------------------
 # Pattern detection
@@ -151,8 +151,7 @@ def detect_pattern_signals(changed_files: list[ChangedFile]) -> list[SecuritySig
                     )
                     signals.append(SecuritySignal(
                         description=description,
-                        file_path=f.path,
-                        line_number=line_no,
+                        location=SourceLocation(file=f.path, line=line_no),
                         signal_type=signal_type,
                         severity=severity,
                         why_unusual=why_unusual,

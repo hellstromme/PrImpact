@@ -8,15 +8,14 @@ import git
 import pytest
 from click.testing import CliRunner
 
+from pr_impact.analyzer import ImpactAnalyzer, _invert_graph
 from pr_impact.cli import (
     _FALLBACK_BASE,
     _FALLBACK_HEAD,
     _format_pr_title,
     _get_github_token,
-    _invert_graph,
     _print_banner,
     _resolve_refs,
-    _run_pipeline,
     _warn_no_github_token,
     _write_outputs,
     main,
@@ -82,13 +81,13 @@ def _base_patches():
     """Return context manager patching all pipeline I/O boundaries."""
     return [
         patch("pr_impact.cli.git.Repo", return_value=MagicMock()),
-        patch("pr_impact.cli.get_changed_files", return_value=[make_file("foo.py")]),
-        patch("pr_impact.cli.build_import_graph", return_value={}),
-        patch("pr_impact.cli.get_blast_radius", return_value=[]),
-        patch("pr_impact.cli.get_git_churn", return_value=0.0),
-        patch("pr_impact.cli.get_pr_metadata", return_value={}),
+        patch("pr_impact.analyzer.get_changed_files", return_value=[make_file("foo.py")]),
+        patch("pr_impact.analyzer.build_import_graph", return_value={}),
+        patch("pr_impact.analyzer.get_blast_radius", return_value=[]),
+        patch("pr_impact.analyzer.get_git_churn", return_value=0.0),
+        patch("pr_impact.analyzer.get_pr_metadata", return_value={}),
         patch(
-            "pr_impact.cli.run_ai_analysis",
+            "pr_impact.analyzer.run_ai_analysis",
             return_value=AIAnalysis(summary="test summary"),
         ),
     ]
@@ -104,7 +103,7 @@ def test_analyse_warns_when_api_key_missing(runner):
     patches = _base_patches()
     # Replace the run_ai_analysis patch with a real ValueError (what ai_layer raises)
     patches[-1] = patch(
-        "pr_impact.cli.run_ai_analysis",
+        "pr_impact.analyzer.run_ai_analysis",
         side_effect=ValueError("ANTHROPIC_API_KEY is not set"),
     )
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
@@ -130,7 +129,7 @@ def test_analyse_exits_1_when_repo_invalid(runner):
 def test_analyse_exits_1_when_get_changed_files_raises(runner):
     with (
         patch("pr_impact.cli.git.Repo", return_value=MagicMock()),
-        patch("pr_impact.cli.get_changed_files", side_effect=RuntimeError("boom")),
+        patch("pr_impact.analyzer.get_changed_files", side_effect=RuntimeError("boom")),
     ):
         result = runner.invoke(
             main,
@@ -143,7 +142,7 @@ def test_analyse_exits_1_when_get_changed_files_raises(runner):
 def test_analyse_exits_0_when_no_changed_files(runner):
     with (
         patch("pr_impact.cli.git.Repo", return_value=MagicMock()),
-        patch("pr_impact.cli.get_changed_files", return_value=[]),
+        patch("pr_impact.analyzer.get_changed_files", return_value=[]),
     ):
         result = runner.invoke(
             main,
@@ -284,12 +283,12 @@ def test_analyse_churn_called_for_blast_radius_entries(runner):
     blast_entry = BlastRadiusEntry(path="dep.py", distance=1, imported_symbols=[], churn_score=None)
     patches = [
         patch("pr_impact.cli.git.Repo", return_value=MagicMock()),
-        patch("pr_impact.cli.get_changed_files", return_value=[make_file("foo.py")]),
-        patch("pr_impact.cli.build_import_graph", return_value={}),
-        patch("pr_impact.cli.get_blast_radius", return_value=[blast_entry]),
-        patch("pr_impact.cli.get_git_churn", return_value=5.0),
-        patch("pr_impact.cli.get_pr_metadata", return_value={}),
-        patch("pr_impact.cli.run_ai_analysis", return_value=AIAnalysis()),
+        patch("pr_impact.analyzer.get_changed_files", return_value=[make_file("foo.py")]),
+        patch("pr_impact.analyzer.build_import_graph", return_value={}),
+        patch("pr_impact.analyzer.get_blast_radius", return_value=[blast_entry]),
+        patch("pr_impact.analyzer.get_git_churn", return_value=5.0),
+        patch("pr_impact.analyzer.get_pr_metadata", return_value={}),
+        patch("pr_impact.analyzer.run_ai_analysis", return_value=AIAnalysis()),
     ]
     with (
         patches[0],
@@ -733,36 +732,36 @@ def test_resolve_refs_non_interactive_returns_fallback(mock_repo):
 
 
 def _pipeline_patches():
-    """Patches for all external I/O in _run_pipeline."""
+    """Patches for all external I/O in ImpactAnalyzer.run()."""
     return [
-        patch("pr_impact.cli.get_changed_files", return_value=[make_file("foo.py")]),
-        patch("pr_impact.cli.build_import_graph", return_value={}),
-        patch("pr_impact.cli.get_blast_radius", return_value=[]),
-        patch("pr_impact.cli.get_git_churn", return_value=0.0),
-        patch("pr_impact.cli.get_pr_metadata", return_value={}),
-        patch("pr_impact.cli.run_ai_analysis", return_value=AIAnalysis(summary="ok")),
-        patch("pr_impact.cli.detect_pattern_signals", return_value=[]),
-        patch("pr_impact.cli.check_dependency_integrity", return_value=[]),
+        patch("pr_impact.analyzer.get_changed_files", return_value=[make_file("foo.py")]),
+        patch("pr_impact.analyzer.build_import_graph", return_value={}),
+        patch("pr_impact.analyzer.get_blast_radius", return_value=[]),
+        patch("pr_impact.analyzer.get_git_churn", return_value=0.0),
+        patch("pr_impact.analyzer.get_pr_metadata", return_value={}),
+        patch("pr_impact.analyzer.run_ai_analysis", return_value=AIAnalysis(summary="ok")),
+        patch("pr_impact.analyzer.detect_pattern_signals", return_value=[]),
+        patch("pr_impact.analyzer.check_dependency_integrity", return_value=[]),
     ]
 
 
 def test_run_pipeline_exits_1_when_get_changed_files_raises():
     refs = RefsResult(base="abc", head="def")
     with (
-        patch("pr_impact.cli.get_changed_files", side_effect=RuntimeError("git boom")),
+        patch("pr_impact.analyzer.get_changed_files", side_effect=RuntimeError("git boom")),
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert exc_info.value.code == 1
 
 
 def test_run_pipeline_exits_0_when_no_changed_files():
     refs = RefsResult(base="abc", head="def")
     with (
-        patch("pr_impact.cli.get_changed_files", return_value=[]),
+        patch("pr_impact.analyzer.get_changed_files", return_value=[]),
         pytest.raises(SystemExit) as exc_info,
     ):
-        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert exc_info.value.code == 0
 
 
@@ -770,7 +769,7 @@ def test_run_pipeline_returns_six_tuple():
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        result = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        result = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     changed, blast, _, ai, _, dep = result
     assert changed[0].path == "foo.py"
     assert blast == []
@@ -789,7 +788,7 @@ def test_run_pipeline_passes_max_depth_to_blast_radius():
         patches[4],
         patches[5],
     ):
-        _run_pipeline(".", MagicMock(), refs, 7, MagicMock())
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=7).run(MagicMock())
     args, kwargs = mock_blast.call_args
     max_depth_val = kwargs.get("max_depth", args[2] if len(args) > 2 else None)
     assert max_depth_val == 7
@@ -799,9 +798,9 @@ def test_run_pipeline_import_graph_failure_continues():
     """Import graph failure is non-fatal — pipeline continues with empty graph."""
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
-    patches[1] = patch("pr_impact.cli.build_import_graph", side_effect=RuntimeError("oops"))
+    patches[1] = patch("pr_impact.analyzer.build_import_graph", side_effect=RuntimeError("oops"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        changed, _, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -809,9 +808,9 @@ def test_run_pipeline_blast_radius_failure_continues():
     """Blast radius failure is non-fatal — pipeline continues with empty list."""
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
-    patches[2] = patch("pr_impact.cli.get_blast_radius", side_effect=RuntimeError("oops"))
+    patches[2] = patch("pr_impact.analyzer.get_blast_radius", side_effect=RuntimeError("oops"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, blast, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, blast, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert blast == []
 
 
@@ -819,9 +818,9 @@ def test_run_pipeline_ai_failure_returns_empty_analysis():
     """AI analysis failure is non-fatal — returns empty AIAnalysis."""
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
-    patches[5] = patch("pr_impact.cli.run_ai_analysis", side_effect=ValueError("no key"))
+    patches[5] = patch("pr_impact.analyzer.run_ai_analysis", side_effect=ValueError("no key"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, _, _, ai, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, _, ai, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert ai.summary == ""
 
 
@@ -836,9 +835,9 @@ def test_run_pipeline_classifier_failure_continues():
         patches[3],
         patches[4],
         patches[5],
-        patch("pr_impact.cli.classify_changed_file", side_effect=RuntimeError("parse error")),
+        patch("pr_impact.analyzer.classify_changed_file", side_effect=RuntimeError("parse error")),
     ):
-        changed, _, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -853,9 +852,9 @@ def test_run_pipeline_interface_change_failure_continues():
         patches[3],
         patches[4],
         patches[5],
-        patch("pr_impact.cli.get_interface_changes", side_effect=RuntimeError("oops")),
+        patch("pr_impact.analyzer.get_interface_changes", side_effect=RuntimeError("oops")),
     ):
-        _, _, interface, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, interface, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert interface == []
 
 
@@ -870,9 +869,9 @@ def test_run_pipeline_ensure_commits_warning_on_failure():
         patches[3],
         patches[4],
         patches[5],
-        patch("pr_impact.cli.ensure_commits_present", side_effect=RuntimeError("fetch failed")),
+        patch("pr_impact.analyzer.ensure_commits_present", side_effect=RuntimeError("fetch failed")),
     ):
-        changed, _, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        changed, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert changed  # pipeline completed despite the warning
 
 
@@ -881,10 +880,10 @@ def test_run_pipeline_churn_failure_sets_none_and_continues():
     refs = RefsResult(base="abc", head="def")
     blast_entry = MagicMock()
     patches = _pipeline_patches()
-    patches[2] = patch("pr_impact.cli.get_blast_radius", return_value=[blast_entry])
-    patches[3] = patch("pr_impact.cli.get_git_churn", side_effect=RuntimeError("git error"))
+    patches[2] = patch("pr_impact.analyzer.get_blast_radius", return_value=[blast_entry])
+    patches[3] = patch("pr_impact.analyzer.get_git_churn", side_effect=RuntimeError("git error"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, blast, _, _, _, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, blast, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert blast_entry.churn_score is None
 
 
@@ -892,9 +891,9 @@ def test_run_pipeline_metadata_failure_returns_empty_dict():
     """get_pr_metadata raising is non-fatal — metadata falls back to {}."""
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
-    patches[4] = patch("pr_impact.cli.get_pr_metadata", side_effect=RuntimeError("no history"))
+    patches[4] = patch("pr_impact.analyzer.get_pr_metadata", side_effect=RuntimeError("no history"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, _, _, _, meta, _ = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, _, _, meta, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert meta == {}
 
 
@@ -952,9 +951,9 @@ def test_run_pipeline_skips_ensure_commits_when_no_pr_number():
         patches[3],
         patches[4],
         patches[5],
-        patch("pr_impact.cli.ensure_commits_present") as mock_ensure,
+        patch("pr_impact.analyzer.ensure_commits_present") as mock_ensure,
     ):
-        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     mock_ensure.assert_not_called()
 
 
@@ -1197,7 +1196,7 @@ def test_fail_on_severity_none_always_exits_0(runner):
     """--fail-on-severity none (default) never fails even with high-severity anomalies."""
     patches = _base_patches()
     patches[-1] = patch(
-        "pr_impact.cli.run_ai_analysis",
+        "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_HIGH_ANOMALY]),
     )
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
@@ -1214,7 +1213,7 @@ def test_fail_on_severity_high_exits_1_on_high_anomaly(runner):
     """--fail-on-severity high exits 1 when a high-severity anomaly is present."""
     patches = _base_patches()
     patches[-1] = patch(
-        "pr_impact.cli.run_ai_analysis",
+        "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_HIGH_ANOMALY]),
     )
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
@@ -1231,7 +1230,7 @@ def test_fail_on_severity_high_exits_0_when_no_anomalies(runner):
     """--fail-on-severity high exits 0 when there are no anomalies at all."""
     patches = _base_patches()
     patches[-1] = patch(
-        "pr_impact.cli.run_ai_analysis",
+        "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[]),
     )
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
@@ -1248,7 +1247,7 @@ def test_fail_on_severity_medium_exits_1_on_medium_anomaly(runner):
     """--fail-on-severity medium exits 1 when a medium-severity anomaly is present."""
     patches = _base_patches()
     patches[-1] = patch(
-        "pr_impact.cli.run_ai_analysis",
+        "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_MEDIUM_ANOMALY]),
     )
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
@@ -1265,7 +1264,7 @@ def test_fail_on_severity_medium_threshold_skips_low_anomaly(runner):
     """--fail-on-severity medium exits 0 when only a low-severity anomaly is present."""
     patches = _base_patches()
     patches[-1] = patch(
-        "pr_impact.cli.run_ai_analysis",
+        "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_LOW_ANOMALY]),
     )
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
@@ -1282,7 +1281,7 @@ def test_fail_on_severity_low_exits_1_on_low_anomaly(runner):
     """--fail-on-severity low exits 1 when a low-severity anomaly is present."""
     patches = _base_patches()
     patches[-1] = patch(
-        "pr_impact.cli.run_ai_analysis",
+        "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_LOW_ANOMALY]),
     )
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
@@ -1311,10 +1310,10 @@ def test_run_pipeline_detect_signals_failure_continues():
         patches[3],
         patches[4],
         patches[5],
-        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("scan error")),
+        patch("pr_impact.analyzer.detect_pattern_signals", side_effect=RuntimeError("scan error")),
         patches[7],
     ):
-        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     # pipeline completed; dep is from check_dependency_integrity mock (returns [])
     assert dep == []
 
@@ -1330,11 +1329,11 @@ def test_run_pipeline_detect_signals_failure_logs_warning():
         patches[3],
         patches[4],
         patches[5],
-        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("scan error")),
+        patch("pr_impact.analyzer.detect_pattern_signals", side_effect=RuntimeError("scan error")),
         patches[7],
-        patch("pr_impact.cli.stderr") as mock_stderr,
+        patch("pr_impact.analyzer.stderr") as mock_stderr,
     ):
-        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert mock_stderr.print.called
     assert "scan error" in mock_stderr.print.call_args[0][0]
 
@@ -1351,9 +1350,9 @@ def test_run_pipeline_check_integrity_failure_continues():
         patches[4],
         patches[5],
         patches[6],
-        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("dep error")),
+        patch("pr_impact.analyzer.check_dependency_integrity", side_effect=RuntimeError("dep error")),
     ):
-        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert dep == []
 
 
@@ -1369,10 +1368,10 @@ def test_run_pipeline_check_integrity_failure_logs_warning():
         patches[4],
         patches[5],
         patches[6],
-        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("dep error")),
-        patch("pr_impact.cli.stderr") as mock_stderr,
+        patch("pr_impact.analyzer.check_dependency_integrity", side_effect=RuntimeError("dep error")),
+        patch("pr_impact.analyzer.stderr") as mock_stderr,
     ):
-        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert mock_stderr.print.called
     assert "dep error" in mock_stderr.print.call_args[0][0]
 
@@ -1383,11 +1382,11 @@ def test_run_pipeline_detect_signals_warning_contains_warning_prefix():
     patches = _pipeline_patches()
     with (
         patches[0], patches[1], patches[2], patches[3], patches[4], patches[5],
-        patch("pr_impact.cli.detect_pattern_signals", side_effect=RuntimeError("boom")),
+        patch("pr_impact.analyzer.detect_pattern_signals", side_effect=RuntimeError("boom")),
         patches[7],
-        patch("pr_impact.cli.stderr") as mock_stderr,
+        patch("pr_impact.analyzer.stderr") as mock_stderr,
     ):
-        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert mock_stderr.print.called
     text = mock_stderr.print.call_args[0][0]
     assert "Warning" in text
@@ -1399,10 +1398,10 @@ def test_run_pipeline_check_integrity_warning_contains_warning_prefix():
     patches = _pipeline_patches()
     with (
         patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6],
-        patch("pr_impact.cli.check_dependency_integrity", side_effect=RuntimeError("boom")),
-        patch("pr_impact.cli.stderr") as mock_stderr,
+        patch("pr_impact.analyzer.check_dependency_integrity", side_effect=RuntimeError("boom")),
+        patch("pr_impact.analyzer.stderr") as mock_stderr,
     ):
-        _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert mock_stderr.print.called
     text = mock_stderr.print.call_args[0][0]
     assert "Warning" in text
@@ -1414,24 +1413,24 @@ def test_run_pipeline_dependency_issues_returned_as_sixth_element():
                                 description="suspicious", severity="high")
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
-    patches[7] = patch("pr_impact.cli.check_dependency_integrity", return_value=[dep_issue])
+    patches[7] = patch("pr_impact.analyzer.check_dependency_integrity", return_value=[dep_issue])
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, _, _, _, _, dep = _run_pipeline(".", MagicMock(), refs, 3, MagicMock())
+        _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert dep == [dep_issue]
 
 
 def test_run_pipeline_progress_shows_4_calls_when_signals_present():
     """When detect_pattern_signals returns signals, progress message says 4 API calls."""
-    from pr_impact.models import SecuritySignal
-    sig = SecuritySignal(description="x", file_path="f.py", line_number=1,
+    from pr_impact.models import SecuritySignal, SourceLocation
+    sig = SecuritySignal(description="x", location=SourceLocation(file="f.py", line=1),
                          signal_type="shell_invoke", severity="high",
                          why_unusual="u", suggested_action="s")
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
-    patches[6] = patch("pr_impact.cli.detect_pattern_signals", return_value=[sig])
+    patches[6] = patch("pr_impact.analyzer.detect_pattern_signals", return_value=[sig])
     mock_progress = MagicMock()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _run_pipeline(".", MagicMock(), refs, 3, mock_progress)
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(mock_progress)
     descriptions = [str(c) for c in mock_progress.update.call_args_list]
     assert any("4" in d for d in descriptions)
 
@@ -1442,7 +1441,7 @@ def test_run_pipeline_progress_shows_3_calls_when_no_signals():
     patches = _pipeline_patches()
     mock_progress = MagicMock()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _run_pipeline(".", MagicMock(), refs, 3, mock_progress)
+        ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(mock_progress)
     descriptions = [str(c) for c in mock_progress.update.call_args_list]
     assert any("3" in d for d in descriptions)
 
@@ -1466,7 +1465,7 @@ def test_analyse_dependency_issues_in_report(runner):
         patches[4],
         patches[5],
         patches[6],
-        patch("pr_impact.cli.check_dependency_integrity", return_value=[dep_issue]),
+        patch("pr_impact.analyzer.check_dependency_integrity", return_value=[dep_issue]),
     ):
         result = runner.invoke(
             main,
@@ -1614,8 +1613,8 @@ def test_analyse_check_osv_passes_flag_to_check_dependency_integrity(runner):
     """--check-osv flag is forwarded as osv_check=True to check_dependency_integrity."""
     patches = _base_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
-            patch("pr_impact.cli.detect_pattern_signals", return_value=[]), \
-            patch("pr_impact.cli.check_dependency_integrity", return_value=[]) as mock_dep:
+            patch("pr_impact.analyzer.detect_pattern_signals", return_value=[]), \
+            patch("pr_impact.analyzer.check_dependency_integrity", return_value=[]) as mock_dep:
         runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--check-osv"],

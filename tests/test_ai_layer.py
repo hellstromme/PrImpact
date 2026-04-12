@@ -1034,7 +1034,7 @@ def test_run_ai_analysis_non_int_line_number_becomes_none(monkeypatch, tmp_path)
     sig = _make_security_signal()
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
         result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[sig])
-    assert result.security_signals[0].line_number is None
+    assert result.security_signals[0].location.line is None
 
 
 # ---------------------------------------------------------------------------
