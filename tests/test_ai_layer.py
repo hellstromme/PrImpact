@@ -515,11 +515,19 @@ def test_run_ai_analysis_call3_failure_prints_warning(monkeypatch, tmp_path, cap
 
 
 def test_log_response_writes_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_IMPACT_DUMP_RESPONSES", "1")
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
     _log_response("test_label", "response content")
-    out_file = tmp_path / "primpact_test_label.txt"
-    assert out_file.exists()
-    assert out_file.read_text(encoding="utf-8") == "response content"
+    files = list(tmp_path.glob("primpact_test_label_*.txt"))
+    assert len(files) == 1
+    assert files[0].read_text(encoding="utf-8") == "response content"
+
+
+def test_log_response_noop_without_env_var(tmp_path, monkeypatch):
+    monkeypatch.delenv("PR_IMPACT_DUMP_RESPONSES", raising=False)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    _log_response("test_label", "response content")
+    assert list(tmp_path.glob("primpact_*.txt")) == []
 
 
 def test_log_response_silently_ignores_write_failure(tmp_path):
@@ -1282,14 +1290,12 @@ def test_run_verdict_missing_blockers_key_produces_empty_list(monkeypatch):
 
 
 def test_parse_json_safe_returns_list_when_top_level_array():
-    from pr_impact.ai_client import _parse_json_safe
     result = _parse_json_safe('[{"a": 1}, {"b": 2}]')
     assert result == [{"a": 1}, {"b": 2}]
 
 
 def test_parse_json_safe_recovers_list_from_prose_prefix():
     """Fallback regex should extract [...] when prose precedes the array."""
-    from pr_impact.ai_client import _parse_json_safe
     result = _parse_json_safe('Here is the result:\n[{"x": 1}]')
     assert result == [{"x": 1}]
 
@@ -1402,12 +1408,13 @@ def test_log_response_silently_ignores_nonexistent_tempdir(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_call_api_passes_model_to_call_claude():
-    """model arg is forwarded all the way to messages.create."""
+def test_call_api_always_uses_fixed_model():
+    """call_api always uses the module-level MODEL constant, not a caller-supplied value."""
+    from pr_impact.ai_client import MODEL
     r = json.dumps({"ok": True})
     client = _mock_client(r)
-    call_api(client, "prompt", "label", model="claude-haiku-4-5-20251001")
-    assert client.messages.create.call_args[1]["model"] == "claude-haiku-4-5-20251001"
+    call_api(client, "prompt", "label")
+    assert client.messages.create.call_args[1]["model"] == MODEL
 
 
 def test_call_api_handles_parse_json_safe_exception(capsys):
@@ -1636,17 +1643,18 @@ def test_should_run_semantic_equivalence_small_diff_no_interface_change():
 # ---------------------------------------------------------------------------
 
 
-def test_run_ai_analysis_custom_model_passed_to_all_calls(monkeypatch, tmp_path):
-    """When model is overridden, all messages.create calls use the custom model."""
+def test_run_ai_analysis_always_uses_fixed_model(monkeypatch, tmp_path):
+    """All messages.create calls always use the fixed MODEL constant."""
+    from pr_impact.ai_client import MODEL
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
     r2 = json.dumps({"anomalies": []})
     r3 = json.dumps({"test_gaps": []})
     client = _mock_client(r1, r2, r3)
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
-        run_ai_analysis([make_file()], [], str(tmp_path), model="claude-haiku-4-5-20251001")
+        run_ai_analysis([make_file()], [], str(tmp_path))
     for call in client.messages.create.call_args_list:
-        assert call[1]["model"] == "claude-haiku-4-5-20251001"
+        assert call[1]["model"] == MODEL
 
 
 def test_run_ai_analysis_find_test_files_exception_graceful(monkeypatch, tmp_path, capsys):
@@ -1720,16 +1728,15 @@ def test_run_ai_analysis_neighbour_sigs_success_no_warning_printed(monkeypatch, 
 
 
 # ---------------------------------------------------------------------------
-# run_verdict_analysis: custom model
+# run_verdict_analysis: model is always the fixed MODEL constant
 # ---------------------------------------------------------------------------
 
 
-def test_run_verdict_custom_model_passed_to_call_api(monkeypatch):
-    """model parameter overrides the default MODEL in the messages.create call."""
+def test_run_verdict_always_uses_fixed_model(monkeypatch):
+    """run_verdict_analysis always uses the fixed MODEL, no caller override possible."""
+    from pr_impact.ai_client import MODEL
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     client = _mock_client(_verdict_response())
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
-        run_verdict_analysis(
-            make_report().ai_analysis, [], model="claude-haiku-4-5-20251001"
-        )
-    assert client.messages.create.call_args[1]["model"] == "claude-haiku-4-5-20251001"
+        run_verdict_analysis(make_report().ai_analysis, [])
+    assert client.messages.create.call_args[1]["model"] == MODEL

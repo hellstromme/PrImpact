@@ -13,13 +13,8 @@ def test_pipeline_modules_do_not_cross_import():
     """
     pkg = Path(__file__).parent.parent / "pr_impact"
     # Exempt: cli (orchestrator), models/prompts (shared data), ast_extractor/history (shared utilities), __init__
-    # Also exempt: helper modules called by exactly one pipeline module each
-    #   - config (called by cli only)
-    #   - language_resolvers (called by dependency_graph only)
-    #   - ai_client, ai_context (called by ai_layer only)
     exempt = {
         "__init__", "models", "prompts", "cli", "ast_extractor", "history",
-        "config", "language_resolvers", "ai_client", "ai_context",
     }
 
     violations: list[str] = []

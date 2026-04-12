@@ -36,7 +36,7 @@ class _ProgressProtocol(Protocol):
 
     def add_task(self, description: str, total: float | None = None) -> object: ...
     def update(self, task_id: object, **kwargs: object) -> None: ...
-    def remove(self, task_id: object) -> None: ...
+    def remove_task(self, task_id: object) -> None: ...
 
 
 # Default SHAs used when no PR or explicit refs are supplied
@@ -454,7 +454,10 @@ def analyse(
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
         _print_banner()
-    load_config()
+    try:
+        load_config()
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Could not load config: {e}")
 
     # --pr cannot be combined with --base or --head
     if pr_number is not None and (base is not None or head is not None):

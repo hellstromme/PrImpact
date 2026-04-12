@@ -239,7 +239,7 @@ def _probe_js_extensions(raw: str, all_files: set[str]) -> str | None:
     for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
         if raw + ext in all_files:
             return raw + ext
-    for ext in (".ts", ".tsx", ".js", ".jsx"):
+    for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
         if raw + "/index" + ext in all_files:
             return raw + "/index" + ext
     return None
@@ -340,7 +340,7 @@ def resolve_go_import(
     (empty string when go.mod lives at the repo root).  Package directories are
     located at <module_root>/<suffix-after-module-name>/.
     """
-    if not module_name or not import_path.startswith(module_name):
+    if not module_name or (import_path != module_name and not import_path.startswith(module_name + "/")):
         return []
     suffix = import_path[len(module_name):].lstrip("/")
     if not suffix:

@@ -9,7 +9,7 @@ import os
 
 import anthropic
 
-from .ai_client import MODEL, call_api
+from .ai_client import call_api
 from .ai_context import (
     build_blast_radius_signatures,
     build_changed_files_before_signatures,
@@ -66,7 +66,6 @@ def run_ai_analysis(
     pattern_signals: list[SecuritySignal] | None = None,
     anomaly_history: list[dict] | None = None,
     hotspots: list[dict] | None = None,
-    model: str = MODEL,
 ) -> AIAnalysis:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -88,7 +87,6 @@ def run_ai_analysis(
             blast_radius_signatures=blast_sigs,
         ),
         "call1_summary",
-        model,
     )
     result.summary = data1.get("summary", "")
     result.decisions = [
@@ -128,7 +126,7 @@ def run_ai_analysis(
     if historical_ctx:
         anomaly_prompt = anomaly_prompt + f"\n\n{historical_ctx}"
 
-    data2 = call_api(client, anomaly_prompt, "call2_anomalies", model)
+    data2 = call_api(client, anomaly_prompt, "call2_anomalies")
     result.anomalies = [
         Anomaly(
             description=a.get("description", ""),
@@ -153,7 +151,6 @@ def run_ai_analysis(
             test_files=test_ctx,
         ),
         "call3_test_gaps",
-        model,
     )
     result.test_gaps = [
         TestGap(
@@ -175,7 +172,6 @@ def run_ai_analysis(
                 file_context=file_ctx,
             ),
             "call4_security",
-            model,
         )
         # data4 may be a list (the prompt returns an array) or a dict wrapping one
         if isinstance(data4, list):
@@ -212,7 +208,6 @@ def run_ai_analysis(
                 signatures_before_after=sigs_before_after,
             ),
             "call5_semantic",
-            model,
         )
         # Response may be a list or a dict wrapping a list
         if isinstance(data5, list):
@@ -239,7 +234,6 @@ def run_ai_analysis(
 def run_verdict_analysis(
     ai_analysis: AIAnalysis,
     dependency_issues: list[DependencyIssue],
-    model: str = MODEL,
 ) -> Verdict:
     """Run the verdict API call given a completed AI analysis and dependency issues.
 
@@ -299,7 +293,7 @@ def run_verdict_analysis(
         dependency_issues=_fmt_dependency_issues(),
     )
 
-    data = call_api(client, prompt, "call_verdict", model)
+    data = call_api(client, prompt, "call_verdict")
 
     if not isinstance(data, dict):
         raise ValueError(f"Verdict response was not a JSON object (got {type(data).__name__})")

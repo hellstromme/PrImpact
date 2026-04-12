@@ -23,14 +23,36 @@ _SIG_PY_KEEP = re.compile(
 _SIG_JS_KEEP = re.compile(
     r"^(?:import\s+|export\s+|(?:async\s+)?function\s+|class\s+|(?:const|let|var)\s+\w+\s*[=:])"
 )
+_SIG_GO_KEEP = re.compile(
+    r"^(?:import\s+|func\s+|type\s+|var\s+|const\s+|package\s+)"
+)
+_SIG_JAVA_KEEP = re.compile(
+    r"^(?:import\s+|package\s+|(?:(?:public|private|protected|static|abstract|final|synchronized|default)\s+)*(?:class|interface|enum|@interface)\s+|(?:(?:public|private|protected|static|abstract|final|synchronized|native|default)\s+)+[\w<\[\]]+\s+\w+\s*\()"
+)
+_SIG_CS_KEEP = re.compile(
+    r"^(?:using\s+|namespace\s+|(?:(?:public|private|protected|internal|static|abstract|sealed|partial|virtual|override|readonly|async|extern)\s+)*(?:class|interface|struct|enum|record)\s+|(?:(?:public|private|protected|internal|static|abstract|virtual|override|readonly|async|sealed|partial)\s+)+[\w<\[\]?]+\s+\w+\s*[\(;])"
+)
+_SIG_RUBY_KEEP = re.compile(
+    r"^(?:require\s+|require_relative\s+|def\s+|class\s+|module\s+|attr_(?:reader|writer|accessor)\s+)"
+)
 
-_TEST_EXTENSIONS = {".py", ".ts", ".js", ".tsx", ".jsx"}
+_TEST_EXTENSIONS = {".py", ".ts", ".js", ".tsx", ".jsx", ".go", ".java", ".cs", ".rb"}
+
+_SIG_KEEP_BY_LANGUAGE: dict[str, re.Pattern] = {
+    "python": _SIG_PY_KEEP,
+    "javascript": _SIG_JS_KEEP,
+    "typescript": _SIG_JS_KEEP,
+    "go": _SIG_GO_KEEP,
+    "java": _SIG_JAVA_KEEP,
+    "csharp": _SIG_CS_KEEP,
+    "ruby": _SIG_RUBY_KEEP,
+}
 
 
 def _extract_signatures(content: str, language: str) -> str:
     """Return import lines and def/class declaration lines, stripping bodies."""
+    keep = _SIG_KEEP_BY_LANGUAGE.get(language, _SIG_JS_KEEP)
     lines = content.splitlines()
-    keep = _SIG_PY_KEEP if language == "python" else _SIG_JS_KEEP
     return "\n".join(line.rstrip() for line in lines if keep.match(line))
 
 

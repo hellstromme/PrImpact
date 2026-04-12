@@ -47,6 +47,13 @@ def load_config() -> None:
     if os.environ.get("ANTHROPIC_API_KEY"):
         return
 
+    if not isinstance(api_key, str):
+        _stderr.print(
+            f"[bold red]Error:[/bold red] Config key 'anthropic_api_key' must be a string, "
+            f"got {type(api_key).__name__}"
+        )
+        return
+
     expanded = os.path.expandvars(api_key)
     if expanded == api_key and ("%" in api_key or "$" in api_key):
         _stderr.print(
