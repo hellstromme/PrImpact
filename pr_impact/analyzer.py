@@ -15,7 +15,7 @@ from .ai_layer import run_ai_analysis
 from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
-from .models import AIAnalysis, RefsResult
+from .models import AIAnalysis, BlastRadiusEntry, ChangedFile, DependencyIssue, InterfaceChange, RefsResult
 from .security import check_dependency_integrity, detect_pattern_signals
 
 import git
@@ -58,7 +58,9 @@ class ImpactAnalyzer:
         self.anomaly_history = anomaly_history
         self.hotspots = hotspots
 
-    def run(self, progress: object) -> tuple:
+    def run(
+        self, progress: object
+    ) -> tuple[list[ChangedFile], list[BlastRadiusEntry], list[InterfaceChange], AIAnalysis, dict, list[DependencyIssue]]:
         """Execute all pipeline steps with an injected progress object.
 
         Returns (changed_files, blast_radius, interface_changes, ai_analysis,

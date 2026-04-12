@@ -770,9 +770,9 @@ def test_run_pipeline_returns_six_tuple():
     patches = _pipeline_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
-    changed, blast, _, ai, _, dep = result
+    changed, _blast, _, ai, _, dep = result
     assert changed[0].path == "foo.py"
-    assert blast == []
+    assert _blast == []
     assert ai.summary == "ok"
     assert dep == []
 
@@ -787,6 +787,8 @@ def test_run_pipeline_passes_max_depth_to_blast_radius():
         patches[3],
         patches[4],
         patches[5],
+        patches[6],
+        patches[7],
     ):
         ImpactAnalyzer(".", MagicMock(), refs, max_depth=7).run(MagicMock())
     args, kwargs = mock_blast.call_args
