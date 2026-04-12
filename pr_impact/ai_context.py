@@ -242,9 +242,10 @@ def build_security_signals_context(
         parts: list[str] = []
         for sig in pattern_signals:
             line_info = f" line {sig.location.line}" if sig.location.line else ""
+            symbol_info = f":{sig.location.symbol}" if sig.location.symbol else ""
             parts.append(
                 f"- [{sig.severity.upper()}] {sig.signal_type}: {sig.description}"
-                f"  ({sig.location.file}{line_info})"
+                f"  ({sig.location.file}{symbol_info}{line_info})"
             )
         signals_text = "\n".join(parts)
 

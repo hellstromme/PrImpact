@@ -188,6 +188,7 @@ def run_ai_analysis(
                     location=SourceLocation(
                         file=s.get("file_path", ""),
                         line=s.get("line_number") if isinstance(s.get("line_number"), int) else None,
+                        symbol=s.get("symbol") if isinstance(s.get("symbol"), str) else None,
                     ),
                     signal_type=s.get("signal_type", ""),
                     severity=s.get("severity", "low"),

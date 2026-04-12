@@ -154,8 +154,9 @@ def render_markdown(report: ImpactReport) -> str:
         for sig in report.ai_analysis.security_signals:
             icon = _sev(sig.severity).icon
             line_info = f" · line {sig.location.line}" if sig.location.line else ""
+            symbol_info = f":{sig.location.symbol}" if sig.location.symbol else ""
             lines.append(f"### {icon} {sig.severity.upper()} — {sig.description}")
-            lines.append(f"**File:** `{sig.location.file}`{line_info}")
+            lines.append(f"**File:** `{sig.location.file}{symbol_info}`{line_info}")
             if sig.why_unusual:
                 lines.append(f"**Why this is unusual:** {sig.why_unusual}")
             if sig.suggested_action:
@@ -296,7 +297,10 @@ def render_sarif(report: ImpactReport) -> str:
                 physical_loc: dict = {"artifactLocation": {"uri": sig.location.file}}
                 if sig.location.line is not None:
                     physical_loc["region"] = {"startLine": sig.location.line}
-                result["locations"] = [{"physicalLocation": physical_loc}]
+                loc_dict: dict = {"physicalLocation": physical_loc}
+                if sig.location.symbol:
+                    loc_dict["logicalLocations"] = [{"name": sig.location.symbol}]
+                result["locations"] = [loc_dict]
             results.append(result)
 
     if report.dependency_issues:
@@ -550,11 +554,12 @@ def _render_security_section(console: Console, report: ImpactReport) -> None:
         color = _sev_color(sig.severity, "bright_blue")
         bullet = _sev(sig.severity).bullet
         line_info = f" :{sig.location.line}" if sig.location.line else ""
+        symbol_info = f":{sig.location.symbol}" if sig.location.symbol else ""
         console.print(
             f"  [{color}]{bullet}[/{color}] {sig.description}"
             f"  [{color}][bold]{sig.severity.upper()}[/bold][/{color}]"
         )
-        console.print(f"    [cyan dim]{sig.location.file}{line_info}[/cyan dim]")
+        console.print(f"    [cyan dim]{sig.location.file}{symbol_info}{line_info}[/cyan dim]")
         if sig.why_unusual:
             console.print(f"    [dim]{sig.why_unusual}[/dim]")
         if sig.suggested_action:

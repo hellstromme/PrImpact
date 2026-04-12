@@ -1152,6 +1152,99 @@ def test_terminal_security_signal_no_colon_none_when_line_number_is_none():
 
 
 # ---------------------------------------------------------------------------
+# SourceLocation — field validation and defaults
+# ---------------------------------------------------------------------------
+
+
+def test_source_location_defaults_line_and_symbol_to_none():
+    loc = SourceLocation(file="src/foo.py")
+    assert loc.line is None
+    assert loc.symbol is None
+
+
+def test_source_location_accepts_empty_file_string():
+    loc = SourceLocation(file="")
+    assert loc.file == ""
+
+
+def test_source_location_all_fields_populated():
+    loc = SourceLocation(file="src/auth.py", line=42, symbol="login")
+    assert loc.file == "src/auth.py"
+    assert loc.line == 42
+    assert loc.symbol == "login"
+
+
+# ---------------------------------------------------------------------------
+# SourceLocation.symbol — reporter output
+# ---------------------------------------------------------------------------
+
+
+def _make_signal_with_symbol() -> SecuritySignal:
+    return SecuritySignal(
+        description="New dynamic exec",
+        location=SourceLocation(file="src/runner.py", line=12, symbol="execute_command"),
+        signal_type="dynamic_exec",
+        severity="high",
+        why_unusual="No prior dynamic execution.",
+        suggested_action="Confirm with PR author.",
+    )
+
+
+def test_markdown_security_signal_includes_symbol():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal_with_symbol()]))
+    md = render_markdown(report)
+    assert "execute_command" in md
+
+
+def test_terminal_security_signal_includes_symbol():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal_with_symbol()]))
+    out = _capture_terminal(report)
+    assert "execute_command" in out
+
+
+def test_sarif_security_signal_includes_logical_location_when_symbol_present():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal_with_symbol()]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    loc = results[0]["locations"][0]
+    assert "logicalLocations" in loc
+    assert loc["logicalLocations"][0]["name"] == "execute_command"
+
+
+def test_sarif_security_signal_no_logical_location_when_symbol_absent():
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[_make_signal()]))
+    sarif = json.loads(render_sarif(report))
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/security-signal"]
+    assert results
+    loc = results[0]["locations"][0]
+    assert "logicalLocations" not in loc
+
+
+def test_json_serialization_of_source_location_with_all_fields():
+    import dataclasses
+    sig = _make_signal_with_symbol()
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    data = json.loads(render_json(report))
+    signals = data["ai_analysis"]["security_signals"]
+    assert signals
+    loc = signals[0]["location"]
+    assert loc["file"] == "src/runner.py"
+    assert loc["line"] == 12
+    assert loc["symbol"] == "execute_command"
+
+
+def test_json_serialization_of_source_location_defaults():
+    sig = _make_signal()
+    report = make_report(ai_analysis=AIAnalysis(security_signals=[sig]))
+    data = json.loads(render_json(report))
+    loc = data["ai_analysis"]["security_signals"][0]["location"]
+    assert loc["file"] == "src/auth/session.py"
+    assert loc["line"] == 47
+    assert loc["symbol"] is None
+
+
+# ---------------------------------------------------------------------------
 # render_verdict_terminal
 # ---------------------------------------------------------------------------
 
