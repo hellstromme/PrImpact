@@ -10,21 +10,29 @@ from unittest.mock import MagicMock, patch
 import anthropic
 import pytest
 
-from pr_impact.ai_layer import (
-    _build_blast_radius_signatures,
-    _build_changed_files_before_signatures,
-    _build_diffs_context,
-    _build_security_signals_context,
+from pr_impact.ai_client import (
     _call_claude,
-    _extract_signatures,
-    _find_neighbouring_signatures,
-    _find_test_files,
     _log_response,
     _parse_json_safe,
+    call_api,
+)
+from pr_impact.ai_context import (
+    _extract_signatures,
+    build_blast_radius_signatures as _build_blast_radius_signatures,
+    build_changed_files_before_signatures as _build_changed_files_before_signatures,
+    build_diffs_context as _build_diffs_context,
+    build_historical_context as _build_historical_context,
+    build_security_signals_context as _build_security_signals_context,
+    build_signatures_before_after as _build_signatures_before_after,
+    find_neighbouring_signatures as _find_neighbouring_signatures,
+    find_test_files as _find_test_files,
+)
+from pr_impact.ai_layer import (
+    _should_run_semantic_equivalence,
     run_ai_analysis,
     run_verdict_analysis,
 )
-from pr_impact.models import BlastRadiusEntry, ChangedFile, SecuritySignal, Verdict
+from pr_impact.models import BlastRadiusEntry, ChangedFile, ChangedSymbol, SecuritySignal, Verdict
 from tests.helpers import make_file, make_report, make_security_signal as _make_security_signal
 
 # _DIFF_CHAR_LIMIT = 8_000 tokens * 4 chars/token = 32_000 chars
@@ -507,11 +515,19 @@ def test_run_ai_analysis_call3_failure_prints_warning(monkeypatch, tmp_path, cap
 
 
 def test_log_response_writes_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_IMPACT_DUMP_RESPONSES", "1")
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
     _log_response("test_label", "response content")
-    out_file = tmp_path / "primpact_test_label.txt"
-    assert out_file.exists()
-    assert out_file.read_text(encoding="utf-8") == "response content"
+    files = list(tmp_path.glob("primpact_test_label_*.txt"))
+    assert len(files) == 1
+    assert files[0].read_text(encoding="utf-8") == "response content"
+
+
+def test_log_response_noop_without_env_var(tmp_path, monkeypatch):
+    monkeypatch.delenv("PR_IMPACT_DUMP_RESPONSES", raising=False)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    _log_response("test_label", "response content")
+    assert list(tmp_path.glob("primpact_*.txt")) == []
 
 
 def test_log_response_silently_ignores_write_failure(tmp_path):
@@ -1274,14 +1290,12 @@ def test_run_verdict_missing_blockers_key_produces_empty_list(monkeypatch):
 
 
 def test_parse_json_safe_returns_list_when_top_level_array():
-    from pr_impact.ai_layer import _parse_json_safe
     result = _parse_json_safe('[{"a": 1}, {"b": 2}]')
     assert result == [{"a": 1}, {"b": 2}]
 
 
 def test_parse_json_safe_recovers_list_from_prose_prefix():
     """Fallback regex should extract [...] when prose precedes the array."""
-    from pr_impact.ai_layer import _parse_json_safe
     result = _parse_json_safe('Here is the result:\n[{"x": 1}]')
     assert result == [{"x": 1}]
 
@@ -1350,3 +1364,379 @@ def test_run_ai_analysis_4th_prompt_contains_diff(monkeypatch, tmp_path):
         run_ai_analysis([f], [], str(tmp_path), pattern_signals=[sig])
     fourth_prompt = client.messages.create.call_args_list[3][1]["messages"][0]["content"]
     assert "DISTINCTIVE_DIFF_CONTENT" in fourth_prompt
+
+
+# ---------------------------------------------------------------------------
+# _call_claude: first-attempt success + multiple content blocks
+# ---------------------------------------------------------------------------
+
+
+def test_call_claude_succeeds_on_first_attempt_single_call():
+    """When the first attempt succeeds, messages.create is called exactly once."""
+    r = json.dumps({"ok": True})
+    client = _mock_client(r)
+    result = _call_claude(client, "prompt")
+    assert result == r
+    assert client.messages.create.call_count == 1
+
+
+def test_call_claude_returns_first_text_block_ignores_extras():
+    """content array with TextBlock first followed by a non-TextBlock: first element returned."""
+    mock_client = MagicMock()
+    text_block = anthropic.types.TextBlock(type="text", text="hello")
+    other_block = MagicMock(spec=[])  # some non-TextBlock at index 1
+    msg = MagicMock()
+    msg.content = [text_block, other_block]
+    mock_client.messages.create.return_value = msg
+    result = _call_claude(mock_client, "prompt")
+    assert result == "hello"
+
+
+# ---------------------------------------------------------------------------
+# _log_response: non-writable / non-existent temp directory
+# ---------------------------------------------------------------------------
+
+
+def test_log_response_silently_ignores_nonexistent_tempdir(monkeypatch):
+    """When tempdir doesn't exist, _log_response swallows the OSError."""
+    monkeypatch.setattr("tempfile.gettempdir", lambda: "/does/not/exist/primpact_test")
+    _log_response("label", "content")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# call_api: model passthrough + _parse_json_safe exception
+# ---------------------------------------------------------------------------
+
+
+def test_call_api_always_uses_fixed_model():
+    """call_api always uses the module-level MODEL constant, not a caller-supplied value."""
+    from pr_impact.ai_client import MODEL
+    r = json.dumps({"ok": True})
+    client = _mock_client(r)
+    call_api(client, "prompt", "label")
+    assert client.messages.create.call_args[1]["model"] == MODEL
+
+
+def test_call_api_handles_parse_json_safe_exception(capsys):
+    """If _parse_json_safe raises (patched), call_api returns {} and prints warning."""
+    r = json.dumps({"ok": True})
+    client = _mock_client(r)
+    with patch("pr_impact.ai_client._parse_json_safe", side_effect=RuntimeError("parse boom")):
+        result = call_api(client, "prompt", "label")
+    assert result == {}
+    assert "parse boom" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# _parse_json_safe: explicit ai_client fallback path (regex match, invalid JSON)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_json_safe_regex_match_with_still_invalid_json():
+    """Regex finds {…} but interior is not valid JSON → empty dict returned."""
+    raw = "result: { key without quotes: invalid }"
+    assert _parse_json_safe(raw) == {}
+
+
+# ---------------------------------------------------------------------------
+# build_diffs_context: zero-length diff file in multi-file budget calculation
+# ---------------------------------------------------------------------------
+
+
+def test_build_diffs_context_zero_length_diff_uses_no_budget():
+    """File with empty diff is included in output and consumes no budget allowance."""
+    f1 = _make_diff_file("a.py", "")          # zero-length diff
+    f2 = _make_diff_file("b.py", "some diff content")
+    ctx = _build_diffs_context([f1, f2])
+    assert "### a.py" in ctx
+    assert "### b.py" in ctx
+    assert "[truncated]" not in ctx
+
+
+def test_build_diffs_context_zero_length_diff_gets_truncated_marker_when_budget_gone():
+    """When budget is exhausted by earlier files, a zero-length diff file still gets marker."""
+    big_diff = "x" * _LIMIT
+    f1 = _make_diff_file("a.py", big_diff)   # exhausts budget
+    f2 = _make_diff_file("b.py", "")         # zero-length, but budget is 0
+    ctx = _build_diffs_context([f1, f2])
+    assert "### b.py" in ctx
+    assert "[truncated]" in ctx
+
+
+# ---------------------------------------------------------------------------
+# build_blast_radius_signatures: entry at exactly max_distance included
+# ---------------------------------------------------------------------------
+
+
+def test_blast_radius_sigs_includes_entry_at_exactly_max_distance(tmp_path):
+    """Entry at distance == max_distance is included (only > max_distance is skipped)."""
+    (tmp_path / "boundary.py").write_text("def boundary_func(): pass\n")
+    entry = BlastRadiusEntry(path="boundary.py", distance=2, imported_symbols=[], churn_score=None)
+    result = _build_blast_radius_signatures([entry], str(tmp_path), max_distance=2)
+    assert "boundary.py" in result
+    assert "def boundary_func" in result
+
+
+# ---------------------------------------------------------------------------
+# find_test_files: existing search dir with no matching files + read returns empty
+# ---------------------------------------------------------------------------
+
+
+def test_find_test_files_search_dir_exists_no_matching_files(tmp_path):
+    """tests/ dir exists but contains no file matching the changed file's stem."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_other.py").write_text("def test_other(): pass\n")
+    f = make_file(path="models.py")
+    result = _find_test_files([f], str(tmp_path))
+    assert result == "(no test files found)"
+
+
+def test_find_test_files_read_returns_empty_skips_file(tmp_path):
+    """When _read_file_safe returns '' for a candidate test file, it is skipped."""
+    (tmp_path / "test_models.py").write_text("def test_foo(): pass\n")
+    f = make_file(path="models.py")
+    with patch("pr_impact.ai_context._read_file_safe", return_value=""):
+        result = _find_test_files([f], str(tmp_path))
+    assert result == "(no test files found)"
+
+
+# ---------------------------------------------------------------------------
+# find_neighbouring_signatures: scandir raises an exception
+# ---------------------------------------------------------------------------
+
+
+def test_find_neighbouring_signatures_scandir_raises_propagates(tmp_path):
+    """os.scandir raising inside find_neighbouring_signatures propagates to caller."""
+    f = make_file(path="mod.py")
+    with patch("os.scandir", side_effect=PermissionError("no access")):
+        with pytest.raises(PermissionError):
+            _find_neighbouring_signatures([f], str(tmp_path))
+
+
+def test_run_ai_analysis_neighbour_sigs_exception_prints_warning(monkeypatch, tmp_path, capsys):
+    """When find_neighbouring_signatures raises, run_ai_analysis prints warning and continues."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        with patch("pr_impact.ai_layer.find_neighbouring_signatures",
+                   side_effect=PermissionError("no access")):
+            result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert "no access" in capsys.readouterr().err
+    assert result.anomalies == []
+
+
+# ---------------------------------------------------------------------------
+# build_changed_files_before_signatures: unknown language
+# ---------------------------------------------------------------------------
+
+
+def test_build_changed_files_before_signatures_unknown_language():
+    """Files with unknown extension use the JS signature pattern; must not crash."""
+    f = make_file(path="data.xyz", before="export function foo() {}\n")
+    result = _build_changed_files_before_signatures([f])
+    # With JS pattern, 'export function' is matched; result has content
+    assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# build_signatures_before_after: identical before/after signatures excluded
+# ---------------------------------------------------------------------------
+
+
+def test_build_signatures_before_after_identical_sigs_excluded():
+    """When before and after signatures are identical, the file is omitted."""
+    content = "def foo(): pass\n"
+    f = make_file(path="a.py", before=content, after=content)
+    result = _build_signatures_before_after([f])
+    assert result == "(no signature changes)"
+
+
+def test_build_signatures_before_after_different_sigs_included():
+    """When signatures differ, the file appears with both before and after blocks."""
+    f = make_file(path="a.py", before="def foo(): pass\n", after="def foo(x): pass\n")
+    result = _build_signatures_before_after([f])
+    assert "a.py" in result
+    assert "Before:" in result
+    assert "After:" in result
+
+
+# ---------------------------------------------------------------------------
+# build_security_signals_context: signal file not in changed_files (empty list)
+# ---------------------------------------------------------------------------
+
+
+def test_build_security_signals_context_changed_files_empty():
+    """Signal references a file but changed_files is empty → file_ctx is placeholder."""
+    sig = _make_security_signal(file_path="src/auth.py")
+    signals_text, file_ctx = _build_security_signals_context([sig], [])
+    assert "src/auth.py" in signals_text
+    assert file_ctx == "(no prior content)"
+
+
+# ---------------------------------------------------------------------------
+# build_historical_context: partial and empty combinations
+# ---------------------------------------------------------------------------
+
+
+def test_build_historical_context_anomaly_history_only():
+    """With only anomaly_history (hotspots=None), recurring patterns section is present."""
+    anomaly_history = [{"file": "a.py", "description": "Direct DB write"}]
+    result = _build_historical_context(anomaly_history, None)
+    assert "Direct DB write" in result
+    assert "hotspot" not in result.lower()
+
+
+def test_build_historical_context_hotspots_only():
+    """With only hotspots (anomaly_history=None), hotspot section is present."""
+    hotspots = [{"file": "a.py", "appearances": 5}]
+    result = _build_historical_context(None, hotspots)
+    assert "a.py" in result
+    assert "5 appearances" in result
+    assert "Recurring anomaly" not in result
+
+
+def test_build_historical_context_both_empty_lists():
+    """Both anomaly_history and hotspots empty → empty string (no context to add)."""
+    result = _build_historical_context([], [])
+    assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# _should_run_semantic_equivalence: small diff but interface-level change
+# ---------------------------------------------------------------------------
+
+
+def test_should_run_semantic_equivalence_small_diff_with_interface_change():
+    """Small diff (≤20 lines) but a symbol has interface_changed → returns True."""
+    sym = ChangedSymbol(
+        name="login",
+        kind="function",
+        change_type="interface_changed",
+        signature_before="def login()",
+        signature_after="def login(user)",
+    )
+    f = make_file(diff="+short\n")  # 1 diff line — well below threshold
+    f.changed_symbols = [sym]
+    assert _should_run_semantic_equivalence([f]) is True
+
+
+def test_should_run_semantic_equivalence_small_diff_no_interface_change():
+    """Small diff and no interface-level symbols → returns False."""
+    sym = ChangedSymbol(
+        name="login",
+        kind="function",
+        change_type="implementation_changed",
+        signature_before="def login()",
+        signature_after="def login()",
+    )
+    f = make_file(diff="+short\n")
+    f.changed_symbols = [sym]
+    assert _should_run_semantic_equivalence([f]) is False
+
+
+# ---------------------------------------------------------------------------
+# run_ai_analysis: custom model + find_test_files exception + call4/5 edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_run_ai_analysis_always_uses_fixed_model(monkeypatch, tmp_path):
+    """All messages.create calls always use the fixed MODEL constant."""
+    from pr_impact.ai_client import MODEL
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_ai_analysis([make_file()], [], str(tmp_path))
+    for call in client.messages.create.call_args_list:
+        assert call[1]["model"] == MODEL
+
+
+def test_run_ai_analysis_find_test_files_exception_graceful(monkeypatch, tmp_path, capsys):
+    """When find_test_files raises, the warning is printed and test_gaps defaults to []."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        with patch("pr_impact.ai_layer.find_test_files",
+                   side_effect=PermissionError("no test dir")):
+            result = run_ai_analysis([make_file()], [], str(tmp_path))
+    assert "no test dir" in capsys.readouterr().err
+    assert result.test_gaps == []
+
+
+def test_run_ai_analysis_call4_dict_with_unknown_keys_falls_back(monkeypatch, tmp_path):
+    """call4 dict with neither 'signals' nor 'security_signals' keys → raw fallback."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r4 = json.dumps({"some_other_key": [{"description": "ignored"}]})
+    client = _mock_client(r1, r2, r3, r4)
+    raw_sig = _make_security_signal()
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([make_file()], [], str(tmp_path), pattern_signals=[raw_sig])
+    assert result.security_signals == [raw_sig]
+
+
+def test_run_ai_analysis_skips_5th_call_when_diff_too_small(monkeypatch, tmp_path):
+    """Small diff with no interface changes → _should_run_semantic_equivalence is False → 3 calls."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    f = make_file(diff="+tiny\n")  # 1 line, well below 20-line threshold
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([f], [], str(tmp_path))
+    assert client.messages.create.call_count == 3
+    assert result.semantic_verdicts == []
+
+
+def test_run_ai_analysis_call5_verdicts_non_list_produces_empty_verdicts(monkeypatch, tmp_path):
+    """call5 returns {"verdicts": "not a list"} → raw_verdicts is not a list → empty."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    r5 = json.dumps({"verdicts": "not a list"})
+    big_diff = "\n".join(["+line"] * 25)  # > 20 lines → semantic equivalence runs
+    f = make_file(diff=big_diff)
+    client = _mock_client(r1, r2, r3, r5)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([f], [], str(tmp_path))
+    assert result.semantic_verdicts == []
+
+
+def test_run_ai_analysis_neighbour_sigs_success_no_warning_printed(monkeypatch, tmp_path, capsys):
+    """When find_neighbouring_signatures succeeds, no neighbour-sigs warning is emitted."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1 = json.dumps({"summary": "ok", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    client = _mock_client(r1, r2, r3)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_ai_analysis([make_file()], [], str(tmp_path))
+    assert "Neighbour signature" not in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# run_verdict_analysis: model is always the fixed MODEL constant
+# ---------------------------------------------------------------------------
+
+
+def test_run_verdict_always_uses_fixed_model(monkeypatch):
+    """run_verdict_analysis always uses the fixed MODEL, no caller override possible."""
+    from pr_impact.ai_client import MODEL
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = _mock_client(_verdict_response())
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_verdict_analysis(make_report().ai_analysis, [])
+    assert client.messages.create.call_args[1]["model"] == MODEL

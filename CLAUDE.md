@@ -69,22 +69,28 @@ export GITHUB_TOKEN=...   # optional; needed for --pr on private repos
 
 PrImpact is a linear 8-step pipeline CLI tool. `cli.py` orchestrates the pipeline; all other modules are called by it and do not call each other (except all importing `models.py`, `ast_extractor.py`, or `history.py`).
 
+Helper modules (`config.py`, `language_resolvers.py`, `ai_client.py`, `ai_context.py`) are exempt from this constraint — each is called by exactly one pipeline module and does not call other pipeline modules.
+
 ### Package structure
 
 ```text
 pr_impact/
-  cli.py               # Entry point (click), pipeline orchestration, progress to stderr
-  models.py            # Shared dataclasses — single source of truth for data contracts
-  ast_extractor.py     # tree-sitter AST wrappers — extract_imports() and extract_symbols()
-  history.py           # SQLite history: save_run(), load_hotspots(), load_anomaly_patterns()
-  git_analysis.py      # All git interaction (gitpython) — diffs, content, churn
-  dependency_graph.py  # AST-first import graph + BFS blast radius calculation
-  classifier.py        # Changed symbol classification by impact type (AST-first, regex fallback)
-  ai_layer.py          # 3–5 Claude API calls — the only network I/O
-  prompts.py           # All prompt templates as string constants, no logic
-  reporter.py          # Renders final Markdown, JSON, and SARIF from ImpactReport
-  github.py            # GitHub API helpers (detect remote, fetch PR, list PRs)
-  security.py          # Deterministic security signal detection + dependency integrity checks
+  cli.py                  # Entry point (click), pipeline orchestration, progress to stderr
+  models.py               # Shared dataclasses — single source of truth for data contracts
+  ast_extractor.py        # tree-sitter AST wrappers — extract_imports() and extract_symbols()
+  history.py              # SQLite history: save_run(), load_hotspots(), load_anomaly_patterns()
+  config.py               # Config file loading (~/.pr_impact/config.toml) — called by cli.py only
+  git_analysis.py         # All git interaction (gitpython) — diffs, content, churn
+  dependency_graph.py     # BFS blast radius calculation; delegates resolution to language_resolvers.py
+  language_resolvers.py   # Per-language import resolvers + extract_imports_for_file — called by dependency_graph.py only
+  classifier.py           # Changed symbol classification by impact type (AST-first, regex fallback)
+  ai_layer.py             # AI analysis orchestration (3–5 calls); delegates to ai_client.py + ai_context.py
+  ai_client.py            # Anthropic API glue (_call_claude, call_api, JSON parsing) — called by ai_layer.py only
+  ai_context.py           # Prompt/context builders (diffs, signatures, test files) — called by ai_layer.py only
+  prompts.py              # All prompt templates as string constants, no logic
+  reporter.py             # Renders final Markdown, JSON, SARIF, and terminal output from ImpactReport
+  github.py               # GitHub API helpers (detect remote, fetch PR, list PRs)
+  security.py             # Deterministic security signal detection + dependency integrity checks
 ```
 
 ### Pipeline steps (in order, all in cli.py)
@@ -92,7 +98,7 @@ pr_impact/
 1. `git_analysis.get_changed_files()` → `list[ChangedFile]`
 2. `dependency_graph.build_import_graph()` → forward + reverse import graphs
 3. `dependency_graph.get_blast_radius(reverse_graph, ...)` → `list[BlastRadiusEntry]`
-4. `classifier.classify_changed_file(file)` for each file → populates `ChangedFile.changed_symbols` in place
+4. `classifier.classify_changed_file(file)` for each file → returns `list[ChangedSymbol]`; caller assigns to `file.changed_symbols`
 5. `classifier.get_interface_changes(changed_files, reverse_graph)` → `list[InterfaceChange]`
 6. `git_analysis.get_git_churn(...)` for each blast radius entry → populates `BlastRadiusEntry.churn_score` in place
 6a. `security.detect_pattern_signals(changed_files)` → `list[SecuritySignal]` (deterministic regex scan)
@@ -136,7 +142,7 @@ Context priority order: full diffs (always, truncated at 8k tokens) → distance
 - **BFS depth cap at 3** — beyond 3 hops reaches utility modules (noise, not signal)
 - **Graceful degradation** — every stage catches its own failures; partial reports are always better than crashes; empty lists over exceptions for AI fields
 - **stdout clean** — Markdown output to stdout, progress/warnings to stderr
-- **Shared modules** — `models.py`, `ast_extractor.py`, and `history.py` may be imported by pipeline modules; all other cross-module imports are forbidden
+- **Shared modules** — `models.py`, `ast_extractor.py`, and `history.py` may be imported by pipeline modules; cross-pipeline-module imports are forbidden. Helper modules (`config.py`, `language_resolvers.py`, `ai_client.py`, `ai_context.py`) are each imported by exactly one pipeline module.
 - **History is best-effort** — `history.py` failures are silently swallowed and never affect exit codes
 
 ### Supported languages

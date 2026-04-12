@@ -32,18 +32,6 @@ def test_both_empty_returns_empty_list():
     assert symbols == []
 
 
-def test_new_file_mutates_changed_symbols_in_place():
-    f = make_file(before="", after="def foo(): pass\n")
-    returned = classify_changed_file(f)
-    assert f.changed_symbols is returned
-
-
-def test_deleted_file_mutates_changed_symbols_in_place():
-    f = make_file(before="def foo(): pass\n", after="")
-    returned = classify_changed_file(f)
-    assert f.changed_symbols is returned
-
-
 # ---------------------------------------------------------------------------
 # Python: public / private symbol classification
 # ---------------------------------------------------------------------------

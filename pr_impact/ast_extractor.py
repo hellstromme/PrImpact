@@ -399,7 +399,7 @@ def _ts_named_imports(node) -> list[str]:
     return names
 
 
-def _ts_symbols(root, language: str) -> list[ASTSymbol]:
+def _ts_symbols(root) -> list[ASTSymbol]:
     results: list[ASTSymbol] = []
 
     for node in root.children:
@@ -881,6 +881,32 @@ def _cs_extract_method(method_node, container: str = "") -> ASTSymbol | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Language dispatch tables — add a new language here; no changes to the
+# public functions below are needed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_IMPORT_EXTRACTORS: dict[str, object] = {
+    "python": _py_imports_v2,
+    "typescript": _ts_imports,
+    "javascript": _ts_imports,
+    "java": _java_imports,
+    "go": _go_imports,
+    "ruby": _ruby_imports,
+    "csharp": _cs_imports,
+}
+
+_SYMBOL_EXTRACTORS: dict[str, object] = {
+    "python": _py_symbols,
+    "typescript": _ts_symbols,
+    "javascript": _ts_symbols,
+    "java": _java_symbols,
+    "go": _go_symbols,
+    "ruby": _ruby_symbols,
+    "csharp": _cs_symbols,
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -894,22 +920,11 @@ def extract_imports(source: str, language: str) -> list[ASTImport] | None:
     _, root = _parse(source, language)
     if root is None:
         return None
-
+    extractor = _IMPORT_EXTRACTORS.get(language)
+    if extractor is None:
+        return None
     try:
-        if language == "python":
-            return _py_imports_v2(root)
-        elif language in ("typescript", "javascript"):
-            return _ts_imports(root)
-        elif language == "java":
-            return _java_imports(root)
-        elif language == "go":
-            return _go_imports(root)
-        elif language == "ruby":
-            return _ruby_imports(root)
-        elif language == "csharp":
-            return _cs_imports(root)
-        else:
-            return None
+        return extractor(root)  # type: ignore[operator]
     except Exception:
         return None
 
@@ -923,21 +938,10 @@ def extract_symbols(source: str, language: str) -> list[ASTSymbol] | None:
     _, root = _parse(source, language)
     if root is None:
         return None
-
+    extractor = _SYMBOL_EXTRACTORS.get(language)
+    if extractor is None:
+        return None
     try:
-        if language == "python":
-            return _py_symbols(root)
-        elif language in ("typescript", "javascript"):
-            return _ts_symbols(root, language)
-        elif language == "java":
-            return _java_symbols(root)
-        elif language == "go":
-            return _go_symbols(root)
-        elif language == "ruby":
-            return _ruby_symbols(root)
-        elif language == "csharp":
-            return _cs_symbols(root)
-        else:
-            return None
+        return extractor(root)  # type: ignore[operator]
     except Exception:
         return None

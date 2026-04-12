@@ -12,8 +12,10 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
+from typing import Protocol
 
 from .ai_layer import run_ai_analysis, run_verdict_analysis
+from .config import CONFIG_PATH, env_placeholder, load_config, read_toml_config
 from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
@@ -24,6 +26,18 @@ from .reporter import render_json, render_markdown, render_sarif, render_termina
 from .security import check_dependency_integrity, detect_pattern_signals
 
 stderr = Console(stderr=True)
+
+
+class _ProgressProtocol(Protocol):
+    """Structural type for the Rich Progress object passed to _run_pipeline.
+
+    Defined here so tests can inject a mock without importing Rich.
+    """
+
+    def add_task(self, description: str, total: float | None = None) -> object: ...
+    def update(self, task_id: object, **kwargs: object) -> None: ...
+    def remove_task(self, task_id: object) -> None: ...
+
 
 # Default SHAs used when no PR or explicit refs are supplied
 _FALLBACK_BASE = "HEAD~1"
@@ -66,56 +80,6 @@ def _print_banner() -> None:
     stderr.print(Panel(content, expand=False, border_style="dim cyan", padding=(0, 1)))
 
 
-CONFIG_PATH = Path.home() / ".pr_impact" / "config.toml"
-
-
-def _read_toml_config() -> dict | None:
-    """Parse ~/.pr_impact/config.toml and return the dict, or None on missing/error."""
-    if not CONFIG_PATH.exists():
-        return None
-    try:
-        if sys.version_info >= (3, 11):
-            import tomllib
-        else:
-            try:
-                import tomllib  # type: ignore[no-redef]
-            except ImportError:
-                import tomli as tomllib  # type: ignore[no-redef]
-        with open(CONFIG_PATH, "rb") as fh:
-            return tomllib.load(fh)
-    except Exception:
-        return None
-
-
-def _load_config() -> None:
-    """Load ~/.pr_impact/config.toml and populate os.environ with any values found."""
-    config = _read_toml_config()
-    if config is None:
-        if CONFIG_PATH.exists():
-            stderr.print(f"[bold red]Error:[/bold red] Could not parse config file {CONFIG_PATH}")
-        return
-
-    api_key = config.get("anthropic_api_key") or config.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return
-
-    expanded = os.path.expandvars(api_key)
-    if expanded == api_key and ("%" in api_key or "$" in api_key):
-        stderr.print(
-            f"[bold red]Error:[/bold red] Config file references an environment variable "
-            f"that is not set: {api_key}"
-        )
-        return
-    os.environ["ANTHROPIC_API_KEY"] = expanded
-
-
-def _env_placeholder(var: str) -> str:
-    """Return the platform-appropriate env-var placeholder for config file hints."""
-    return f"%{var}%" if sys.platform == "win32" else f"${var}"
-
-
 def _stdin_is_interactive() -> bool:
     """Return True when stdin is an interactive terminal."""
     return sys.stdin.isatty()
@@ -126,7 +90,7 @@ def _warn_no_github_token() -> None:
     stderr.print(
         "[yellow]Warning:[/yellow] No GitHub token found. "
         "Set the [bold]GITHUB_TOKEN[/bold] environment variable in this terminal session, "
-        f"or add [bold]github_token = \"{_env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
+        f"or add [bold]github_token = \"{env_placeholder('GITHUB_TOKEN')}\"[/bold] to "
         f"[bold]{CONFIG_PATH}[/bold]. "
         "Unauthenticated requests will fail for private repositories."
     )
@@ -169,7 +133,7 @@ def _get_github_token() -> str | None:
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         return token
-    config = _read_toml_config()
+    config = read_toml_config()
     if config is None:
         return None
     raw = config.get("github_token") or config.get("GITHUB_TOKEN")
@@ -213,7 +177,7 @@ def _run_pipeline(
     repo_obj: git.Repo,
     refs: RefsResult,
     max_depth: int,
-    progress,
+    progress: _ProgressProtocol,
     check_osv: bool = False,
     anomaly_history: list[dict] | None = None,
     hotspots: list[dict] | None = None,
@@ -272,7 +236,7 @@ def _run_pipeline(
     progress.update(task, description="Classifying changes...")
     for f in changed_files:
         try:
-            classify_changed_file(f)
+            f.changed_symbols = classify_changed_file(f)
         except Exception as e:
             stderr.print(f"[yellow]Warning:[/yellow] Classifier failed for {f.path}: {e}")
 
@@ -490,7 +454,10 @@ def analyse(
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
         _print_banner()
-    _load_config()
+    try:
+        load_config()
+    except Exception as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Could not load config: {e}")
 
     # --pr cannot be combined with --base or --head
     if pr_number is not None and (base is not None or head is not None):
