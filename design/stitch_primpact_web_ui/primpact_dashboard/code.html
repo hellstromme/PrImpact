@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PrImpact - Kinetic Terminal</title>
+<script type='text/javascript' nonce='R+H+hUduct/Xjy7QWJU/7A==' src='https://contribution.usercontent.google.com/xJCkGNZpsFDAvDx5oePM8aWRdXDty5sYkJL-aNabCSJDPCF3sqLwS-U02tj4wqWBEcWqaskE_YibPlvSYB_qbsDB2nMY06sr52Tv8TlFUWNXul4Sfh5bpMPocb8_tRn6P-2fbiFwZ2QvQQ3njOoM4CKXFO67iXoRppmHie6OHCR1GW4gojOALGztqJKefRxyYF7MKD-2mdj86UuneWCcedmwMm7bX0anEUKb19rfmckuYmzqBwi0FgJESyPGZwRJYDH_tbNWrsvrDSjeHW-N5BZKb-k2CnwIqhv9K0nCSLoaAu_82Ccw4IPfxiDy3unGAiMFPBqZTe618vS-xDsUwoBHlNJnXhQkch2ECy3OIE31WB0LKSGMydwoYfjw8yCOSGMEbZ8JZkMAfrywwSpyq8DDh07we_aGOGvKeNHVwXxjSL4MonVpD7FdapXxdOKSUvETDDo5b_M2JPALVtZMHIt8LtHpHn7-eMCJeQWOhP424gk3ezDLZRFFLoUoM18xg0-Dpt1W_9_rBBd2RwTWF-Myr07BCSXYJ0k7VmzeXhYvPWhzMLNwOgQGJ2qk0KauVmS4ZPM-I2mhZzgqnKXdMLAKRB0ph-5b8X7URoe4ITYZYGUCmM01iVj7_fZmDZ3sBwk-vnHerIACVxPH31C32lGPZOVWIQArNhs7ih_G4KisBiD7CNavlgQPz3XJpovM4OjKqgxsGVPVGHfYV4y710AynjVrDGAkI_BnCRkIGDGhmBVFz2CpNvcQadcvLNcXlcX21TMkBp8217gLihQTLtWb3dYxX0WddqsetQ'></script><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-fixed-variant": "#5f4100",
+                        "on-tertiary-fixed-variant": "#93000d",
+                        "on-surface": "#dfe2eb",
+                        "error": "#ffb4ab",
+                        "primary-fixed": "#8bfb91",
+                        "on-secondary-container": "#392600",
+                        "surface-container-highest": "#31353c",
+                        "primary-container": "#34a547",
+                        "surface-container-lowest": "#0a0e14",
+                        "error-container": "#93000a",
+                        "secondary": "#fabc45",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1c2026",
+                        "on-primary": "#00390e",
+                        "on-background": "#dfe2eb",
+                        "primary-fixed-dim": "#6fdd78",
+                        "on-tertiary-container": "#5c0005",
+                        "inverse-primary": "#006e23",
+                        "on-secondary": "#422c00",
+                        "on-tertiary-fixed": "#410002",
+                        "secondary-container": "#bd8708",
+                        "surface-container-low": "#181c22",
+                        "surface-tint": "#6fdd78",
+                        "primary": "#6fdd78",
+                        "tertiary-container": "#fe554d",
+                        "secondary-fixed-dim": "#fabc45",
+                        "inverse-on-surface": "#2d3137",
+                        "on-surface-variant": "#becab9",
+                        "on-secondary-fixed": "#271900",
+                        "on-primary-container": "#00320b",
+                        "surface-container-high": "#262a31",
+                        "outline": "#889484",
+                        "tertiary-fixed-dim": "#ffb4ac",
+                        "surface-variant": "#31353c",
+                        "inverse-surface": "#dfe2eb",
+                        "on-tertiary": "#690007",
+                        "on-primary-fixed-variant": "#005319",
+                        "surface": "#10141a",
+                        "surface-bright": "#353940",
+                        "on-error": "#690005",
+                        "secondary-fixed": "#ffdeaa",
+                        "on-primary-fixed": "#002106",
+                        "tertiary": "#ffb4ac",
+                        "background": "#10141a",
+                        "surface-dim": "#10141a",
+                        "tertiary-fixed": "#ffdad6",
+                        "outline-variant": "#3e4a3d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"],
+                        "mono": ["JetBrains Mono"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>.material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+    vertical-align: middle
+    }
+.phosphor-grain {
+    position: relative
+    }
+.phosphor-grain::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuDfplRya050m8NPdTdRLTcrX3ju52E3Q_3st0u3CoHgJAUWhiwAwkZve-TXpdf_cVPUxqVqulR_db1baqz-ZPN4i7zwUup-P-FayIRF0e063LMsX1ZJvdke2bbITxpSGoFXwFO7q0Q0PhF6hu3Mxzj9_Q4WZY0F0M4KguTdHADEylkYywG5jZjp5vMje3LzX3Ag370Jox1jQbe0YOc3jyGy7r61FaTWImBQCbiagZSXcmxVntIQc3bA5qc_RgUKbhCI7OsATskTCcs);
+    opacity: 0.02;
+    pointer-events: none;
+    z-index: 10
+    }
+.machined-gradient {
+    background: linear-gradient(135deg, #6fdd78 0%, #34a547 100%)
+    }
+.glass-blur {
+    backdrop-filter: blur(12px);
+    background: rgba(49, 53, 60, 0.8)
+    }</style>
+</head>
+<body class="bg-surface text-on-surface font-body phosphor-grain selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 py-3 bg-[#10141a] dark:bg-[#10141a] border-b border-[#3e4a3d]/15 font-[&#39;Space_Grotesk&#39;] tracking-tight">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold text-[#2EA043] font-[&#39;Space_Grotesk&#39;]">PrImpact</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-[#2EA043] border-b-2 border-[#2EA043] pb-1 font-medium" href="#">Dashboard</a>
+<a class="text-slate-400 font-medium hover:text-slate-200 transition-colors duration-200" href="#">Impact Trees</a>
+<a class="text-slate-400 font-medium hover:text-slate-200 transition-colors duration-200" href="#">History</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-400 hover:bg-[#181c22] transition-colors duration-200 rounded-lg">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-slate-400 hover:bg-[#181c22] transition-colors duration-200 rounded-lg">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-surface-container-highest overflow-hidden border border-outline-variant/30">
+<img alt="User profile settings" data-alt="minimalist avatar profile picture with dark theme background and green accents" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBT0i3UpI8qOnwQyrwVMj-Ip0ccf_oyk2iiSlrjEVm1JSsMTP_dm6xNFCGt_pK13OcBMc8ERgsVGD7CggYBJPARZaGbH6PvfyPpFWRoAdycOHIBKF1aVfBM-VcP_bztdkux8hIXlXyaax_ol8rr9Ac_mbSK1AIrcYELdO96T9OICb5DnKEOMEnkHXgFHWfQIJt53Ws2nQgHj9jsd77cemX-MjY6YrDo5sU1GmCHDrIZTiSTERdsCUZHqQ3a6IHdnd7hR1HjJXNxNYk"/>
+</div>
+</div>
+</header>
+<!-- SideNavBar (Suppressed for Home focus as per Shell Visibility Rules, but logic included for layout context if needed) -->
+<main class="pt-24 pb-12 px-6 lg:px-12 max-w-7xl mx-auto">
+<!-- Hero Section / Input Area -->
+<section class="mb-16">
+<div class="text-center mb-10">
+<h1 class="font-headline text-5xl font-bold tracking-tighter mb-4 text-on-surface">
+                    Analyze the impact of your <span class="text-primary">code changes</span>
+</h1>
+<p class="text-on-surface-variant max-w-2xl mx-auto text-lg">
+                    Instantly visualize blast radius, security regressions, and dependency shifts across your entire repository.
+                </p>
+</div>
+<div class="max-w-3xl mx-auto bg-surface-container border border-outline-variant/20 p-1 rounded-xl shadow-2xl">
+<div class="bg-surface p-6 rounded-lg">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+<div class="relative">
+<label class="block text-[0.6875rem] font-mono text-outline uppercase tracking-widest mb-1 ml-1">Reference SHA/Branch</label>
+<input class="w-full bg-surface-container-low border-none focus:ring-1 focus:ring-primary rounded-lg font-mono text-sm px-4 py-3 text-primary-fixed" placeholder="e.g. main" type="text"/>
+</div>
+<div class="relative">
+<label class="block text-[0.6875rem] font-mono text-outline uppercase tracking-widest mb-1 ml-1">Target SHA/PR #</label>
+<input class="w-full bg-surface-container-low border-none focus:ring-1 focus:ring-primary rounded-lg font-mono text-sm px-4 py-3 text-primary-fixed" placeholder="e.g. #4021 or 7a2b5c" type="text"/>
+</div>
+</div>
+<div class="flex items-center justify-between gap-4">
+<div class="flex gap-2">
+<span class="flex items-center gap-1 px-2 py-1 bg-surface-container-highest rounded text-[10px] font-mono text-outline-variant">
+<span class="material-symbols-outlined text-[14px]" data-icon="terminal">terminal</span> CLI SYNCED
+                            </span>
+<span class="flex items-center gap-1 px-2 py-1 bg-surface-container-highest rounded text-[10px] font-mono text-outline-variant">
+<span class="material-symbols-outlined text-[14px]" data-icon="history">history</span> AUTO-WATCH
+                            </span>
+</div>
+<button class="machined-gradient text-on-primary-fixed px-8 py-3 rounded font-bold flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all">
+                            Run Analysis
+                            <span class="material-symbols-outlined" data-icon="bolt">bolt</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Stats Grid (Bento Style) -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
+<div class="bg-surface-container-low p-6 rounded-lg border border-outline-variant/10">
+<div class="flex justify-between items-start mb-4">
+<span class="text-outline text-xs font-mono uppercase tracking-widest">Active Analyses</span>
+<span class="material-symbols-outlined text-primary" data-icon="sync">sync</span>
+</div>
+<div class="text-4xl font-headline font-bold mb-1">04</div>
+<div class="w-full h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-2/3"></div>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-lg border border-outline-variant/10">
+<div class="flex justify-between items-start mb-4">
+<span class="text-outline text-xs font-mono uppercase tracking-widest">Avg Blast Radius</span>
+<span class="material-symbols-outlined text-secondary" data-icon="explosion">explosion</span>
+</div>
+<div class="text-4xl font-headline font-bold mb-1">12.4%</div>
+<div class="text-xs text-on-surface-variant font-mono">-2.1% from last week</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-lg border border-outline-variant/10">
+<div class="flex justify-between items-start mb-4">
+<span class="text-outline text-xs font-mono uppercase tracking-widest">Blockers Resolved</span>
+<span class="material-symbols-outlined text-tertiary" data-icon="gavel">gavel</span>
+</div>
+<div class="text-4xl font-headline font-bold mb-1">142</div>
+<div class="text-xs text-on-surface-variant font-mono">Q3 Performance Target Met</div>
+</div>
+</div>
+<!-- Recent Reports Table/List -->
+<section>
+<div class="flex items-center justify-between mb-8">
+<h2 class="font-headline text-2xl font-bold tracking-tight">Recent Reports</h2>
+<button class="text-primary hover:bg-surface-container-high px-4 py-2 rounded-lg transition-all text-sm font-medium">View Archive</button>
+</div>
+<div class="space-y-3">
+<!-- Report Item 1 -->
+<div class="group flex items-center bg-surface-container-low hover:bg-surface-container-high transition-all p-4 rounded-lg border-l-4 border-primary-container">
+<div class="w-12 h-12 flex items-center justify-center bg-surface-container rounded-lg mr-4 font-mono text-primary text-xs">#4021</div>
+<div class="flex-grow">
+<div class="flex items-center gap-3 mb-1">
+<span class="font-bold text-on-surface">Update Auth Middleware for OAuth2.1</span>
+<span class="bg-primary-container/20 text-primary-fixed px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">Clean</span>
+</div>
+<div class="flex items-center gap-4 text-xs text-on-surface-variant">
+<span class="flex items-center gap-1 font-mono">
+<span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                                j.dorsey
+                            </span>
+<span class="flex items-center gap-1 font-mono">
+<span class="material-symbols-outlined text-[14px]" data-icon="schedule">schedule</span>
+                                2h ago
+                            </span>
+<p class="hidden md:block">Refactored JWT verification logic with 0% coverage regression.</p>
+</div>
+</div>
+<div class="hidden lg:flex items-center gap-8 mr-8">
+<div class="text-right">
+<div class="text-[10px] text-outline font-mono uppercase">Blast Radius</div>
+<div class="h-1.5 w-24 bg-surface-container-highest rounded-full mt-1 overflow-hidden">
+<div class="h-full bg-secondary w-1/4"></div>
+</div>
+</div>
+</div>
+<button class="material-symbols-outlined text-outline group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</button>
+</div>
+<!-- Report Item 2 -->
+<div class="group flex items-center bg-surface-container-low hover:bg-surface-container-high transition-all p-4 rounded-lg border-l-4 border-tertiary-container">
+<div class="w-12 h-12 flex items-center justify-center bg-surface-container rounded-lg mr-4 font-mono text-tertiary text-xs">#3988</div>
+<div class="flex-grow">
+<div class="flex items-center gap-3 mb-1">
+<span class="font-bold text-on-surface">Migration: Postgres to CockroachDB Driver</span>
+<span class="bg-tertiary-container/20 text-tertiary px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">Blockers</span>
+</div>
+<div class="flex items-center gap-4 text-xs text-on-surface-variant">
+<span class="flex items-center gap-1 font-mono">
+<span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                                dev_ops_9
+                            </span>
+<span class="flex items-center gap-1 font-mono">
+<span class="material-symbols-outlined text-[14px]" data-icon="schedule">schedule</span>
+                                5h ago
+                            </span>
+<p class="hidden md:block text-tertiary/80">Circular dependency detected in @db-core module.</p>
+</div>
+</div>
+<div class="hidden lg:flex items-center gap-8 mr-8">
+<div class="text-right">
+<div class="text-[10px] text-outline font-mono uppercase">Blast Radius</div>
+<div class="h-1.5 w-24 bg-surface-container-highest rounded-full mt-1 overflow-hidden">
+<div class="h-full bg-gradient-to-r from-secondary to-tertiary w-4/5"></div>
+</div>
+</div>
+</div>
+<button class="material-symbols-outlined text-outline group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</button>
+</div>
+<!-- Report Item 3 -->
+<div class="group flex items-center bg-surface-container-low hover:bg-surface-container-high transition-all p-4 rounded-lg border-l-4 border-primary-container">
+<div class="w-12 h-12 flex items-center justify-center bg-surface-container rounded-lg mr-4 font-mono text-primary text-xs">#4019</div>
+<div class="flex-grow">
+<div class="flex items-center gap-3 mb-1">
+<span class="font-bold text-on-surface">Feature: Dark Mode Persistence</span>
+<span class="bg-primary-container/20 text-primary-fixed px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">Clean</span>
+</div>
+<div class="flex items-center gap-4 text-xs text-on-surface-variant">
+<span class="flex items-center gap-1 font-mono">
+<span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                                sarah_ui
+                            </span>
+<span class="flex items-center gap-1 font-mono">
+<span class="material-symbols-outlined text-[14px]" data-icon="schedule">schedule</span>
+                                12h ago
+                            </span>
+<p class="hidden md:block">Local storage hook implementation. Isolated to UI-Lib.</p>
+</div>
+</div>
+<div class="hidden lg:flex items-center gap-8 mr-8">
+<div class="text-right">
+<div class="text-[10px] text-outline font-mono uppercase">Blast Radius</div>
+<div class="h-1.5 w-24 bg-surface-container-highest rounded-full mt-1 overflow-hidden">
+<div class="h-full bg-primary w-[10%]"></div>
+</div>
+</div>
+</div>
+<button class="material-symbols-outlined text-outline group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</button>
+</div>
+</div>
+</section>
+<!-- Asymmetric Detail Section -->
+<section class="mt-20 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+<div class="lg:col-span-7 bg-surface-container p-8 rounded-xl border border-outline-variant/10 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-64 h-64 bg-primary opacity-5 blur-[120px] rounded-full"></div>
+<h3 class="font-headline text-3xl font-bold mb-6">How it works</h3>
+<div class="space-y-6">
+<div class="flex gap-4">
+<div class="flex-shrink-0 w-8 h-8 rounded bg-surface-container-highest flex items-center justify-center font-mono text-primary">01</div>
+<div>
+<h4 class="font-bold text-on-surface">AST Diffing</h4>
+<p class="text-sm text-on-surface-variant">We don't just look at text changes. We analyze Abstract Syntax Trees to understand logic flow shifts.</p>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="flex-shrink-0 w-8 h-8 rounded bg-surface-container-highest flex items-center justify-center font-mono text-primary">02</div>
+<div>
+<h4 class="font-bold text-on-surface">Dependency Resolution</h4>
+<p class="text-sm text-on-surface-variant">Real-time mapping of downstream modules affected by a signature change in shared utilities.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="lg:col-span-5 aspect-square relative group">
+<div class="absolute inset-0 bg-primary opacity-10 rounded-xl blur-2xl group-hover:opacity-20 transition-opacity"></div>
+<div class="relative h-full w-full bg-surface-container-low border border-outline-variant/30 rounded-xl p-4 overflow-hidden">
+<img alt="Impact Tree Visualization" class="w-full h-full object-cover rounded-lg opacity-80" data-alt="abstract visualization of a complex code dependency graph with glowing green nodes and connecting lines on dark terminal background high tech aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBJSJlRHkxUJFTyGbE3oerKbYWJLBeSqZ_MhksF1dhSoEXzv3kv9A_XcBigStl_eulgtBYmHn4DEEZ8mZbek_Z_-jNY32WBerbIvok9v5JZALWtvU3S9QsiV1l7syswEDE-WAFNI9d7Kwt_uqRNSs27kw86yRakxealbw_DzrsEchGRo9kEOg8s_xkLMnB_3C4CchrTXbyDGwZEobaKvK9iXQPPwgf3b88mR1y4f25YV91RtErOf6IzsmZjm4NuSvp-d558QhLv_i4"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface to-transparent"></div>
+<div class="absolute bottom-6 left-6">
+<div class="text-[10px] font-mono text-primary mb-1 uppercase tracking-[0.2em]">Live Visualization</div>
+<div class="text-xl font-headline font-bold">Dynamic Impact Trees</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer Meta -->
+<footer class="border-t border-outline-variant/10 py-8 px-6 text-center">
+<div class="flex justify-center items-center gap-6 mb-4">
+<span class="text-[10px] font-mono text-outline uppercase">v2.4.1-stable</span>
+<span class="text-[10px] font-mono text-outline uppercase">Latency: 14ms</span>
+<span class="text-[10px] font-mono text-outline uppercase">API: Connected</span>
+</div>
+<p class="text-[10px] text-outline-variant font-mono">© 2024 PrImpact Kinetic Terminal. All rights reserved.</p>
+</footer>
+</body></html>

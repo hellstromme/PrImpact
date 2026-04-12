@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Blast Radius - KINETIC_TERMINAL</title>
+<script type='text/javascript' nonce='niPPZntMARzwIlxs6SJ2Kw==' src='https://contribution.usercontent.google.com/tBhWscAftHKwEobQ1fxLS62E2CoCVr_rDkiLsE80Td1r2np77mUU39xO6FtXZbVwVUzR_1uXrva03_nQpmy4Xv8CvgY3x9DAab_0V2riOEOYjQ81g2ZhlscezNRJ_rieTlzaA1Ve4z-ZN-WJHGGXwa9mZb0P0whh7wiPS2UWibprAJL5kG-jGYc77q7Fc7i1KOW7G3w4MyEsBDiMeBs5PuEaIOa4locXBjnpP6TxESnX5SJG7ap-8GPuZaUY4ZOkg5HN_KVtb3Zgrt8OM8h6wzCqp87UtnfChNGBpF3kjkrY3BEdTIdADYAe4IJl9zGwg3zJ982SlSrKXVFl5kKbtgFnkBJKGZb5oAi-zSeQLZyMnuGQJoi2X2oREtNEEdg5HNhgoMlzTZHlWYyXAP6FXSc8HG0-TA38PMV9QfC2DS1-ZzyHbyTm7vIGG6MsnsekbeYwauqQcF_GG6wxN_EniYl2f3ZgUFqZzs3_26zNCgaTEky4BTdIu8o2A8kble13c-WIkLCTICokyMQrlHFIPTF33FYF7UmYeywotFrQk3b0iRgvU5-qlNnlJ-pUVPYi5hBLMrUxk_s7vMtGpAKzxwF7z_lqX3osL9c4l0tlz7tmGDhOerqjFwmCHx6xgrAnWZElZwqKjTO2g-tZQppVyUz2wnvaDTQ0gkWexXGIYzK3RypNxRlsYz1eWzIkfKHS0kXpeLGEafYLzIU-9vthynUv2jVT1YV3TT8g1hJ8SKNjphFrghzu1Y1ctC7P7pdoVDMrMJQ5ci-hX2Jady7tfzoGe9V-9eNn5Vtl_Q'></script><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-bright": "#353940",
+                        "surface": "#10141a",
+                        "on-tertiary": "#690007",
+                        "on-error": "#690005",
+                        "on-background": "#dfe2eb",
+                        "outline-variant": "#3e4a3d",
+                        "inverse-surface": "#dfe2eb",
+                        "tertiary-container": "#fe554d",
+                        "tertiary-fixed": "#ffdad6",
+                        "secondary-fixed": "#ffdeaa",
+                        "inverse-on-surface": "#2d3137",
+                        "primary-container": "#34a547",
+                        "on-tertiary-fixed-variant": "#93000d",
+                        "on-secondary-fixed-variant": "#5f4100",
+                        "secondary": "#fabc45",
+                        "tertiary-fixed-dim": "#ffb4ac",
+                        "background": "#10141a",
+                        "on-primary": "#00390e",
+                        "outline": "#889484",
+                        "error": "#ffb4ab",
+                        "on-error-container": "#ffdad6",
+                        "secondary-container": "#bd8708",
+                        "surface-container": "#1c2026",
+                        "secondary-fixed-dim": "#fabc45",
+                        "error-container": "#93000a",
+                        "surface-container-highest": "#31353c",
+                        "on-secondary-fixed": "#271900",
+                        "inverse-primary": "#006e23",
+                        "primary-fixed": "#8bfb91",
+                        "on-secondary-container": "#392600",
+                        "surface-container-low": "#181c22",
+                        "on-tertiary-fixed": "#410002",
+                        "surface-variant": "#31353c",
+                        "on-primary-fixed": "#002106",
+                        "on-tertiary-container": "#5c0005",
+                        "on-surface": "#dfe2eb",
+                        "on-primary-container": "#00320b",
+                        "surface-dim": "#10141a",
+                        "surface-container-high": "#262a31",
+                        "on-primary-fixed-variant": "#005319",
+                        "primary": "#6fdd78",
+                        "on-surface-variant": "#becab9",
+                        "tertiary": "#ffb4ac",
+                        "surface-tint": "#6fdd78",
+                        "on-secondary": "#422c00",
+                        "surface-container-lowest": "#0a0e14",
+                        "primary-fixed-dim": "#6fdd78"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"],
+                        "mono": ["JetBrains Mono"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>.material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24
+    }
+.grain-texture {
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuCbrMcvKuAIUgmnRCMk2SN2nEZGyz6W45xfDrNt0sDhNIqt4EdH3l7HC-g2KcJXIItg8eSrbJcaK1iQfxQhRq0vj7rzfDSkRQqEcjmJHMIPeJ3_0Z_QoL1iWTQTMN7wsO9aOmtfRuDy8h1mrvsIoMToC6I6Ih78PhQJhoMubvVH86zUZQlZ0OhA65Z-41ZxSvifvw8HMFf9zF9km7MdOt2JudkSB_1Mjr8bL3oOF3rgUa4SBkrHXf6HFJ_EqkmCTqGFvvtTptEGCck);
+    opacity: 0.02;
+    pointer-events: none
+    }</style>
+</head>
+<body class="bg-surface text-on-surface font-body overflow-hidden">
+<div class="fixed inset-0 grain-texture z-50"></div>
+<div class="flex h-screen w-full">
+<!-- SideNavBar -->
+<aside class="flex flex-col h-full py-4 bg-[#10141a] dark:bg-[#10141a] border-r border-[#3e4a3d]/15 w-64 shrink-0 font-[&#39;Inter&#39;] text-sm">
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-8 h-8 bg-primary-container flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-on-primary-fixed text-lg">terminal</span>
+</div>
+<div>
+<h1 class="text-lg font-black text-[#dfe2eb] leading-tight">Impact Analysis</h1>
+<p class="text-[10px] uppercase tracking-widest text-primary/70 font-mono">v4.2.0-stable</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center px-6 py-3 text-[#dfe2eb]/50 hover:text-[#dfe2eb] hover:bg-[#181c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="dashboard">dashboard</span>
+                    Summary
+                </a>
+<a class="flex items-center px-6 py-3 bg-[#181c22] text-[#2EA043] font-semibold border-r-2 border-[#2EA043] translate-x-1 transition-all duration-150" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="hub">hub</span>
+                    Blast Radius
+                </a>
+<a class="flex items-center px-6 py-3 text-[#dfe2eb]/50 hover:text-[#dfe2eb] hover:bg-[#181c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="security">security</span>
+                    Security
+                </a>
+<a class="flex items-center px-6 py-3 text-[#dfe2eb]/50 hover:text-[#dfe2eb] hover:bg-[#181c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="account_tree">account_tree</span>
+                    Dependencies
+                </a>
+<a class="flex items-center px-6 py-3 text-[#dfe2eb]/50 hover:text-[#dfe2eb] hover:bg-[#181c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="biotech">biotech</span>
+                    Test Gaps
+                </a>
+</nav>
+<div class="mt-auto border-t border-outline-variant/10 pt-4">
+<a class="flex items-center px-6 py-3 text-[#dfe2eb]/50 hover:text-[#dfe2eb] hover:bg-[#181c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="help">help</span>
+                    Support
+                </a>
+<a class="flex items-center px-6 py-3 text-[#dfe2eb]/50 hover:text-[#dfe2eb] hover:bg-[#181c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="receipt_long">receipt_long</span>
+                    Logs
+                </a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col overflow-hidden">
+<!-- TopNavBar -->
+<header class="flex justify-between items-center w-full px-6 h-14 bg-[#10141a] dark:bg-[#10141a] z-10 shrink-0">
+<div class="flex items-center gap-6">
+<span class="text-xl font-bold tracking-tighter text-[#dfe2eb] uppercase font-[&#39;Space_Grotesk&#39;]">KINETIC_TERMINAL</span>
+<div class="flex items-center bg-surface-container-low px-3 py-1.5 rounded border border-outline-variant/15">
+<span class="material-symbols-outlined text-sm mr-2 text-outline">search</span>
+<input class="bg-transparent border-none p-0 text-sm focus:ring-0 text-on-surface w-48 placeholder:text-outline/50" placeholder="Query entities..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4 text-sm font-[&#39;Space_Grotesk&#39;] tracking-tight">
+<a class="text-[#dfe2eb]/60 hover:text-[#dfe2eb]" href="#">Docs</a>
+<a class="text-[#dfe2eb]/60 hover:text-[#dfe2eb]" href="#">API</a>
+<a class="text-[#dfe2eb]/60 hover:text-[#dfe2eb]" href="#">Benchmarks</a>
+</div>
+<div class="flex items-center gap-4 text-outline">
+<button class="hover:bg-[#1d2129] transition-colors p-1 rounded"><span class="material-symbols-outlined" data-icon="notifications">notifications</span></button>
+<button class="hover:bg-[#1d2129] transition-colors p-1 rounded"><span class="material-symbols-outlined" data-icon="terminal">terminal</span></button>
+<button class="hover:bg-[#1d2129] transition-colors p-1 rounded"><span class="material-symbols-outlined" data-icon="settings">settings</span></button>
+<div class="w-8 h-8 rounded bg-surface-container-highest overflow-hidden border border-outline-variant/20">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="close-up portrait of a professional developer in soft studio lighting with a neutral gray background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAgOEksbToczHLo_EpxKgRWrVFlCc3-Flv6JqRIOSnIIsLSFiKmM5jEAtZaxvWShua7jI-m68F8LtfUEbVsRCUdnSnz0uV5mgO1NoxKwenBbTqgCtgwc8woTzviM6t_SyFQ_dzoj7GW89rBf1Lo8eo6VUDQEUVbgyfsZ9HiSyEQ8PAz3DlGKjm9QMsp0cQVwyeWo3I6RzdHZ3wxxXYa3IdmoNQJwObPdPtyU3ib4qua1YhyPK_1qRED-Q2NLsiB6HecRVQmI8127Qo"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Scrollable Canvas -->
+<div class="flex-1 overflow-y-auto p-8 space-y-8 bg-surface">
+<!-- Hero Metrics / Visualization Shell -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Blast Radius Visualization -->
+<div class="col-span-8 bg-surface-container-low rounded-lg p-6 relative overflow-hidden group">
+<div class="flex justify-between items-start mb-8 relative z-10">
+<div>
+<h2 class="font-headline font-bold text-2xl text-on-surface mb-1">Blast Radius Visualization</h2>
+<p class="text-on-surface-variant text-sm">Deep dependency trace (Max 2 hops)</p>
+</div>
+<div class="flex gap-2">
+<div class="bg-primary-container/20 border border-primary/30 px-3 py-1 rounded text-primary text-[10px] font-mono font-bold uppercase tracking-widest">Live Trace</div>
+</div>
+</div>
+<!-- Abstract Visualization Canvas -->
+<div class="h-64 flex items-center justify-center relative mb-4">
+<!-- Direct Impact Center -->
+<div class="w-32 h-32 rounded-full border-2 border-primary/40 flex items-center justify-center bg-primary/5 animate-pulse">
+<div class="text-center">
+<div class="text-3xl font-headline font-bold text-primary">11</div>
+<div class="text-[10px] text-on-surface-variant uppercase font-mono tracking-tight">Direct Files</div>
+</div>
+</div>
+<!-- Hop 1 Rings -->
+<div class="absolute w-[300px] h-[300px] border border-outline-variant/10 rounded-full"></div>
+<div class="absolute top-1/2 left-[calc(50%+150px)] -translate-y-1/2 flex gap-4">
+<div class="w-3 h-3 rounded-sm bg-secondary rotate-45 shadow-[0_0_10px_rgba(250,188,69,0.4)]"></div>
+<div class="w-3 h-3 rounded-sm bg-secondary rotate-45"></div>
+<div class="w-3 h-3 rounded-sm bg-secondary rotate-45"></div>
+</div>
+<!-- Hop 2 Rings -->
+<div class="absolute w-[500px] h-[500px] border border-outline-variant/10 rounded-full"></div>
+<div class="absolute top-1/2 left-[calc(50%-250px)] -translate-y-1/2 -translate-x-1/2">
+<div class="px-3 py-1 bg-surface-container-highest border border-outline-variant/30 rounded flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-tertiary">hub</span>
+<span class="text-[10px] font-mono text-on-surface uppercase">Downstream: 6 Modules</span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-6 relative z-10 border-t border-outline-variant/15 pt-6">
+<div class="flex flex-col">
+<span class="text-[10px] font-mono text-outline uppercase mb-1">Max Propagation</span>
+<span class="text-xl font-headline font-medium text-on-surface">2 Hops</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] font-mono text-outline uppercase mb-1">Downstream Risk</span>
+<span class="text-xl font-headline font-medium text-secondary">ELEVATED</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] font-mono text-outline uppercase mb-1">API Surface Delta</span>
+<span class="text-xl font-headline font-medium text-tertiary-container">+1 Change</span>
+</div>
+</div>
+</div>
+<!-- Module Impact Quick List -->
+<div class="col-span-4 flex flex-col gap-6">
+<div class="bg-surface-container-low rounded-lg p-6 flex-1">
+<h3 class="font-headline font-bold text-on-surface mb-4">Impacted Modules</h3>
+<div class="space-y-3">
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">extension</span>
+<span class="text-sm font-mono text-on-surface-variant">auth_provider</span>
+</div>
+<span class="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded">Critical</span>
+</div>
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">database</span>
+<span class="text-sm font-mono text-on-surface-variant">persistence_layer</span>
+</div>
+<span class="text-[10px] text-secondary bg-secondary/10 px-2 py-0.5 rounded">High</span>
+</div>
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">sync</span>
+<span class="text-sm font-mono text-on-surface-variant">event_bus</span>
+</div>
+<span class="text-[10px] text-on-surface-variant bg-surface-container-highest px-2 py-0.5 rounded">Medium</span>
+</div>
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">api</span>
+<span class="text-sm font-mono text-on-surface-variant">rest_adapter</span>
+</div>
+<span class="text-[10px] text-on-surface-variant bg-surface-container-highest px-2 py-0.5 rounded">Low</span>
+</div>
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">monitoring</span>
+<span class="text-sm font-mono text-on-surface-variant">telemetry</span>
+</div>
+<span class="text-[10px] text-on-surface-variant bg-surface-container-highest px-2 py-0.5 rounded">Low</span>
+</div>
+<div class="flex items-center justify-between group">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">security</span>
+<span class="text-sm font-mono text-on-surface-variant">audit_logger</span>
+</div>
+<span class="text-[10px] text-on-surface-variant bg-surface-container-highest px-2 py-0.5 rounded">Low</span>
+</div>
+</div>
+</div>
+<!-- Interface Change Summary -->
+<div class="bg-surface-container border-l-4 border-tertiary-container rounded-lg p-5">
+<div class="flex items-center gap-3 mb-2">
+<span class="material-symbols-outlined text-tertiary-container">warning</span>
+<h4 class="font-bold text-on-surface text-sm uppercase tracking-wider">Interface Breaking Change</h4>
+</div>
+<p class="text-xs text-on-surface-variant font-mono mb-3">
+                                classifier.Classifier.predict(data: Dict) -&gt; classifier.Classifier.predict(data: Dict, metadata: Optional[Dict])
+                            </p>
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-tertiary-container/80 italic">Missing arguments in 4 call sites</span>
+<button class="text-[10px] font-bold text-tertiary-container underline underline-offset-4 hover:text-tertiary">Review Diff</button>
+</div>
+</div>
+</div>
+</div>
+<!-- File Impact Table Section -->
+<div class="bg-surface-container-low rounded-lg overflow-hidden border border-outline-variant/10">
+<div class="p-6 border-b border-outline-variant/10 flex justify-between items-center">
+<div>
+<h3 class="font-headline font-bold text-xl text-on-surface">File Impact Profile</h3>
+<p class="text-sm text-outline">Detailed audit of the 11 directly affected entities</p>
+</div>
+<div class="flex gap-4">
+<button class="flex items-center gap-2 px-3 py-1.5 rounded bg-surface-container-highest text-xs font-mono text-on-surface-variant hover:bg-surface-bright transition-all">
+<span class="material-symbols-outlined text-sm">filter_list</span> Filter
+                            </button>
+<button class="flex items-center gap-2 px-3 py-1.5 rounded bg-surface-container-highest text-xs font-mono text-on-surface-variant hover:bg-surface-bright transition-all">
+<span class="material-symbols-outlined text-sm">download</span> Export JSON
+                            </button>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-lowest">
+<th class="py-4 px-6 text-[10px] font-mono uppercase text-outline tracking-widest">File Path</th>
+<th class="py-4 px-6 text-[10px] font-mono uppercase text-outline tracking-widest text-center">Distance</th>
+<th class="py-4 px-6 text-[10px] font-mono uppercase text-outline tracking-widest text-center">Uses</th>
+<th class="py-4 px-6 text-[10px] font-mono uppercase text-outline tracking-widest">Churn Profile</th>
+<th class="py-4 px-6 text-[10px] font-mono uppercase text-outline tracking-widest text-right">Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/5">
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-lg">description</span>
+<span class="font-mono text-sm text-on-surface">pr_impact/classifier.py</span>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<span class="text-xs font-mono text-primary px-2 py-0.5 rounded bg-primary/10">1</span>
+</td>
+<td class="py-4 px-6 text-center text-sm font-mono text-on-surface-variant">42</td>
+<td class="py-4 px-6">
+<div class="flex items-end gap-1 h-8">
+<div class="w-1.5 h-2 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-4 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-3 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-6 bg-secondary/60 rounded-t-sm"></div>
+<div class="w-1.5 h-5 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-8 bg-primary rounded-t-sm"></div>
+<span class="text-[10px] font-mono ml-2 text-on-surface-variant">11 refs</span>
+</div>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="material-symbols-outlined text-outline group-hover:text-on-surface transition-colors">open_in_new</button>
+</td>
+</tr>
+<tr class="bg-surface-container-low hover:bg-surface-container transition-colors group">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-lg">description</span>
+<span class="font-mono text-sm text-on-surface">pr_impact/dependency_graph.py</span>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<span class="text-xs font-mono text-primary px-2 py-0.5 rounded bg-primary/10">1</span>
+</td>
+<td class="py-4 px-6 text-center text-sm font-mono text-on-surface-variant">88</td>
+<td class="py-4 px-6">
+<div class="flex items-end gap-1 h-8">
+<div class="w-1.5 h-1 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-4 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-3 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-2 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-7 bg-secondary/60 rounded-t-sm"></div>
+<div class="w-1.5 h-4 bg-primary rounded-t-sm"></div>
+<span class="text-[10px] font-mono ml-2 text-on-surface-variant">15 refs</span>
+</div>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="material-symbols-outlined text-outline group-hover:text-on-surface transition-colors">open_in_new</button>
+</td>
+</tr>
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-lg">biotech</span>
+<span class="font-mono text-sm text-on-surface">tests/test_dependency_graph.py</span>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<span class="text-xs font-mono text-secondary px-2 py-0.5 rounded bg-secondary/10">2</span>
+</td>
+<td class="py-4 px-6 text-center text-sm font-mono text-on-surface-variant">12</td>
+<td class="py-4 px-6">
+<div class="flex items-end gap-1 h-8">
+<div class="w-1.5 h-1 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-2 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-2 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-3 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-2 bg-outline-variant/30 rounded-t-sm"></div>
+<div class="w-1.5 h-3 bg-secondary rounded-t-sm"></div>
+<span class="text-[10px] font-mono ml-2 text-on-surface-variant">8 refs</span>
+</div>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="material-symbols-outlined text-outline group-hover:text-on-surface transition-colors">open_in_new</button>
+</td>
+</tr>
+<!-- Dummy rows for density -->
+<tr class="bg-surface-container-low hover:bg-surface-container transition-colors group">
+<td class="py-4 px-6">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-lg">description</span>
+<span class="font-mono text-sm text-on-surface">core/types.ts</span>
+</div>
+</td>
+<td class="py-4 px-6 text-center">
+<span class="text-xs font-mono text-primary px-2 py-0.5 rounded bg-primary/10">1</span>
+</td>
+<td class="py-4 px-6 text-center text-sm font-mono text-on-surface-variant">211</td>
+<td class="py-4 px-6">
+<div class="flex items-end gap-1 h-8">
+<div class="w-1.5 h-6 bg-primary rounded-t-sm"></div>
+<div class="w-1.5 h-8 bg-primary rounded-t-sm"></div>
+<div class="w-1.5 h-7 bg-primary rounded-t-sm"></div>
+<div class="w-1.5 h-8 bg-primary rounded-t-sm"></div>
+<div class="w-1.5 h-5 bg-primary rounded-t-sm"></div>
+<div class="w-1.5 h-6 bg-primary rounded-t-sm"></div>
+<span class="text-[10px] font-mono ml-2 text-on-surface-variant">42 refs</span>
+</div>
+</td>
+<td class="py-4 px-6 text-right">
+<button class="material-symbols-outlined text-outline group-hover:text-on-surface transition-colors">open_in_new</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Floating Terminal Command -->
+<div class="bg-surface-container-lowest border border-outline-variant/20 rounded p-3 flex items-center justify-between font-mono text-xs max-w-2xl mx-auto shadow-2xl">
+<div class="flex items-center gap-3">
+<span class="text-primary-container">$</span>
+<span class="text-on-surface-variant">pr-impact analyze --branch feature/ml-update --depth 2</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-outline/50">Execution: 420ms</span>
+<span class="w-2 h-2 rounded-full bg-primary-container animate-pulse"></span>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- FAB Suppression: On Detail/Blast Radius screens, the FAB is suppressed per the Shell Visibility & Relevance mandate -->
+</body></html>

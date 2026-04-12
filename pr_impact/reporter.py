@@ -136,7 +136,9 @@ def render_markdown(report: ImpactReport) -> str:
     if report.ai_analysis.test_gaps:
         lines.append("## Test Gaps")
         for gap in report.ai_analysis.test_gaps:
-            lines.append(f"- **{gap.behaviour}**  ")
+            severity_tag = f" `{gap.severity.upper()}`" if gap.severity != "medium" else ""
+            gap_type_tag = f" · {gap.gap_type}" if gap.gap_type else ""
+            lines.append(f"- **{gap.behaviour}**{severity_tag}{gap_type_tag}  ")
             lines.append(f"  `{gap.location}`")
         lines.append("")
 
@@ -270,7 +272,7 @@ def render_sarif(report: ImpactReport) -> str:
             loc = _parse_location(gap.location)
             result = {
                 "ruleId": "primpact/test-gap",
-                "level": "note",
+                "level": _severity_to_level.get(gap.severity, "note"),
                 "message": {"text": gap.behaviour},
             }
             if loc:
@@ -525,8 +527,11 @@ def _render_test_gaps_section(console: Console, report: ImpactReport) -> None:
     console.print(Rule("TEST GAPS", style="bright_blue"))
     console.print(f"  [dim]{len(report.ai_analysis.test_gaps)} behaviour(s) not covered[/dim]")
     console.print()
+    _severity_colour = {"high": "red", "medium": "yellow", "low": "cyan"}
     for gap in report.ai_analysis.test_gaps:
-        console.print(f"  [dim]◇[/dim]  {gap.behaviour}")
+        colour = _severity_colour.get(gap.severity, "cyan")
+        gap_type_tag = f" [dim]{gap.gap_type}[/dim]" if gap.gap_type else ""
+        console.print(f"  [dim]◇[/dim]  {gap.behaviour} [{colour}]{gap.severity.upper()}[/{colour}]{gap_type_tag}")
         console.print(f"     [cyan dim]{gap.location}[/cyan dim]")
     console.print()
 
