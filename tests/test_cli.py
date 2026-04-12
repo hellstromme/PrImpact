@@ -8,7 +8,7 @@ import git
 import pytest
 from click.testing import CliRunner
 
-from pr_impact.analyzer import ImpactAnalyzer, _invert_graph
+from pr_impact.analyzer import AnalyzerExit, ImpactAnalyzer, _invert_graph
 from pr_impact.cli import (
     _FALLBACK_BASE,
     _FALLBACK_HEAD,
@@ -90,6 +90,8 @@ def _base_patches():
             "pr_impact.analyzer.run_ai_analysis",
             return_value=AIAnalysis(summary="test summary"),
         ),
+        patch("pr_impact.analyzer.detect_pattern_signals", return_value=[]),
+        patch("pr_impact.analyzer.check_dependency_integrity", return_value=[]),
     ]
 
 
@@ -102,11 +104,11 @@ def test_analyse_warns_when_api_key_missing(runner):
     # Without an API key the tool should still run; AI analysis is skipped with a warning
     patches = _base_patches()
     # Replace the run_ai_analysis patch with a real ValueError (what ai_layer raises)
-    patches[-1] = patch(
+    patches[6] = patch(
         "pr_impact.analyzer.run_ai_analysis",
         side_effect=ValueError("ANTHROPIC_API_KEY is not set"),
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
@@ -160,7 +162,7 @@ def test_analyse_exits_0_when_no_changed_files(runner):
 
 def test_analyse_success_exit_code_zero(runner):
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
@@ -171,7 +173,7 @@ def test_analyse_success_exit_code_zero(runner):
 
 def test_analyse_success_report_header_in_stdout(runner):
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
@@ -182,7 +184,7 @@ def test_analyse_success_report_header_in_stdout(runner):
 
 def test_analyse_success_ai_summary_in_output(runner):
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def"],
@@ -201,6 +203,8 @@ def test_analyse_success_run_ai_analysis_called(runner):
         patches[4],
         patches[5],
         patches[6] as mock_ai,
+        patches[7],
+        patches[8],
     ):
         runner.invoke(
             main,
@@ -213,7 +217,7 @@ def test_analyse_success_run_ai_analysis_called(runner):
 def test_analyse_output_flag_writes_file(runner):
     patches = _base_patches()
     with runner.isolated_filesystem():
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
             result = runner.invoke(
                 main,
                 ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--output", "out.md"],
@@ -228,7 +232,7 @@ def test_analyse_output_flag_writes_file(runner):
 def test_analyse_json_flag_writes_valid_json(runner):
     patches = _base_patches()
     with runner.isolated_filesystem():
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
             result = runner.invoke(
                 main,
                 ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--json", "out.json"],
@@ -243,7 +247,7 @@ def test_analyse_json_flag_writes_valid_json(runner):
 def test_analyse_sarif_flag_writes_valid_sarif(runner):
     patches = _base_patches()
     with runner.isolated_filesystem():
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
             result = runner.invoke(
                 main,
                 ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--sarif", "out.sarif"],
@@ -265,6 +269,8 @@ def test_analyse_max_depth_passed_to_blast_radius(runner):
         patches[4],
         patches[5],
         patches[6],
+        patches[7],
+        patches[8],
     ):
         runner.invoke(
             main,
@@ -273,10 +279,10 @@ def test_analyse_max_depth_passed_to_blast_radius(runner):
         )
     call_kwargs = mock_blast.call_args
     assert call_kwargs is not None
-    # max_depth is the 3rd positional or a kwarg
+    # max_depth is clamped to 3 regardless of the CLI value
     args, kwargs = call_kwargs
     max_depth_value = kwargs.get("max_depth", args[2] if len(args) > 2 else None)
-    assert max_depth_value == 5
+    assert max_depth_value == 3
 
 
 def test_analyse_churn_called_for_blast_radius_entries(runner):
@@ -383,6 +389,8 @@ def test_analyse_pr_number_uses_github_shas(runner):
         base_p[4],
         base_p[5],
         base_p[6],
+        base_p[7],
+        base_p[8],
         github_p[0],
         github_p[1],
         github_p[2],
@@ -410,6 +418,8 @@ def test_analyse_pr_title_uses_github_title(runner):
         base_p[4],
         base_p[5],
         base_p[6],
+        base_p[7],
+        base_p[8],
         github_p[0],
         github_p[1],
         github_p[2],
@@ -433,6 +443,8 @@ def test_analyse_pr_fetch_error_exits_1(runner):
         base_p[4],
         base_p[5],
         base_p[6],
+        base_p[7],
+        base_p[8],
         patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo", "origin")),
         patch("pr_impact.cli.fetch_pr", side_effect=RuntimeError("GitHub API error 404")),
         patch("pr_impact.cli.fetch_open_prs", return_value=[]),
@@ -457,6 +469,8 @@ def test_analyse_no_github_remote_falls_back_to_head(runner):
         base_p[4],
         base_p[5],
         base_p[6],
+        base_p[7],
+        base_p[8],
         patch("pr_impact.cli.detect_github_remote", return_value=None),
     ):
         result = runner.invoke(
@@ -495,6 +509,8 @@ def test_analyse_interactive_selects_pr(runner):
         base_p[4],
         base_p[5],
         base_p[6],
+        base_p[7],
+        base_p[8],
         github_p[0],
         github_p[1],
         github_p[2],
@@ -523,6 +539,8 @@ def test_analyse_interactive_invalid_pr_number_exits_1(runner):
         base_p[4],
         base_p[5],
         base_p[6],
+        base_p[7],
+        base_p[8],
         github_p[0],
         github_p[1],
         github_p[2],
@@ -549,6 +567,8 @@ def test_analyse_interactive_no_open_prs_falls_back_to_head(runner):
         base_p[4],
         base_p[5],
         base_p[6],
+        base_p[7],
+        base_p[8],
         patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo", "origin")),
         patch("pr_impact.cli.fetch_open_prs", return_value=[]),
         patch("pr_impact.cli._stdin_is_interactive", return_value=True),
@@ -571,6 +591,8 @@ def test_analyse_non_interactive_no_open_prs_uses_last_two_commits(runner):
         base_p[4],
         base_p[5],
         base_p[6],
+        base_p[7],
+        base_p[8],
         patch("pr_impact.cli.detect_github_remote", return_value=("org", "repo", "origin")),
         patch("pr_impact.cli.fetch_open_prs", return_value=[]),
     ):
@@ -749,7 +771,7 @@ def test_run_pipeline_exits_1_when_get_changed_files_raises():
     refs = RefsResult(base="abc", head="def")
     with (
         patch("pr_impact.analyzer.get_changed_files", side_effect=RuntimeError("git boom")),
-        pytest.raises(SystemExit) as exc_info,
+        pytest.raises(AnalyzerExit) as exc_info,
     ):
         ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert exc_info.value.code == 1
@@ -759,7 +781,7 @@ def test_run_pipeline_exits_0_when_no_changed_files():
     refs = RefsResult(base="abc", head="def")
     with (
         patch("pr_impact.analyzer.get_changed_files", return_value=[]),
-        pytest.raises(SystemExit) as exc_info,
+        pytest.raises(AnalyzerExit) as exc_info,
     ):
         ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert exc_info.value.code == 0
@@ -793,7 +815,7 @@ def test_run_pipeline_passes_max_depth_to_blast_radius():
         ImpactAnalyzer(".", MagicMock(), refs, max_depth=7).run(MagicMock())
     args, kwargs = mock_blast.call_args
     max_depth_val = kwargs.get("max_depth", args[2] if len(args) > 2 else None)
-    assert max_depth_val == 7
+    assert max_depth_val == 3  # clamped from 7 to the BFS depth cap
 
 
 def test_run_pipeline_import_graph_failure_continues():
@@ -916,7 +938,7 @@ def test_resolve_refs_interactive_no_token_warns(mock_repo):
 def test_analyse_base_only_defaults_head_to_HEAD(runner):
     """--base without --head should default head to HEAD (lines 415-416)."""
     patches = _base_patches()
-    with patches[0], patches[1] as mock_changed, patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1] as mock_changed, patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main, ["analyse", "--repo", ".", "--base", "abc123"], env=_ENV
         )
@@ -928,7 +950,7 @@ def test_analyse_base_only_defaults_head_to_HEAD(runner):
 def test_analyse_head_only_defaults_base_to_parent(runner):
     """--head without --base should default base to head~1 (lines 417-418)."""
     patches = _base_patches()
-    with patches[0], patches[1] as mock_changed, patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1] as mock_changed, patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main, ["analyse", "--repo", ".", "--head", "myhead"], env=_ENV
         )
@@ -1197,11 +1219,11 @@ _LOW_ANOMALY = Anomaly(description="minor", location="bar.py", severity="low")
 def test_fail_on_severity_none_always_exits_0(runner):
     """--fail-on-severity none (default) never fails even with high-severity anomalies."""
     patches = _base_patches()
-    patches[-1] = patch(
+    patches[6] = patch(
         "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_HIGH_ANOMALY]),
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
@@ -1214,11 +1236,11 @@ def test_fail_on_severity_none_always_exits_0(runner):
 def test_fail_on_severity_high_exits_1_on_high_anomaly(runner):
     """--fail-on-severity high exits 1 when a high-severity anomaly is present."""
     patches = _base_patches()
-    patches[-1] = patch(
+    patches[6] = patch(
         "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_HIGH_ANOMALY]),
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
@@ -1231,11 +1253,11 @@ def test_fail_on_severity_high_exits_1_on_high_anomaly(runner):
 def test_fail_on_severity_high_exits_0_when_no_anomalies(runner):
     """--fail-on-severity high exits 0 when there are no anomalies at all."""
     patches = _base_patches()
-    patches[-1] = patch(
+    patches[6] = patch(
         "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[]),
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
@@ -1248,11 +1270,11 @@ def test_fail_on_severity_high_exits_0_when_no_anomalies(runner):
 def test_fail_on_severity_medium_exits_1_on_medium_anomaly(runner):
     """--fail-on-severity medium exits 1 when a medium-severity anomaly is present."""
     patches = _base_patches()
-    patches[-1] = patch(
+    patches[6] = patch(
         "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_MEDIUM_ANOMALY]),
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
@@ -1265,11 +1287,11 @@ def test_fail_on_severity_medium_exits_1_on_medium_anomaly(runner):
 def test_fail_on_severity_medium_threshold_skips_low_anomaly(runner):
     """--fail-on-severity medium exits 0 when only a low-severity anomaly is present."""
     patches = _base_patches()
-    patches[-1] = patch(
+    patches[6] = patch(
         "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_LOW_ANOMALY]),
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
@@ -1282,11 +1304,11 @@ def test_fail_on_severity_medium_threshold_skips_low_anomaly(runner):
 def test_fail_on_severity_low_exits_1_on_low_anomaly(runner):
     """--fail-on-severity low exits 1 when a low-severity anomaly is present."""
     patches = _base_patches()
-    patches[-1] = patch(
+    patches[6] = patch(
         "pr_impact.analyzer.run_ai_analysis",
         return_value=AIAnalysis(summary="s", anomalies=[_LOW_ANOMALY]),
     )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
         result = runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
@@ -1459,6 +1481,7 @@ def test_analyse_dependency_issues_in_report(runner):
     dep_issue = DependencyIssue(package_name="requets", issue_type="typosquat",
                                 description="similar to requests", severity="high")
     patches = _base_patches()
+    patches[8] = patch("pr_impact.analyzer.check_dependency_integrity", return_value=[dep_issue])
     with (
         patches[0],
         patches[1],
@@ -1467,7 +1490,8 @@ def test_analyse_dependency_issues_in_report(runner):
         patches[4],
         patches[5],
         patches[6],
-        patch("pr_impact.analyzer.check_dependency_integrity", return_value=[dep_issue]),
+        patches[7],
+        patches[8],
     ):
         result = runner.invoke(
             main,
@@ -1507,7 +1531,7 @@ def _blocker_verdict():
 def test_verdict_json_flag_writes_json_file(runner):
     patches = _base_patches()
     with runner.isolated_filesystem():
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
                 _with_verdict(_clean_verdict()):
             runner.invoke(
                 main,
@@ -1524,7 +1548,7 @@ def test_verdict_flag_alone_does_not_write_file(runner):
     """--verdict alone prints to terminal but writes no file."""
     patches = _base_patches()
     with runner.isolated_filesystem():
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
                 _with_verdict(_clean_verdict()):
             runner.invoke(
                 main,
@@ -1537,7 +1561,7 @@ def test_verdict_flag_alone_does_not_write_file(runner):
 
 def test_verdict_clean_exits_0(runner):
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
             _with_verdict(_clean_verdict()):
         result = runner.invoke(
             main,
@@ -1549,7 +1573,7 @@ def test_verdict_clean_exits_0(runner):
 
 def test_verdict_has_blockers_exits_2(runner):
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
             _with_verdict(_blocker_verdict()):
         result = runner.invoke(
             main,
@@ -1561,7 +1585,7 @@ def test_verdict_has_blockers_exits_2(runner):
 
 def test_verdict_output_shown_in_terminal(runner):
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
             _with_verdict(_clean_verdict()):
         result = runner.invoke(
             main,
@@ -1575,7 +1599,7 @@ def test_verdict_json_implies_verdict(runner):
     """--verdict-json alone (without --verdict) still runs verdict analysis."""
     patches = _base_patches()
     with runner.isolated_filesystem():
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
                 _with_verdict(_clean_verdict()) as mock_v:
             runner.invoke(
                 main,
@@ -1588,7 +1612,7 @@ def test_verdict_json_implies_verdict(runner):
 def test_verdict_api_failure_exits_0(runner):
     """Verdict API failure → warning printed, exit 0 (loop terminates safely)."""
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
             patch("pr_impact.cli.run_verdict_analysis", side_effect=RuntimeError("timeout")):
         result = runner.invoke(
             main,
@@ -1601,7 +1625,7 @@ def test_verdict_api_failure_exits_0(runner):
 def test_verdict_not_called_without_flag(runner):
     """run_verdict_analysis is never called unless --verdict or --verdict-json is passed."""
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
             patch("pr_impact.cli.run_verdict_analysis") as mock_v:
         runner.invoke(
             main,
@@ -1614,9 +1638,8 @@ def test_verdict_not_called_without_flag(runner):
 def test_analyse_check_osv_passes_flag_to_check_dependency_integrity(runner):
     """--check-osv flag is forwarded as osv_check=True to check_dependency_integrity."""
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
-            patch("pr_impact.analyzer.detect_pattern_signals", return_value=[]), \
-            patch("pr_impact.analyzer.check_dependency_integrity", return_value=[]) as mock_dep:
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], \
+            patches[8] as mock_dep:
         runner.invoke(
             main,
             ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--check-osv"],
@@ -1630,7 +1653,7 @@ def test_analyse_check_osv_passes_flag_to_check_dependency_integrity(runner):
 def test_verdict_json_write_failure_logs_warning(runner):
     """I/O error during verdict JSON write is caught and logged, not raised."""
     patches = _base_patches()
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], \
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], \
             _with_verdict(_clean_verdict()), \
             patch("pr_impact.cli.Path") as mock_path:
         mock_path.return_value.write_text.side_effect = PermissionError("denied")

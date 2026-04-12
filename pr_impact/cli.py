@@ -14,7 +14,7 @@ from rich.text import Text
 from typing import Protocol
 
 from .ai_layer import run_verdict_analysis
-from .analyzer import ImpactAnalyzer
+from .analyzer import AnalyzerExit, ImpactAnalyzer
 from .config import CONFIG_PATH, env_placeholder, load_config, read_toml_config
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .history import get_run_count, load_anomaly_patterns, load_hotspots, save_run
@@ -378,9 +378,17 @@ def analyse(
             anomaly_history=anomaly_history,
             hotspots=hotspots,
         )
-        changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
-            analyzer.run(progress)
-        )
+        try:
+            changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
+                analyzer.run(progress)
+            )
+        except AnalyzerExit as exc:
+            if exc.message:
+                if exc.code != 0:
+                    stderr.print(f"[bold red]Error:[/bold red] {exc.message}")
+                else:
+                    stderr.print(exc.message)
+            sys.exit(exc.code)
 
     # Build title: from resolved PR or fall back to first commit message / SHA range
     if refs.pr_title is not None:

@@ -6,7 +6,6 @@ entry point (CLI, web API, scheduled job) without coupling to Click or Rich.
 This module is a helper called exclusively by cli.py.
 """
 
-import sys
 from collections import defaultdict
 
 from rich.console import Console
@@ -21,6 +20,19 @@ from .security import check_dependency_integrity, detect_pattern_signals
 import git
 
 stderr = Console(stderr=True)
+
+
+class AnalyzerExit(Exception):
+    """Raised by ImpactAnalyzer.run() to signal a clean or fatal pipeline exit.
+
+    Callers (e.g. cli.py) catch this, print ``exc.message`` to stderr if
+    non-empty, and call ``sys.exit(exc.code)``.
+    """
+
+    def __init__(self, code: int, message: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 def _invert_graph(forward: dict[str, list[str]]) -> dict[str, list[str]]:
@@ -89,13 +101,11 @@ class ImpactAnalyzer:
         try:
             changed_files = get_changed_files(self.repo, refs.base, refs.head, repo=self.repo_obj)
         except Exception as e:
-            stderr.print(f"[bold red]Error:[/bold red] Could not read git repository: {e}")
-            sys.exit(1)
+            raise AnalyzerExit(1, f"Could not read git repository: {e}")
         progress.update(task, description=f"Found {len(changed_files)} changed file(s)")
 
         if not changed_files:
-            stderr.print("No supported source files changed between the two SHAs.")
-            sys.exit(0)
+            raise AnalyzerExit(0, "No supported source files changed between the two SHAs.")
 
         # Step 2: build import graph
         progress.update(task, description="Building import graph...")
@@ -107,11 +117,12 @@ class ImpactAnalyzer:
             forward_graph = {}
         reverse_graph = _invert_graph(forward_graph)
 
-        # Step 3: blast radius
+        # Step 3: blast radius — BFS depth capped at 3 per architecture constraint
         progress.update(task, description="Calculating blast radius...")
         changed_paths = [f.path for f in changed_files]
+        effective_depth = min(self.max_depth, 3)
         try:
-            blast_radius = get_blast_radius(reverse_graph, changed_paths, self.max_depth, self.repo)
+            blast_radius = get_blast_radius(reverse_graph, changed_paths, effective_depth, self.repo)
         except Exception as e:
             stderr.print(f"[yellow]Warning:[/yellow] Blast radius calculation failed: {e}")
             blast_radius = []
