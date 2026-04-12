@@ -11,6 +11,7 @@ from pr_impact.dependency_graph import (
 )
 from pr_impact.language_resolvers import (
     _probe_js_extensions,
+    ImportResolutionConfig,
     extract_imports_for_file as _extract_imports,
     find_go_module_for_file as _find_go_module_for_file,
     load_tsconfig_aliases as _load_tsconfig_aliases,
@@ -339,7 +340,8 @@ def test_extract_imports_external_package_excluded():
 def test_extract_imports_csharp_using():
     content = "using MyApp.Models;\nclass Foo {}\n"
     cs_map = {"MyApp.Models": ["src/models.cs"]}
-    result = _extract_imports(content, "src/ctrl.cs", "csharp", {"src/models.cs"}, cs_map)
+    cfg = ImportResolutionConfig(cs_namespace_map=cs_map)
+    result = _extract_imports(content, "src/ctrl.cs", "csharp", {"src/models.cs"}, cfg)
     assert "src/models.cs" in result
 
 
@@ -626,20 +628,16 @@ def test_extract_imports_java():
 def test_extract_imports_go_single():
     content = 'import "github.com/user/myapp/pkg/util"\n'
     all_files = {"pkg/util/helpers.go"}
-    result = _extract_imports(
-        content, "cmd/main.go", "go", all_files,
-        go_module_name="github.com/user/myapp", go_module_root="",
-    )
+    cfg = ImportResolutionConfig(go_module_name="github.com/user/myapp", go_module_root="")
+    result = _extract_imports(content, "cmd/main.go", "go", all_files, cfg)
     assert "pkg/util/helpers.go" in result
 
 
 def test_extract_imports_go_block():
     content = 'import (\n    "github.com/user/myapp/pkg/util"\n    "fmt"\n)\n'
     all_files = {"pkg/util/helpers.go"}
-    result = _extract_imports(
-        content, "cmd/main.go", "go", all_files,
-        go_module_name="github.com/user/myapp", go_module_root="",
-    )
+    cfg = ImportResolutionConfig(go_module_name="github.com/user/myapp", go_module_root="")
+    result = _extract_imports(content, "cmd/main.go", "go", all_files, cfg)
     assert "pkg/util/helpers.go" in result
 
 

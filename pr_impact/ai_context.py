@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from .models import BlastRadiusEntry, ChangedFile, SecuritySignal, resolve_language
+from .utils import read_file_safe
 
 # Rough characters-per-token estimate for budget calculations
 _CHARS_PER_TOKEN = 4
@@ -58,17 +59,6 @@ def _extract_signatures(content: str, language: str) -> str:
     return "\n".join(line.rstrip() for line in lines if keep.match(line))
 
 
-def _read_file_safe(path: str) -> str:
-    # Note: git_analysis._blob_content serves the same role for git objects.
-    # The duplication is intentional — the no-cross-import constraint means
-    # models.py is the only shared module; add a third copy here only if
-    # adding a new module, not by importing across the pipeline.
-    try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            return fh.read()
-    except Exception:
-        return ""
-
 
 def build_diffs_context(changed_files: list[ChangedFile]) -> str:
     header_overhead = sum(len(f"### {f.path}\n") for f in changed_files)
@@ -109,7 +99,7 @@ def build_blast_radius_signatures(
         if entry.distance > max_distance:
             continue
         full_path = os.path.join(repo_path, entry.path)
-        content = _read_file_safe(full_path)
+        content = read_file_safe(full_path)
         if not content:
             continue
         lang = resolve_language(entry.path)
@@ -142,7 +132,7 @@ def find_test_files(changed_files: list[ChangedFile], repo_path: str) -> str:
                 stem_lower = stem.lower().lstrip("_")
                 if stem_lower and stem_lower not in name_lower:
                     continue
-                content = _read_file_safe(entry.path)
+                content = read_file_safe(entry.path)
                 if not content:
                     continue
                 # Extract test names for a complete coverage picture.
@@ -183,7 +173,7 @@ def find_neighbouring_signatures(
             rel = os.path.join(dir_rel, entry.name).replace("\\", "/") if dir_rel else entry.name
             if rel in changed_paths or resolve_language(entry.name) == "unknown":
                 continue
-            content = _read_file_safe(entry.path)
+            content = read_file_safe(entry.path)
             if not content:
                 continue
             file_lang = resolve_language(entry.name)

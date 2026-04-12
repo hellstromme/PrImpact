@@ -47,7 +47,7 @@ def test_pipeline_modules_do_not_cross_import():
                 ]
             for imported_module in imported_modules:
                 if imported_module not in (
-                    "models", "prompts", "ast_extractor", "history",
+                    "models", "prompts", "ast_extractor", "history", "utils",
                     # Helper modules — each called by exactly one pipeline module:
                     "ai_client", "ai_context",       # called by ai_layer only
                     "language_resolvers",             # called by dependency_graph only

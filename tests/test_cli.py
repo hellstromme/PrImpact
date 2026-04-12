@@ -12,10 +12,15 @@ from pr_impact.analyzer import AnalyzerExit, ImpactAnalyzer, _invert_graph
 from pr_impact.cli import (
     _FALLBACK_BASE,
     _FALLBACK_HEAD,
+    _build_pr_title,
+    _build_report,
+    _check_severity_threshold,
     _format_pr_title,
     _get_github_token,
+    _normalize_direct_refs,
     _print_banner,
     _resolve_refs,
+    _validate_ref_options,
     _warn_no_github_token,
     _write_outputs,
     main,
@@ -24,7 +29,7 @@ from pr_impact.config import (
     load_config as _load_config,
     read_toml_config as _read_toml_config,
 )
-from pr_impact.models import AIAnalysis, Anomaly, BlastRadiusEntry, RefsResult
+from pr_impact.models import AIAnalysis, Anomaly, BlastRadiusEntry, ImpactReport, RefsResult
 from tests.helpers import make_file, make_report
 
 _ENV = {"ANTHROPIC_API_KEY": "test-key"}
@@ -1664,3 +1669,131 @@ def test_verdict_json_write_failure_logs_warning(runner):
             env=_ENV,
         )
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for pure helper functions extracted from analyse()
+# ---------------------------------------------------------------------------
+
+
+class TestValidateRefOptions:
+    def test_passes_when_only_pr_given(self):
+        _validate_ref_options(42, None, None)  # no exception
+
+    def test_passes_when_only_base_head_given(self):
+        _validate_ref_options(None, "abc", "def")  # no exception
+
+    def test_passes_when_nothing_given(self):
+        _validate_ref_options(None, None, None)  # no exception
+
+    def test_exits_when_pr_and_base_given(self):
+        with pytest.raises(SystemExit) as exc:
+            _validate_ref_options(42, "abc", None)
+        assert exc.value.code == 1
+
+    def test_exits_when_pr_and_head_given(self):
+        with pytest.raises(SystemExit) as exc:
+            _validate_ref_options(42, None, "def")
+        assert exc.value.code == 1
+
+    def test_exits_when_pr_and_both_given(self):
+        with pytest.raises(SystemExit) as exc:
+            _validate_ref_options(42, "abc", "def")
+        assert exc.value.code == 1
+
+
+class TestNormalizeDirectRefs:
+    def test_noop_when_pr_given(self):
+        base, head = _normalize_direct_refs(42, None, None)
+        assert base is None
+        assert head is None
+
+    def test_noop_when_neither_given(self):
+        base, head = _normalize_direct_refs(None, None, None)
+        assert base is None
+        assert head is None
+
+    def test_both_given_unchanged(self):
+        base, head = _normalize_direct_refs(None, "abc", "def")
+        assert base == "abc"
+        assert head == "def"
+
+    def test_head_only_defaults_base(self):
+        base, head = _normalize_direct_refs(None, None, "abc123")
+        assert head == "abc123"
+        assert base == "abc123~1"
+
+    def test_base_only_defaults_head_to_HEAD(self):
+        base, head = _normalize_direct_refs(None, "abc", None)
+        assert base == "abc"
+        assert head == "HEAD"
+
+    def test_neither_given_with_pr_none_leaves_both_none(self):
+        base, head = _normalize_direct_refs(None, None, None)
+        assert base is None and head is None
+
+
+class TestBuildPrTitle:
+    def test_uses_pr_title_when_present(self):
+        refs = RefsResult(base="a", head="b", pr_title="#42: feat: add thing")
+        assert _build_pr_title(refs, {}) == "#42: feat: add thing"
+
+    def test_uses_first_commit_line_when_no_pr_title(self):
+        refs = RefsResult(base="a", head="b")
+        metadata = {"commits": ["fix: typo\n\nmore detail"]}
+        assert _build_pr_title(refs, metadata) == "fix: typo"
+
+    def test_falls_back_to_sha_range(self):
+        refs = RefsResult(base="abc1234567", head="def9876543")
+        title = _build_pr_title(refs, {})
+        assert "abc1234" in title
+        assert "def9876" in title
+
+    def test_falls_back_to_sha_range_when_commits_empty(self):
+        refs = RefsResult(base="abc1234567", head="def9876543")
+        title = _build_pr_title(refs, {"commits": []})
+        assert "abc1234" in title
+
+
+class TestCheckSeverityThreshold:
+    def _anomaly(self, severity: str) -> Anomaly:
+        return Anomaly(description="x", location="f.py", severity=severity)
+
+    def test_none_never_triggers(self):
+        assert _check_severity_threshold("none", [self._anomaly("high")]) is False
+
+    def test_breaches_at_matching_level(self):
+        assert _check_severity_threshold("high", [self._anomaly("high")]) is True
+
+    def test_breaches_above_level(self):
+        assert _check_severity_threshold("low", [self._anomaly("high")]) is True
+
+    def test_does_not_breach_below_level(self):
+        assert _check_severity_threshold("high", [self._anomaly("low")]) is False
+
+    def test_empty_anomalies_never_triggers(self):
+        assert _check_severity_threshold("low", []) is False
+
+
+class TestBuildReport:
+    def test_maps_hotspots_to_historical_hotspots(self):
+        refs = RefsResult(base="abc", head="def")
+        hotspots = [{"file": "src/foo.py", "appearances": 5}]
+        report = _build_report(
+            "title", refs, [], [], [], AIAnalysis(), [], hotspots
+        )
+        assert isinstance(report, ImpactReport)
+        assert len(report.historical_hotspots) == 1
+        assert report.historical_hotspots[0].file == "src/foo.py"
+        assert report.historical_hotspots[0].appearances == 5
+
+    def test_handles_empty_hotspots(self):
+        refs = RefsResult(base="abc", head="def")
+        report = _build_report("title", refs, [], [], [], AIAnalysis(), [], None)
+        assert report.historical_hotspots == []
+
+    def test_sets_base_and_head_sha(self):
+        refs = RefsResult(base="aaa", head="bbb")
+        report = _build_report("title", refs, [], [], [], AIAnalysis(), [], None)
+        assert report.base_sha == "aaa"
+        assert report.head_sha == "bbb"

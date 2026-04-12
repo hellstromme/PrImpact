@@ -1573,7 +1573,7 @@ def test_find_test_files_read_returns_empty_skips_file(tmp_path):
     """When _read_file_safe returns '' for a candidate test file, it is skipped."""
     (tmp_path / "test_models.py").write_text("def test_foo(): pass\n")
     f = make_file(path="models.py")
-    with patch("pr_impact.ai_context._read_file_safe", return_value=""):
+    with patch("pr_impact.ai_context.read_file_safe", return_value=""):
         result = _find_test_files([f], str(tmp_path))
     assert result == "(no test files found)"
 
