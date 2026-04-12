@@ -37,6 +37,8 @@ _SIG_RUBY_KEEP = re.compile(
 )
 
 _TEST_EXTENSIONS = {".py", ".ts", ".js", ".tsx", ".jsx", ".go", ".java", ".cs", ".rb"}
+# Max chars of raw file content to include when no test names can be extracted
+_FALLBACK_FILE_CHARS = 4_000
 
 _SIG_KEEP_BY_LANGUAGE: dict[str, re.Pattern] = {
     "python": _SIG_PY_KEEP,
@@ -154,7 +156,7 @@ def find_test_files(changed_files: list[ChangedFile], repo_path: str) -> str:
                 if test_names:
                     body = "\n".join(test_names)
                 else:
-                    body = content[:4000]   # non-standard structure — fall back to partial content
+                    body = content[:_FALLBACK_FILE_CHARS]  # non-standard structure — fall back to partial content
                 found[entry.name] = f"### {entry.path}\n{body}"
 
     return "\n\n".join(found.values()) if found else "(no test files found)"

@@ -160,6 +160,67 @@ def _print_pr_table(prs: list[dict]) -> None:
     stderr.print(table)
 
 
+def _resolve_explicit_pr(
+    owner: str,
+    repo_name: str,
+    pr_number: int,
+    github_token: str | None,
+    fetch_remote: str,
+) -> RefsResult:
+    """Path A: fetch refs for an explicit --pr number from the GitHub API."""
+    try:
+        pr_data = fetch_pr(owner, repo_name, pr_number, github_token)
+    except RuntimeError as e:
+        stderr.print(f"[bold red]Error:[/bold red] {e}")
+        sys.exit(1)
+    return RefsResult(
+        base=pr_data["base"]["sha"],
+        head=pr_data["head"]["sha"],
+        pr_title=_format_pr_title(pr_number, pr_data.get("title")),
+        fetch_pr_number=pr_number,
+        fetch_base_ref=pr_data.get("base", {}).get("ref"),
+        fetch_remote=fetch_remote,
+    )
+
+
+def _resolve_interactive_pr(
+    owner: str,
+    repo_name: str,
+    github_token: str | None,
+    fetch_remote: str,
+) -> RefsResult:
+    """Path D: list open PRs and prompt the user to pick one (interactive terminals only)."""
+    if github_token is None:
+        _warn_no_github_token()
+    try:
+        open_prs = fetch_open_prs(owner, repo_name, github_token)
+    except RuntimeError as e:
+        stderr.print(f"[yellow]Warning:[/yellow] Could not fetch open PRs: {e}. Falling back to HEAD~1 → HEAD.")
+        return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+    if not open_prs:
+        stderr.print("[yellow]No open PRs found — analysing HEAD~1 → HEAD.[/yellow]")
+        return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
+
+    _print_pr_table(open_prs)
+    sys.stderr.flush()
+    pr_numbers = {str(p["number"]) for p in open_prs}
+    chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
+    if chosen not in pr_numbers:
+        stderr.print(f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list.")
+        sys.exit(1)
+    selected = next(p for p in open_prs if str(p["number"]) == chosen)
+    selected_num = selected["number"]
+    return RefsResult(
+        base=selected["base"]["sha"],
+        head=selected["head"]["sha"],
+        pr_title=_format_pr_title(selected_num, selected.get("title")),
+        fetch_pr_number=selected_num,
+        fetch_base_ref=selected.get("base", {}).get("ref"),
+        fetch_remote=fetch_remote,
+    )
+
+
 def _resolve_refs(
     repo_obj: git.Repo,
     pr_number: int | None,
@@ -193,52 +254,10 @@ def _resolve_refs(
     owner, repo_name, fetch_remote = github_remote
 
     if not _interactive:
-        # Path A: explicit --pr with a known remote
-        try:
-            pr_data = fetch_pr(owner, repo_name, pr_number, github_token)
-        except RuntimeError as e:
-            stderr.print(f"[bold red]Error:[/bold red] {e}")
-            sys.exit(1)
-        return RefsResult(
-            base=pr_data["base"]["sha"],
-            head=pr_data["head"]["sha"],
-            pr_title=_format_pr_title(pr_number, pr_data.get("title")),
-            fetch_pr_number=pr_number,
-            fetch_base_ref=pr_data.get("base", {}).get("ref"),
-            fetch_remote=fetch_remote,
-        )
+        return _resolve_explicit_pr(owner, repo_name, pr_number, github_token, fetch_remote)
 
     if _stdin_is_interactive():
-        # Path D: interactive terminal — list open PRs and let the user pick
-        if github_token is None:
-            _warn_no_github_token()
-        try:
-            open_prs = fetch_open_prs(owner, repo_name, github_token)
-        except RuntimeError as e:
-            stderr.print(f"[yellow]Warning:[/yellow] Could not fetch open PRs: {e}. Falling back to HEAD~1 → HEAD.")
-            return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
-
-        if not open_prs:
-            stderr.print("[yellow]No open PRs found — analysing HEAD~1 → HEAD.[/yellow]")
-            return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)
-
-        _print_pr_table(open_prs)
-        sys.stderr.flush()
-        pr_numbers = {str(p["number"]) for p in open_prs}
-        chosen = click.prompt("Enter PR number to analyse", prompt_suffix=" > ")
-        if chosen not in pr_numbers:
-            stderr.print(f"[bold red]Error:[/bold red] '{chosen}' is not a valid PR number from the list.")
-            sys.exit(1)
-        selected = next(p for p in open_prs if str(p["number"]) == chosen)
-        selected_num = selected["number"]
-        return RefsResult(
-            base=selected["base"]["sha"],
-            head=selected["head"]["sha"],
-            pr_title=_format_pr_title(selected_num, selected.get("title")),
-            fetch_pr_number=selected_num,
-            fetch_base_ref=selected.get("base", {}).get("ref"),
-            fetch_remote=fetch_remote,
-        )
+        return _resolve_interactive_pr(owner, repo_name, github_token, fetch_remote)
 
     # Path E: non-interactive (CI / piped) — skip discovery, fall back silently
     return RefsResult(base=_FALLBACK_BASE, head=_FALLBACK_HEAD)

@@ -140,7 +140,7 @@ def load_hotspots(db_path: str, repo_path: str, limit: int = 10) -> list[dict]:
         ).fetchall()
         return [{"file": row[0], "appearances": row[1]} for row in rows]
     except Exception:
-        return []
+        return []  # History is best-effort; errors never affect the pipeline
     finally:
         if conn is not None:
             conn.close()
@@ -172,7 +172,7 @@ def load_anomaly_patterns(db_path: str, repo_path: str, limit: int = 10) -> list
         ).fetchall()
         return [{"file": row[0], "description": row[1], "run_count": row[2]} for row in rows]
     except Exception:
-        return []
+        return []  # History is best-effort; errors never affect the pipeline
     finally:
         if conn is not None:
             conn.close()
@@ -190,7 +190,7 @@ def get_run_count(db_path: str, repo_path: str) -> int:
         ).fetchone()[0]
         return count
     except Exception:
-        return 0
+        return 0  # History is best-effort; errors never affect the pipeline
     finally:
         if conn is not None:
             conn.close()

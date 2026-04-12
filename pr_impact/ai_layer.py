@@ -6,6 +6,7 @@ Called only by cli.py.
 """
 
 import os
+import sys
 
 import anthropic
 
@@ -114,7 +115,6 @@ def run_ai_analysis(
     try:
         neighbour_sigs = find_neighbouring_signatures(changed_files, repo_path)
     except Exception as exc:
-        import sys
         print(f"[pr-impact] Neighbour signature collection failed: {exc}", file=sys.stderr)
         neighbour_sigs = "(none)"
 
@@ -142,7 +142,6 @@ def run_ai_analysis(
     try:
         test_ctx = find_test_files(changed_files, repo_path)
     except Exception as exc:
-        import sys
         print(f"[pr-impact] Test file collection failed: {exc}", file=sys.stderr)
         test_ctx = "(no test files found)"
     data3 = call_api(

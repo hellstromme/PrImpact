@@ -64,7 +64,7 @@ def _log_response(label: str, raw: str) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(raw)
     except Exception:
-        pass
+        pass  # Response logging is best-effort; never affects the main pipeline
 
 
 def call_api(client: anthropic.Anthropic, prompt: str, label: str) -> Union[dict, list]:

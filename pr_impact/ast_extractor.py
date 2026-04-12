@@ -179,8 +179,8 @@ def _unquote(s: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _py_imports_v2(root) -> list[ASTImport]:
-    """Revised Python import extraction using direct node text parsing.
+def _py_imports(root) -> list[ASTImport]:
+    """Python import extraction using direct node text parsing.
 
     Walks all descendants (not just top-level children) so imports inside
     ``if TYPE_CHECKING:``, ``try/except ImportError``, and similar blocks are
@@ -480,16 +480,6 @@ def _ts_extract_arrow(decl_node, results: list[ASTSymbol], is_exported: bool) ->
     for child in decl_node.children:
         if child.type == "variable_declarator":
             name_node = _child_by_type(child, "identifier")
-            # value should be arrow_function or async arrow_function
-            value = None
-            for c in child.children:
-                if c.type in ("arrow_function", "await_expression"):
-                    value = c
-                    break
-                elif c.type == "call_expression":
-                    # async (...) => {} might be wrapped
-                    pass
-            # Simpler: if any grandchild is arrow_function
             arrow = None
             for c in child.children:
                 if c.type == "arrow_function":
@@ -886,7 +876,7 @@ def _cs_extract_method(method_node, container: str = "") -> ASTSymbol | None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _IMPORT_EXTRACTORS: dict[str, object] = {
-    "python": _py_imports_v2,
+    "python": _py_imports,
     "typescript": _ts_imports,
     "javascript": _ts_imports,
     "java": _java_imports,
