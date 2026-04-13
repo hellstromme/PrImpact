@@ -36,6 +36,10 @@ dev = [
     "detect-secrets>=1.5",
     "pytest>=8.0",
 ]
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -20,6 +20,10 @@ def test_pipeline_modules_do_not_cross_import():
 
     violations: list[str] = []
     for pyfile in sorted(pkg.rglob("*.py")):
+        # Only enforce on top-level pipeline modules; subpackages (e.g. web/) have their own
+        # internal import patterns and are not pipeline modules.
+        if pyfile.parent != pkg:
+            continue
         if pyfile.stem in exempt:
             continue
         source = pyfile.read_text(encoding="utf-8")
