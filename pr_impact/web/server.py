@@ -16,15 +16,21 @@ or falls back to .primpact/history.db in the current directory.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api.analyse import router as analyse_router
 from .api.runs import router as runs_router
+from .api.snippet import router as snippet_router
 
 _DEFAULT_DB = os.path.join(".primpact", "history.db")
 _DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://localhost:3000"
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 def _cors_origins() -> list[str]:
@@ -62,6 +68,18 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     app.include_router(runs_router, prefix="/api")
     app.include_router(analyse_router, prefix="/api")
+    app.include_router(snippet_router, prefix="/api")
+
+    # Serve the built React bundle when present.
+    # In dev mode, Vite runs separately and proxies /api to this server.
+    if _STATIC_DIR.exists():
+        assets_dir = _STATIC_DIR / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def spa_fallback(full_path: str) -> FileResponse:
+            return FileResponse(str(_STATIC_DIR / "index.html"))
 
     return app
 
