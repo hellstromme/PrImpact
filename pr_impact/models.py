@@ -180,6 +180,23 @@ class HistoricalHotspot:
 
 
 @dataclass
+class RunSummary:
+    """Lightweight summary of a persisted analysis run, used by the web UI run list."""
+
+    id: str                  # UUID
+    repo_path: str
+    pr_number: int | None
+    pr_title: str | None
+    base_sha: str
+    head_sha: str
+    created_at: str          # ISO 8601
+    verdict: str | None      # "clean" | "has_blockers" | None
+    blast_radius_count: int
+    anomaly_count: int
+    signal_count: int
+
+
+@dataclass
 class ImpactReport:
     pr_title: str
     base_sha: str

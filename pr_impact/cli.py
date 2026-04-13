@@ -453,6 +453,12 @@ def main() -> None:
     default=False,
     help="Skip reading from and writing to the history database",
 )
+@click.option(
+    "--run-id",
+    "run_id",
+    default=None,
+    help="Explicit UUID for this run (auto-generated if omitted); used to deep-link from the web UI",
+)
 def analyse(
     repo: str,
     pr_number: int | None,
@@ -468,6 +474,7 @@ def analyse(
     verdict_output: str | None,
     history_db: str | None,
     no_history: bool,
+    run_id: str | None,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
@@ -529,7 +536,8 @@ def analyse(
 
     # Save run to history (fire-and-forget; never affects exit code)
     if not no_history:
-        save_run(db_path, report, repo)
+        stored_uuid = save_run(db_path, report, repo, run_uuid=run_id)
+        stderr.print(f"[dim]Run ID: {stored_uuid}[/dim]")
 
     # Collect both exit conditions before exiting so neither silently suppresses the other.
     # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),

@@ -18,8 +18,14 @@ def test_pipeline_modules_do_not_cross_import():
         "__init__", "models", "prompts", "cli", "analyzer", "ast_extractor", "history",
     }
 
+    web_pkg = pkg / "web"
     violations: list[str] = []
     for pyfile in sorted(pkg.rglob("*.py")):
+        # The web/ subpackage has its own internal import structure (routers importing
+        # each other) and is not a pipeline module — exempt it specifically.
+        # All other subpackages remain subject to the cross-import rule.
+        if pyfile.is_relative_to(web_pkg):
+            continue
         if pyfile.stem in exempt:
             continue
         source = pyfile.read_text(encoding="utf-8")
