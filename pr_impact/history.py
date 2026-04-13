@@ -289,7 +289,7 @@ def load_runs(
             conn.close()
 
 
-def load_run_summary(db_path: str, run_uuid: str) -> "RunSummary | None":
+def load_run_summary(db_path: str, run_uuid: str) -> RunSummary | None:
     """Return a single RunSummary by UUID, or None if not found."""
     if not os.path.exists(db_path):
         return None

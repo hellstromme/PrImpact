@@ -24,6 +24,13 @@ from .api.analyse import router as analyse_router
 from .api.runs import router as runs_router
 
 _DEFAULT_DB = os.path.join(".primpact", "history.db")
+_DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://localhost:3000"
+
+
+def _cors_origins() -> list[str]:
+    """Return allowed CORS origins from the CORS_ORIGINS env var, or the dev defaults."""
+    raw = os.environ.get("CORS_ORIGINS", _DEFAULT_CORS_ORIGINS)
+    return [o.strip() for o in raw.split(",") if o.strip()]
 
 
 def create_app(db_path: str | None = None) -> FastAPI:
@@ -44,10 +51,11 @@ def create_app(db_path: str | None = None) -> FastAPI:
     # Store db_path on app state so route handlers can read it via request.app.state
     app.state.db_path = resolved_db
 
-    # Allow the Vite dev server (Milestone 2) to call the API during development
+    # Allowed origins are read from the CORS_ORIGINS env var (comma-separated).
+    # Defaults to localhost Vite dev server origins for local development.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000"],
+        allow_origins=_cors_origins(),
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
