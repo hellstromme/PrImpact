@@ -16,7 +16,24 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 
-from .models import ImpactReport, RunSummary
+from .models import (
+    AIAnalysis,
+    Anomaly,
+    Assumption,
+    BlastRadiusEntry,
+    ChangedFile,
+    ChangedSymbol,
+    Decision,
+    DependencyIssue,
+    HistoricalHotspot,
+    ImpactReport,
+    InterfaceChange,
+    RunSummary,
+    SecuritySignal,
+    SemanticVerdict,
+    SourceLocation,
+    TestGap,
+)
 
 
 # --- Schema ---
@@ -336,7 +353,145 @@ def load_run_summary(db_path: str, run_uuid: str) -> RunSummary | None:
             conn.close()
 
 
-def load_run(db_path: str, run_uuid: str) -> "ImpactReport | None":
+def _report_from_dict(data: dict) -> ImpactReport:
+    """Reconstruct an ImpactReport from the dict produced by dataclasses.asdict().
+
+    Private to history.py — only used when rehydrating stored runs. Kept here
+    rather than in reporter.py to preserve reporter's single rendering responsibility
+    and avoid a history→reporter coupling.
+    """
+
+    def _source_location(d: dict) -> SourceLocation:
+        return SourceLocation(
+            file=d.get("file", ""),
+            line=d.get("line"),
+            symbol=d.get("symbol"),
+        )
+
+    def _security_signal(d: dict) -> SecuritySignal:
+        loc = d.get("location", {})
+        return SecuritySignal(
+            description=d.get("description", ""),
+            location=_source_location(loc) if isinstance(loc, dict) else SourceLocation(file=str(loc)),
+            signal_type=d.get("signal_type", ""),
+            severity=d.get("severity", "medium"),
+            why_unusual=d.get("why_unusual", ""),
+            suggested_action=d.get("suggested_action", ""),
+        )
+
+    def _ai_analysis(d: dict) -> AIAnalysis:
+        return AIAnalysis(
+            summary=d.get("summary", ""),
+            decisions=[
+                Decision(
+                    description=x.get("description", ""),
+                    rationale=x.get("rationale", ""),
+                    risk=x.get("risk", ""),
+                )
+                for x in d.get("decisions", [])
+            ],
+            assumptions=[
+                Assumption(
+                    description=x.get("description", ""),
+                    location=x.get("location", ""),
+                    risk=x.get("risk", ""),
+                )
+                for x in d.get("assumptions", [])
+            ],
+            anomalies=[
+                Anomaly(
+                    description=x.get("description", ""),
+                    location=x.get("location", ""),
+                    severity=x.get("severity", "medium"),
+                )
+                for x in d.get("anomalies", [])
+            ],
+            test_gaps=[
+                TestGap(
+                    behaviour=x.get("behaviour", ""),
+                    location=x.get("location", ""),
+                    severity=x.get("severity", "medium"),
+                    gap_type=x.get("gap_type", ""),
+                )
+                for x in d.get("test_gaps", [])
+            ],
+            security_signals=[_security_signal(x) for x in d.get("security_signals", [])],
+            semantic_verdicts=[
+                SemanticVerdict(
+                    file=x.get("file", ""),
+                    symbol=x.get("symbol", ""),
+                    verdict=x.get("verdict", "normal"),
+                    reason=x.get("reason", ""),
+                )
+                for x in d.get("semantic_verdicts", [])
+            ],
+        )
+
+    def _changed_file(d: dict) -> ChangedFile:
+        return ChangedFile(
+            path=d.get("path", ""),
+            language=d.get("language", "unknown"),
+            diff=d.get("diff", ""),
+            content_before=d.get("content_before", ""),
+            content_after=d.get("content_after", ""),
+            changed_symbols=[
+                ChangedSymbol(
+                    name=x.get("name", ""),
+                    kind=x.get("kind", "file"),
+                    change_type=x.get("change_type", ""),
+                    signature_before=x.get("signature_before"),
+                    signature_after=x.get("signature_after"),
+                    params=x.get("params", []),
+                    decorators=x.get("decorators", []),
+                    return_type=x.get("return_type"),
+                )
+                for x in d.get("changed_symbols", [])
+            ],
+        )
+
+    return ImpactReport(
+        pr_title=data.get("pr_title", ""),
+        base_sha=data.get("base_sha", ""),
+        head_sha=data.get("head_sha", ""),
+        changed_files=[_changed_file(f) for f in data.get("changed_files", [])],
+        blast_radius=[
+            BlastRadiusEntry(
+                path=x.get("path", ""),
+                distance=x.get("distance", 1),
+                imported_symbols=x.get("imported_symbols", []),
+                churn_score=x.get("churn_score"),
+            )
+            for x in data.get("blast_radius", [])
+        ],
+        interface_changes=[
+            InterfaceChange(
+                file=x.get("file", ""),
+                symbol=x.get("symbol", ""),
+                before=x.get("before", ""),
+                after=x.get("after", ""),
+                callers=x.get("callers", []),
+            )
+            for x in data.get("interface_changes", [])
+        ],
+        ai_analysis=_ai_analysis(data.get("ai_analysis", {})),
+        dependency_issues=[
+            DependencyIssue(
+                package_name=x.get("package_name", ""),
+                issue_type=x.get("issue_type", ""),
+                description=x.get("description", ""),
+                severity=x.get("severity", "medium"),
+                license=x.get("license"),
+            )
+            for x in data.get("dependency_issues", [])
+        ],
+        historical_hotspots=[
+            HistoricalHotspot(file=x.get("file", ""), appearances=x.get("appearances", 0))
+            for x in data.get("historical_hotspots", [])
+        ],
+    )
+
+
+def load_run(db_path: str, run_uuid: str) -> ImpactReport | None:
     """Rehydrate a single ImpactReport from the history database by UUID.
 
     Returns None if the run is not found or cannot be deserialised.
@@ -353,9 +508,7 @@ def load_run(db_path: str, run_uuid: str) -> "ImpactReport | None":
         if row is None or row[0] is None:
             return None
         data = json.loads(row[0])
-        # Import here to avoid a circular import at module load time
-        from .reporter import report_from_dict  # noqa: PLC0415
-        return report_from_dict(data)
+        return _report_from_dict(data)
     except Exception:
         return None
     finally:

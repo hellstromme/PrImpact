@@ -44,7 +44,12 @@ web = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
-filterwarnings = ["ignore::pytest.PytestCollectionWarning"]
+filterwarnings = [
+    "ignore::pytest.PytestCollectionWarning",
+    # Windows asyncio proactor transport is torn down after TestClient exits when a background
+    # task spawned by POST /api/analyse outlives the test; harmless on all platforms.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
 
 [tool.ruff]
 target-version = "py311"

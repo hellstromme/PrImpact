@@ -131,3 +131,64 @@ def test_get_report_404_for_unknown(client):
     resp = client.tc.get("/api/runs/00000000-0000-0000-0000-000000000000/report")
     assert resp.status_code == 404
     assert "error" in resp.json()["detail"]
+
+
+# --- GET /api/runs — parameter validation ---
+
+
+def test_list_runs_missing_repo_param(client):
+    """GET /api/runs without the required 'repo' query param must return 422."""
+    resp = client.tc.get("/api/runs")
+    assert resp.status_code == 422
+
+
+# --- POST /api/analyse — parameter validation ---
+
+
+def test_trigger_analyse_missing_all_refs(client):
+    """POST /api/analyse without pr_number and without base/head SHAs returns 422."""
+    resp = client.tc.post("/api/analyse", json={"repo": "/repo"})
+    assert resp.status_code == 422
+    assert "error" in resp.json()["detail"]
+
+
+def test_trigger_analyse_only_base_sha(client):
+    """POST /api/analyse with base_sha but no head_sha returns 422."""
+    resp = client.tc.post("/api/analyse", json={"repo": "/repo", "base_sha": "abc1234"})
+    assert resp.status_code == 422
+    assert "error" in resp.json()["detail"]
+
+
+def test_trigger_analyse_only_head_sha(client):
+    """POST /api/analyse with head_sha but no base_sha returns 422."""
+    resp = client.tc.post("/api/analyse", json={"repo": "/repo", "head_sha": "def5678"})
+    assert resp.status_code == 422
+    assert "error" in resp.json()["detail"]
+
+
+def test_trigger_analyse_with_pr_number_returns_pending(client):
+    """POST /api/analyse with a valid pr_number returns run_id and pending status immediately."""
+    resp = client.tc.post("/api/analyse", json={"repo": "/repo", "pr_number": 1})
+    # The subprocess will fail (no real repo), but the API must return 200 with pending immediately
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "pending"
+    assert "run_id" in data
+
+
+# --- GET /api/analyse/{run_id}/status ---
+
+
+def test_get_status_unknown_run_id_returns_404(client):
+    resp = client.tc.get("/api/analyse/00000000-0000-0000-0000-000000000000/status")
+    assert resp.status_code == 404
+    assert "error" in resp.json()["detail"]
+
+
+def test_get_status_returns_error_field(client):
+    """Status response always includes an 'error' field (None when not failed)."""
+    resp = client.tc.post("/api/analyse", json={"repo": "/repo", "pr_number": 1})
+    run_id = resp.json()["run_id"]
+    status_resp = client.tc.get(f"/api/analyse/{run_id}/status")
+    assert status_resp.status_code == 200
+    assert "error" in status_resp.json()

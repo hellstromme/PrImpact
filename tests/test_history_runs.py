@@ -1,12 +1,14 @@
 """Tests for the v1.0 history.py additions: save_run round-trip, load_runs, load_run."""
 
+import json
 import os
+import sqlite3
 
 import pytest
 
-from pr_impact.history import load_run, load_run_summary, load_runs, save_run
-from pr_impact.models import ImpactReport, RunSummary
-from tests.helpers import make_report
+from pr_impact.history import _connect, load_run, load_run_summary, load_runs, save_run
+from pr_impact.models import AIAnalysis, ImpactReport, RunSummary, SecuritySignal, SourceLocation
+from tests.helpers import make_report, make_security_signal
 
 
 @pytest.fixture()
@@ -124,6 +126,99 @@ def test_load_run_summary_returns_correct_fields(db_path, report):
 
 def test_load_run_summary_missing_returns_none(db_path):
     assert load_run_summary(db_path, "no-such-uuid") is None
+
+
+# --- load_run_summary with NULL / corrupt report_json ---
+
+
+def _insert_bare_run(db_path: str, run_uuid: str, report_json: str | None) -> None:
+    """Insert a row directly into the DB to simulate legacy or corrupt data."""
+    conn = _connect(db_path)
+    conn.execute(
+        "INSERT INTO runs (repo_path, base_sha, head_sha, timestamp, uuid, report_json) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("/repo", "aaa", "bbb", "2026-01-01T00:00:00+00:00", run_uuid, report_json),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_load_run_summary_null_report_json_returns_none(db_path):
+    _insert_bare_run(db_path, "null-uuid-0001", None)
+    assert load_run_summary(db_path, "null-uuid-0001") is None
+
+
+def test_load_run_summary_malformed_json_returns_none(db_path):
+    _insert_bare_run(db_path, "bad-uuid-0002", "not valid json {{")
+    assert load_run_summary(db_path, "bad-uuid-0002") is None
+
+
+def test_load_run_null_report_json_returns_none(db_path):
+    _insert_bare_run(db_path, "null-uuid-0003", None)
+    assert load_run(db_path, "null-uuid-0003") is None
+
+
+def test_load_run_malformed_json_returns_none(db_path):
+    _insert_bare_run(db_path, "bad-uuid-0004", "{invalid")
+    assert load_run(db_path, "bad-uuid-0004") is None
+
+
+# --- security signal round-trip (verifies sig.location.file fix) ---
+
+
+def test_save_run_security_signal_uses_location_file(db_path):
+    """save_run must read sig.location.file, not the removed sig.file_path attribute."""
+    report = make_report(
+        ai_analysis=AIAnalysis(
+            security_signals=[
+                make_security_signal(file_path="src/auth.py", line_number=42)
+            ]
+        )
+    )
+    # Must not raise AttributeError; if it did the old sig.file_path bug would surface here
+    run_id = save_run(db_path, report, repo_path="/repo")
+    assert run_id is not None
+
+    # Verify the signal round-trips correctly through load_run
+    loaded = load_run(db_path, run_id)
+    assert loaded is not None
+    assert len(loaded.ai_analysis.security_signals) == 1
+    sig = loaded.ai_analysis.security_signals[0]
+    assert sig.location.file == "src/auth.py"
+    assert sig.location.line == 42
+
+
+# --- _report_from_dict: malformed security_signal location ---
+
+
+def test_load_run_non_dict_security_signal_location(db_path):
+    """Non-dict location in stored security_signal JSON falls back to SourceLocation(file=str(loc))."""
+    report = make_report()
+    run_id = save_run(db_path, report, repo_path="/repo")
+
+    # Corrupt the stored JSON by replacing the security_signal location with a plain string
+    conn = _connect(db_path)
+    row = conn.execute("SELECT report_json FROM runs WHERE uuid = ?", (run_id,)).fetchone()
+    data = json.loads(row[0])
+    data["ai_analysis"]["security_signals"] = [
+        {
+            "description": "test signal",
+            "location": "src/evil.py:10",  # string, not dict
+            "signal_type": "shell_invoke",
+            "severity": "high",
+            "why_unusual": "unusual",
+            "suggested_action": "review",
+        }
+    ]
+    conn.execute("UPDATE runs SET report_json = ? WHERE uuid = ?", (json.dumps(data), run_id))
+    conn.commit()
+    conn.close()
+
+    loaded = load_run(db_path, run_id)
+    assert loaded is not None
+    assert len(loaded.ai_analysis.security_signals) == 1
+    # Falls back to SourceLocation(file=str(loc)) — file is the raw string
+    assert loaded.ai_analysis.security_signals[0].location.file == "src/evil.py:10"
 
 
 # --- fault tolerance ---
