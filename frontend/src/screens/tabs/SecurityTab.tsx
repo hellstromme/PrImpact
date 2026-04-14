@@ -175,7 +175,7 @@ export default function SecurityTab({
   const [severityFilter, setSeverityFilter] = useState<'all' | Severity>('all')
   const [typeFilter, setTypeFilter] = useState<'all' | 'security' | 'dependency'>('all')
   const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<SignalItem | null>(null)
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
 
   const items = allSignals(report)
 
@@ -186,6 +186,8 @@ export default function SecurityTab({
     if (search && !getLabel(item).toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
+
+  const selected = selectedIdx !== null ? filtered[selectedIdx] ?? null : null
 
   if (items.length === 0) {
     return (
@@ -255,8 +257,8 @@ export default function SecurityTab({
               <SignalListItem
                 key={i}
                 item={item}
-                selected={selected === item}
-                onClick={() => setSelected(item)}
+                selected={selectedIdx === i}
+                onClick={() => setSelectedIdx(i)}
               />
             ))
           )}

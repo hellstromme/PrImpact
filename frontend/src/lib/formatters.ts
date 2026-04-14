@@ -2,7 +2,9 @@
 export function relativeTime(iso: string): string {
   const now = Date.now()
   const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return 'unknown time'
   const diffMs = now - then
+  if (diffMs < 0) return 'in the future'
   const diffSec = Math.floor(diffMs / 1000)
   const diffMin = Math.floor(diffSec / 60)
   const diffHr = Math.floor(diffMin / 60)
@@ -17,6 +19,7 @@ export function relativeTime(iso: string): string {
 
 /** Truncate a string to maxLen characters, appending ellipsis if needed. */
 export function truncate(s: string, maxLen: number): string {
+  if (maxLen <= 0) return ''
   if (s.length <= maxLen) return s
   return s.slice(0, maxLen - 1) + '…'
 }

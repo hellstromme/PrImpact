@@ -25,7 +25,7 @@ function HeroForm({ repo, onRepoChange }: { repo: string; onRepoChange: (r: stri
   const [pollingId, setPollingId] = useState<string | null>(null)
 
   // Poll status when analysis is running
-  const { data: statusData } = useQuery({
+  const { data: statusData, error: statusError } = useQuery({
     queryKey: queryKeys.status(pollingId ?? ''),
     queryFn: () => api.getStatus(pollingId!),
     enabled: pollingId !== null,
@@ -33,6 +33,12 @@ function HeroForm({ repo, onRepoChange }: { repo: string; onRepoChange: (r: stri
   })
 
   useEffect(() => {
+    if (statusError) {
+      setError(statusError instanceof Error ? statusError.message : 'Failed to poll analysis status')
+      setSubmitting(false)
+      setPollingId(null)
+      return
+    }
     if (!statusData) return
     if (statusData.status === 'complete') {
       navigate(`/runs/${statusData.run_id}`)
@@ -41,7 +47,7 @@ function HeroForm({ repo, onRepoChange }: { repo: string; onRepoChange: (r: stri
       setSubmitting(false)
       setPollingId(null)
     }
-  }, [statusData, navigate])
+  }, [statusData, statusError, navigate])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -51,7 +57,7 @@ function HeroForm({ repo, onRepoChange }: { repo: string; onRepoChange: (r: stri
     try {
       const body =
         mode === 'pr'
-          ? { repo, pr_number: parseInt(prNumber, 10) }
+          ? { repo, pr_number: Number(prNumber) }
           : { repo, base_sha: baseSha, head_sha: headSha }
 
       const { run_id } = await api.postAnalyse(body)
@@ -310,7 +316,7 @@ export default function Dashboard() {
     localStorage.setItem(REPO_KEY, r)
   }
 
-  const { data: runs = [], isLoading } = useQuery({
+  const { data: runs = [], isLoading, isError, error } = useQuery({
     queryKey: queryKeys.runs(repo),
     queryFn: () => api.getRuns(repo),
     enabled: repo.trim().length > 0,
@@ -348,6 +354,13 @@ export default function Dashboard() {
               progress_activity
             </span>
             <p className="text-sm font-mono">Loading runs…</p>
+          </div>
+        ) : isError ? (
+          <div className="text-center py-12 text-tertiary">
+            <span className="material-symbols-outlined text-[32px] block mb-2">error</span>
+            <p className="text-sm font-mono">
+              {error instanceof Error ? error.message : 'Failed to load recent reports'}
+            </p>
           </div>
         ) : (
           <RecentRunsList runs={runs} />

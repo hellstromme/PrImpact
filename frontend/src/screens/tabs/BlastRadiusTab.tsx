@@ -40,7 +40,7 @@ export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
             <p className="text-on-surface-variant text-xs">
               {interface_changes.length} public symbol
               {interface_changes.length !== 1 ? 's' : ''} changed signature.
-              {interface_changes.map((ic) => ` ${ic.symbol}`).join(',')}
+              {interface_changes.map((ic) => ic.symbol).join(', ')}
             </p>
           </div>
         </div>

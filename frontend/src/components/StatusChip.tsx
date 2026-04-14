@@ -1,7 +1,7 @@
 import type { Severity } from '../lib/types'
 
 interface VerdictChipProps {
-  verdict: 'clean' | 'has_blockers' | null
+  verdict: string | null
 }
 
 interface SeverityChipProps {
@@ -63,7 +63,7 @@ export function DistanceChip({ distance }: { distance: number }) {
     'bg-secondary-container/20 text-secondary',
     'bg-tertiary-container/20 text-tertiary border border-tertiary/30',
   ]
-  const cls = colors[Math.min(distance - 1, 2)]
+  const cls = colors[Math.min(Math.max(distance - 1, 0), 2)]
   return (
     <span className={`${chipBase} ${cls}`}>
       D{distance}

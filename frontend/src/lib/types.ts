@@ -10,7 +10,7 @@ export interface RunSummary {
   base_sha: string
   head_sha: string
   created_at: string        // ISO 8601
-  verdict: 'clean' | 'has_blockers' | null
+  verdict: string | null
   blast_radius_count: number
   anomaly_count: number
   signal_count: number

@@ -34,11 +34,11 @@ def get_snippet(
         commit = repo.commit(summary.head_sha)
         blob = commit.tree / file
         content = blob.data_stream.read().decode("utf-8", errors="replace")
-    except (git.GitCommandError, KeyError, AttributeError, Exception) as exc:
+    except (git.InvalidGitRepositoryError, git.GitCommandError, KeyError, AttributeError) as exc:
         raise HTTPException(
             status_code=422,
             detail=f"Could not read '{file}' at commit '{summary.head_sha}': {exc}",
-        )
+        ) from exc
 
     all_lines = content.splitlines()
     total = len(all_lines)

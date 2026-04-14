@@ -12,7 +12,7 @@ export default function SparkLine({
   if (valid.length === 0) return <span className="text-on-surface-variant text-xs font-mono">—</span>
 
   const max = Math.max(...valid, 1)
-  const barW = Math.floor(width / valid.length) - 1
+  const barW = Math.max(1, Math.floor(width / valid.length) - 1)
 
   return (
     <svg

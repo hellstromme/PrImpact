@@ -15,15 +15,6 @@ const perAnalysisItems: NavItem[] = [
   { label: 'TEST GAPS', href: '/test-gaps', icon: 'bug_report' },
 ]
 
-const globalItems: NavItem[] = [
-  { label: 'HISTORY', href: '/history', icon: 'history' },
-]
-
-const bottomItems: NavItem[] = [
-  { label: 'DOCUMENTATION', href: '/docs', icon: 'description' },
-  { label: 'SUPPORT', href: '/support', icon: 'help' },
-]
-
 function Icon({ name }: { name: string }) {
   return (
     <span className="material-symbols-outlined text-[18px] leading-none">
@@ -103,29 +94,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        {/* Global items */}
-        <div className="py-2 flex-1">
-          {globalItems.map((item) => (
-            <SideNavLink
-              key={item.label}
-              to={item.href}
-              icon={item.icon}
-              label={item.label}
-            />
-          ))}
-        </div>
-
-        {/* Bottom items */}
-        <div className="py-2 border-t border-outline-variant/10">
-          {bottomItems.map((item) => (
-            <SideNavLink
-              key={item.label}
-              to={item.href}
-              icon={item.icon}
-              label={item.label}
-            />
-          ))}
-        </div>
+        <div className="flex-1" />
       </aside>
 
       {/* Main content */}

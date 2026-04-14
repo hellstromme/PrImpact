@@ -17,7 +17,7 @@ export default function CodeBlock({
           {language}
         </span>
         <span className="font-mono text-[10px] text-on-surface-variant">
-          L{startLine}–{startLine + lines.length - 1}
+          {lines.length > 0 ? `L${startLine}–${startLine + lines.length - 1}` : `L${startLine}`}
         </span>
       </div>
       <pre className="overflow-x-auto p-4 m-0">

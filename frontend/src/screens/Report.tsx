@@ -24,7 +24,10 @@ export default function Report() {
   const { id: runId, tab: tabParam } = useParams<{ id: string; tab?: string }>()
   const navigate = useNavigate()
   const { setRunId } = useActiveRun()
-  const [activeTab, setActiveTab] = useState(tabParam ?? 'summary')
+  const validTabIds = TABS.map((t) => t.id)
+  const [activeTab, setActiveTab] = useState(
+    tabParam && validTabIds.includes(tabParam) ? tabParam : 'summary'
+  )
 
   // Sync active run into context so the sidebar can highlight per-analysis items
   useEffect(() => {

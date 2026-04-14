@@ -568,10 +568,10 @@ def serve(port: int, host: str, open_browser: bool, history_db: str | None) -> N
     try:
         import uvicorn
         from .web.server import create_app
-    except ImportError:
+    except ImportError as exc:
         raise click.ClickException(
             "Web dependencies are not installed. Run: pip install 'primpact[web]'"
-        )
+        ) from exc
 
     db_path = history_db or os.environ.get("PRIMPACT_DB_PATH", ".primpact/history.db")
     app = create_app(db_path=db_path)
