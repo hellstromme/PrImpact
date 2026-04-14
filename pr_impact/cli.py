@@ -553,5 +553,40 @@ def analyse(
         sys.exit(1)
 
 
+@main.command()
+@click.option("--port", default=8080, show_default=True, help="Port to listen on")
+@click.option("--host", default="localhost", show_default=True, help="Host to bind to")
+@click.option("--open", "open_browser", is_flag=True, default=False, help="Open the browser after starting")
+@click.option(
+    "--history-db",
+    "history_db",
+    default=None,
+    help="Path to the history SQLite database (default: .primpact/history.db)",
+)
+def serve(port: int, host: str, open_browser: bool, history_db: str | None) -> None:
+    """Start the PrImpact web UI server."""
+    try:
+        import uvicorn
+        from .web.server import create_app
+    except ImportError:
+        raise click.ClickException(
+            "Web dependencies are not installed. Run: pip install 'primpact[web]'"
+        )
+
+    db_path = history_db or os.environ.get("PRIMPACT_DB_PATH", ".primpact/history.db")
+    app = create_app(db_path=db_path)
+
+    url = f"http://{host}:{port}"
+    stderr.print(f"[bold green]PrImpact[/bold green] serving at [link={url}]{url}[/link]")
+    stderr.print("[dim]Press Ctrl+C to stop[/dim]")
+
+    if open_browser:
+        import threading
+        import webbrowser
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
 if __name__ == "__main__":
     main()
