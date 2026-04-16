@@ -1,5 +1,8 @@
 """Unit tests for pr_impact/classifier.py."""
 
+from unittest.mock import patch
+
+from pr_impact.ast_extractor import ASTSymbol
 from pr_impact.classifier import classify_changed_file, get_interface_changes
 from pr_impact.models import ChangedSymbol
 from tests.helpers import make_file
@@ -490,3 +493,379 @@ def test_abstract_class_classify_kind_is_class():
     class_syms = [s for s in symbols if s.name == "Bar"]
     assert len(class_syms) == 1
     assert class_syms[0].kind == "class"
+
+
+# --- AST-first / regex-fallback path tests ---
+
+
+def test_ast_path_python_signature_change_populates_fields():
+    """When extract_symbols returns non-None for both before/after, the AST path is used."""
+    sym_before = ASTSymbol(
+        name="login",
+        kind="function",
+        is_exported=True,
+        signature="def login():",
+        params=[],
+        decorators=[],
+        return_type=None,
+    )
+    sym_after = ASTSymbol(
+        name="login",
+        kind="function",
+        is_exported=True,
+        signature="def login(user: str):",
+        params=["user: str"],
+        decorators=["@require_auth"],
+        return_type="bool",
+    )
+    with patch("pr_impact.classifier.extract_symbols") as mock_ast:
+        mock_ast.side_effect = [[sym_before], [sym_after]]
+        f = make_file(
+            path="src/auth.py",
+            language="python",
+            before="def login(): pass",
+            after="def login(user: str): pass",
+            diff="-def login(): pass\n+def login(user: str): pass\n",
+        )
+        symbols = classify_changed_file(f)
+
+    login_syms = [s for s in symbols if s.name == "login"]
+    assert len(login_syms) == 1
+    sym = login_syms[0]
+    assert sym.change_type == "interface_changed"
+    assert sym.signature_before == "def login():"
+    assert sym.signature_after == "def login(user: str):"
+    assert sym.params == ["user: str"]
+    assert sym.decorators == ["@require_auth"]
+    assert sym.return_type == "bool"
+
+
+def test_ast_path_python_added_function():
+    """AST path detects a newly added function as interface_added."""
+    sym_after = ASTSymbol(
+        name="signup",
+        kind="function",
+        is_exported=True,
+        signature="def signup(email: str):",
+        params=["email: str"],
+        decorators=[],
+        return_type=None,
+    )
+    with patch("pr_impact.classifier.extract_symbols") as mock_ast:
+        mock_ast.side_effect = [[], [sym_after]]
+        f = make_file(
+            path="src/auth.py",
+            language="python",
+            before="# empty",
+            after="def signup(email: str): pass",
+            diff="+def signup(email: str): pass\n",
+        )
+        symbols = classify_changed_file(f)
+
+    signup_syms = [s for s in symbols if s.name == "signup"]
+    assert len(signup_syms) == 1
+    assert signup_syms[0].change_type == "interface_added"
+
+
+def test_ast_path_python_removed_function():
+    """AST path detects a removed function as interface_removed."""
+    sym_before = ASTSymbol(
+        name="logout",
+        kind="function",
+        is_exported=True,
+        signature="def logout():",
+        params=[],
+        decorators=[],
+        return_type=None,
+    )
+    with patch("pr_impact.classifier.extract_symbols") as mock_ast:
+        mock_ast.side_effect = [[sym_before], []]
+        f = make_file(
+            path="src/auth.py",
+            language="python",
+            before="def logout(): pass",
+            after="# empty",
+            diff="-def logout(): pass\n",
+        )
+        symbols = classify_changed_file(f)
+
+    logout_syms = [s for s in symbols if s.name == "logout"]
+    assert len(logout_syms) == 1
+    assert logout_syms[0].change_type == "interface_removed"
+
+
+def test_regex_fallback_when_extract_symbols_returns_none():
+    """When extract_symbols returns None, classifier falls back to regex and still works."""
+    with patch("pr_impact.classifier.extract_symbols", return_value=None):
+        f = make_file(
+            path="src/auth.py",
+            language="python",
+            before="def login(): pass\n",
+            after="def login(user): pass\n",
+            diff="-def login(): pass\n+def login(user): pass\n",
+        )
+        symbols = classify_changed_file(f)
+
+    assert isinstance(symbols, list)
+    login_syms = [s for s in symbols if s.name == "login"]
+    assert len(login_syms) == 1
+    assert login_syms[0].change_type == "interface_changed"
+    # Regex fallback should not populate AST-only fields
+    assert login_syms[0].params == []
+    assert login_syms[0].decorators == []
+    assert login_syms[0].return_type is None
+
+
+def test_regex_fallback_when_only_before_returns_none():
+    """When extract_symbols returns None for before but not after, regex fallback is used."""
+    with patch("pr_impact.classifier.extract_symbols") as mock_ast:
+        mock_ast.side_effect = [None, [ASTSymbol(name="login", kind="function", signature="def login(user):")]]
+        f = make_file(
+            path="src/auth.py",
+            language="python",
+            before="def login(): pass\n",
+            after="def login(user): pass\n",
+            diff="-def login(): pass\n+def login(user): pass\n",
+        )
+        symbols = classify_changed_file(f)
+
+    assert isinstance(symbols, list)
+    login_syms = [s for s in symbols if s.name == "login"]
+    assert len(login_syms) == 1
+    # Falls back to regex because both must be non-None for AST path
+    assert login_syms[0].change_type == "interface_changed"
+
+
+def test_ast_path_typescript_signature_change():
+    """AST path works for TypeScript — exported function with changed params."""
+    sym_before = ASTSymbol(
+        name="fetchUser",
+        kind="function",
+        is_exported=True,
+        signature="export function fetchUser(id: number): Promise<User>",
+        params=["id: number"],
+        decorators=[],
+        return_type="Promise<User>",
+    )
+    sym_after = ASTSymbol(
+        name="fetchUser",
+        kind="function",
+        is_exported=True,
+        signature="export function fetchUser(id: string): Promise<User>",
+        params=["id: string"],
+        decorators=[],
+        return_type="Promise<User>",
+    )
+    with patch("pr_impact.classifier.extract_symbols") as mock_ast:
+        mock_ast.side_effect = [[sym_before], [sym_after]]
+        f = make_file(
+            path="src/api.ts",
+            language="typescript",
+            before="export function fetchUser(id: number): Promise<User> { }",
+            after="export function fetchUser(id: string): Promise<User> { }",
+            diff="-export function fetchUser(id: number): Promise<User> {\n+export function fetchUser(id: string): Promise<User> {\n",
+        )
+        symbols = classify_changed_file(f)
+
+    fetch_syms = [s for s in symbols if s.name == "fetchUser"]
+    assert len(fetch_syms) == 1
+    sym = fetch_syms[0]
+    assert sym.change_type == "interface_changed"
+    assert sym.signature_before == "export function fetchUser(id: number): Promise<User>"
+    assert sym.signature_after == "export function fetchUser(id: string): Promise<User>"
+    assert sym.params == ["id: string"]
+    assert sym.return_type == "Promise<User>"
+
+
+def test_ast_path_typescript_class_change():
+    """AST path correctly identifies TypeScript class changes."""
+    sym_before = ASTSymbol(
+        name="UserService",
+        kind="class",
+        is_exported=True,
+        signature="export class UserService",
+        params=[],
+        decorators=[],
+        return_type=None,
+    )
+    sym_after = ASTSymbol(
+        name="UserService",
+        kind="class",
+        is_exported=True,
+        signature="export class UserService extends BaseService",
+        params=[],
+        decorators=[],
+        return_type=None,
+    )
+    with patch("pr_impact.classifier.extract_symbols") as mock_ast:
+        mock_ast.side_effect = [[sym_before], [sym_after]]
+        f = make_file(
+            path="src/service.ts",
+            language="typescript",
+            before="export class UserService {}",
+            after="export class UserService extends BaseService {}",
+            diff="-export class UserService {}\n+export class UserService extends BaseService {}\n",
+        )
+        symbols = classify_changed_file(f)
+
+    svc_syms = [s for s in symbols if s.name == "UserService"]
+    assert len(svc_syms) == 1
+    assert svc_syms[0].kind == "class"
+    assert svc_syms[0].change_type == "interface_changed"
+
+
+def test_regex_fallback_typescript_when_extract_symbols_returns_none():
+    """TypeScript regex fallback works when extract_symbols returns None."""
+    with patch("pr_impact.classifier.extract_symbols", return_value=None):
+        f = make_file(
+            path="src/api.ts",
+            language="typescript",
+            before="export function greet(name: string): string { return name; }\n",
+            after="export function greet(name: string, title: string): string { return title + name; }\n",
+            diff="-export function greet(name: string): string {\n+export function greet(name: string, title: string): string {\n",
+        )
+        symbols = classify_changed_file(f)
+
+    assert isinstance(symbols, list)
+    greet_syms = [s for s in symbols if s.name == "greet"]
+    assert len(greet_syms) == 1
+    assert greet_syms[0].change_type == "interface_changed"
+
+
+# --- Unsupported languages return empty symbols ---
+
+
+def test_csharp_returns_empty_symbols():
+    """C# files are not processed for symbol extraction; returns empty list."""
+    f = make_file(
+        path="src/Service.cs",
+        language="csharp",
+        before="public void Login() {}",
+        after="public void Login(string user) {}",
+        diff="-public void Login() {}\n+public void Login(string user) {}\n",
+    )
+    symbols = classify_changed_file(f)
+    assert symbols == []
+
+
+def test_java_returns_empty_symbols():
+    """Java files are not processed for symbol extraction; returns empty list."""
+    f = make_file(
+        path="src/Service.java",
+        language="java",
+        before="public void login() {}",
+        after="public void login(String user) {}",
+        diff="-public void login() {}\n+public void login(String user) {}\n",
+    )
+    symbols = classify_changed_file(f)
+    assert symbols == []
+
+
+def test_go_returns_empty_symbols():
+    """Go files are not processed for symbol extraction; returns empty list."""
+    f = make_file(
+        path="src/service.go",
+        language="go",
+        before="func Login() {}",
+        after="func Login(user string) {}",
+        diff="-func Login() {}\n+func Login(user string) {}\n",
+    )
+    symbols = classify_changed_file(f)
+    assert symbols == []
+
+
+def test_ruby_returns_empty_symbols():
+    """Ruby files are not processed for symbol extraction; returns empty list."""
+    f = make_file(
+        path="src/service.rb",
+        language="ruby",
+        before="def login\nend",
+        after="def login(user)\nend",
+        diff="-def login\n+def login(user)\n",
+    )
+    symbols = classify_changed_file(f)
+    assert symbols == []
+
+
+def test_unknown_language_returns_empty_symbols():
+    """An unrecognized language returns empty symbols without raising."""
+    f = make_file(
+        path="src/main.rs",
+        language="rust",
+        before="fn main() {}",
+        after="fn main() { println!(); }",
+        diff="-fn main() {}\n+fn main() { println!(); }\n",
+    )
+    symbols = classify_changed_file(f)
+    assert symbols == []
+
+
+def test_ast_path_body_only_change_is_internal():
+    """AST path: when signatures are identical, change_type is 'internal'.
+
+    The diff must mention the function name so the classifier registers it as
+    touched.  We include the signature line (unchanged, so it appears on both
+    the - and + sides) alongside the differing body line.
+    """
+    sym = ASTSymbol(
+        name="compute",
+        kind="function",
+        is_exported=True,
+        signature="def compute(x):",
+        params=["x"],
+        decorators=[],
+        return_type=None,
+    )
+    with patch("pr_impact.classifier.extract_symbols") as mock_ast:
+        # Both before and after have the same symbol with the same signature
+        mock_ast.side_effect = [[sym], [sym]]
+        f = make_file(
+            path="src/math.py",
+            language="python",
+            before="def compute(x):\n    return x\n",
+            after="def compute(x):\n    return x * 2\n",
+            # Include the def line so "compute" appears in the diff token set
+            diff="-def compute(x):\n-    return x\n+def compute(x):\n+    return x * 2\n",
+        )
+        symbols = classify_changed_file(f)
+
+    compute_syms = [s for s in symbols if s.name == "compute"]
+    assert len(compute_syms) >= 1, "expected compute to appear as a changed symbol"
+    for s in compute_syms:
+        assert s.change_type == "internal"
+
+
+def test_ast_path_private_function_is_internal():
+    """AST path: private Python function (_-prefixed) with signature change is internal."""
+    sym_before = ASTSymbol(
+        name="_helper",
+        kind="function",
+        is_exported=False,
+        signature="def _helper(x):",
+        params=["x"],
+        decorators=[],
+        return_type=None,
+    )
+    sym_after = ASTSymbol(
+        name="_helper",
+        kind="function",
+        is_exported=False,
+        signature="def _helper(x, y):",
+        params=["x", "y"],
+        decorators=[],
+        return_type=None,
+    )
+    with patch("pr_impact.classifier.extract_symbols") as mock_ast:
+        mock_ast.side_effect = [[sym_before], [sym_after]]
+        f = make_file(
+            path="src/utils.py",
+            language="python",
+            before="def _helper(x): pass",
+            after="def _helper(x, y): pass",
+            diff="-def _helper(x): pass\n+def _helper(x, y): pass\n",
+        )
+        symbols = classify_changed_file(f)
+
+    helper_syms = [s for s in symbols if s.name == "_helper"]
+    assert len(helper_syms) == 1
+    assert helper_syms[0].change_type == "internal"
