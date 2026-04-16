@@ -14,6 +14,7 @@ export interface RunSummary {
   blast_radius_count: number
   anomaly_count: number
   signal_count: number
+  merged: boolean           // true when head_sha is an ancestor of the main branch
 }
 
 export interface SourceLocation {

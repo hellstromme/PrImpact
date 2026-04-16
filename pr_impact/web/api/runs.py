@@ -8,16 +8,39 @@ GET /api/runs/{run_id}/report — full ImpactReport JSON
 from __future__ import annotations
 
 import dataclasses
+import subprocess
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from ...history import load_run, load_run_summary, load_runs
+from ...models import RunSummary
 
 router = APIRouter()
 
 
 def _db_path(request: Request) -> str:
     return request.app.state.db_path
+
+
+def _check_merged(repo_path: str, head_sha: str) -> bool:
+    """Return True if head_sha is an ancestor of the repo's main branch."""
+    for branch in ("main", "master"):
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_path, "merge-base", "--is-ancestor", head_sha, branch],
+                capture_output=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _enrich(summary: RunSummary) -> RunSummary:
+    summary.merged = _check_merged(summary.repo_path, summary.head_sha)
+    return summary
 
 
 @router.get("/runs")
@@ -29,7 +52,7 @@ def list_runs(
 ) -> list[dict]:
     """Return a paginated list of run summaries for the given repo."""
     summaries = load_runs(_db_path(request), repo, limit=limit, offset=offset)
-    return [dataclasses.asdict(s) for s in summaries]
+    return [dataclasses.asdict(_enrich(s)) for s in summaries]
 
 
 @router.get("/runs/{run_id}")
@@ -38,7 +61,7 @@ def get_run(run_id: str, request: Request) -> dict:
     summary = load_run_summary(_db_path(request), run_id)
     if summary is None:
         raise HTTPException(status_code=404, detail={"error": "Run not found"})
-    return dataclasses.asdict(summary)
+    return dataclasses.asdict(_enrich(summary))
 
 
 @router.get("/runs/{run_id}/report")

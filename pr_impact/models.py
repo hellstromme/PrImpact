@@ -194,6 +194,7 @@ class RunSummary:
     blast_radius_count: int
     anomaly_count: int
     signal_count: int
+    merged: bool = False     # True when head_sha is an ancestor of the main branch
 
 
 @dataclass
