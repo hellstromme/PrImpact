@@ -35,6 +35,12 @@ def test_invert_graph_node_with_empty_list_contributes_nothing():
     assert _invert_graph({"a": []}) == {}
 
 
+def test_invert_graph_does_not_mutate_input():
+    original = {"a": ["b"]}
+    _invert_graph(original)
+    assert original == {"a": ["b"]}
+
+
 def test_invert_graph_returns_plain_dict():
     result = _invert_graph({"a": ["b"]})
     assert type(result) is dict
