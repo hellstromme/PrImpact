@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { queryKeys } from '../lib/queryKeys'
-import { useActiveRun } from '../context/ActiveRunContext'
 import { VerdictChip } from '../components/StatusChip'
 import TabBar, { type Tab } from '../components/TabBar'
 import SummaryTab from './tabs/SummaryTab'
@@ -23,14 +22,7 @@ const TABS: Tab[] = [
 export default function Report() {
   const { id: runId, tab: tabParam } = useParams<{ id: string; tab?: string }>()
   const navigate = useNavigate()
-  const { setRunId } = useActiveRun()
   const [activeTab, setActiveTab] = useState(tabParam ?? 'summary')
-
-  // Sync active run into context so the sidebar can highlight per-analysis items
-  useEffect(() => {
-    if (runId) setRunId(runId)
-    return () => setRunId(null)
-  }, [runId, setRunId])
 
   // Sync tab to URL
   function handleTabChange(tab: string) {
