@@ -47,12 +47,14 @@ def _cors_origins() -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
-def create_app(db_path: str | None = None) -> FastAPI:
+def create_app(db_path: str | None = None, lifespan=None) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Args:
-        db_path: Path to the SQLite history database. Defaults to
-                 PRIMPACT_DB_PATH env var or .primpact/history.db.
+        db_path:   Path to the SQLite history database. Defaults to
+                   PRIMPACT_DB_PATH env var or .primpact/history.db.
+        lifespan:  Optional asynccontextmanager lifespan for the app.
+                   Used by create_server_app() to attach the webhook worker.
     """
     resolved_db = db_path or os.environ.get("PRIMPACT_DB_PATH", _DEFAULT_DB)
 
@@ -60,6 +62,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
         title="PrImpact API",
         description="REST API for browsing and triggering PrImpact analyses",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     # Store db_path on app state so route handlers can read it via request.app.state
@@ -128,9 +131,7 @@ def create_server_app(
         except asyncio.CancelledError:
             pass
 
-    app = create_app(db_path=db_path)
-    # Replace the plain lifespan with the one that starts the worker
-    app.router.lifespan_context = _lifespan
+    app = create_app(db_path=db_path, lifespan=_lifespan)
     app.state.repos_dir = resolved_repos
 
     app.include_router(webhook_router)
@@ -139,21 +140,10 @@ def create_server_app(
 
 async def _webhook_worker(queue: asyncio.Queue, app: FastAPI) -> None:
     """Drain the webhook job queue sequentially."""
-    from ..history import load_run
-    from ..reporter import render_markdown
-    from ..webhook import (
-        WebhookJob,
-        ensure_repo,
-        post_github_comment,
-        post_gitlab_comment,
-    )
-
     while True:
-        job: WebhookJob = await queue.get()
+        job = await queue.get()
         try:
-            await _process_webhook_job(job, app, load_run, render_markdown,
-                                       ensure_repo, post_github_comment,
-                                       post_gitlab_comment)
+            await _process_webhook_job(job, app)
         except Exception as exc:
             # Never let a job failure crash the worker
             print(f"[primpact server] webhook job failed: {exc}", file=sys.stderr)
@@ -161,11 +151,12 @@ async def _webhook_worker(queue: asyncio.Queue, app: FastAPI) -> None:
             queue.task_done()
 
 
-async def _process_webhook_job(job, app, load_run, render_markdown,
-                                ensure_repo, post_github_comment,
-                                post_gitlab_comment) -> None:
+async def _process_webhook_job(job, app) -> None:
     """Clone repo → analyse → post comment for one WebhookJob."""
     import uuid
+    from ..history import load_run
+    from ..reporter import render_markdown
+    from ..webhook import ensure_repo, post_github_comment, post_gitlab_comment
 
     # 1. Clone / fetch
     local_path = await asyncio.to_thread(
@@ -191,7 +182,12 @@ async def _process_webhook_job(job, app, load_run, render_markdown,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr_bytes = await proc.communicate()
+    try:
+        _, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=300)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError("analyse subprocess timed out after 300s")
     if proc.returncode not in (0, 1, 2):
         err = (stderr_bytes or b"").decode(errors="replace").strip()
         raise RuntimeError(f"analyse subprocess failed (rc={proc.returncode}): {err}")

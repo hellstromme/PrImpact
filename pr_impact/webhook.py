@@ -147,7 +147,8 @@ def parse_gitlab_event(payload: dict) -> WebhookJob | None:
     namespace = project.get("namespace", "")
     repo_name = project.get("name", "")
     clone_url = project.get("git_http_url", "")
-    project_id = str(project.get("id", ""))
+    raw_id = project.get("id")
+    project_id = str(raw_id) if raw_id is not None else ""
     mr_iid = attrs.get("iid", 0)
 
     diff_refs = attrs.get("diff_refs", {})
@@ -238,7 +239,7 @@ def post_github_comment(
     """Create or update a PrImpact comment on a GitHub PR (upsert by marker)."""
     base = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
     try:
-        comments = _github_request("GET", base, token)
+        comments = _github_request("GET", f"{base}?per_page=100", token)
         if not isinstance(comments, list):
             comments = []
     except urllib.error.URLError:

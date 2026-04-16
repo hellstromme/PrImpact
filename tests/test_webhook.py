@@ -422,3 +422,152 @@ class TestGitlabWebhookEndpoint:
 def test_comment_marker_is_html_comment():
     assert PRIMPACT_COMMENT_MARKER.startswith("<!--")
     assert PRIMPACT_COMMENT_MARKER.endswith("-->")
+
+
+# ---------------------------------------------------------------------------
+# _process_webhook_job (server.py) — job processing logic
+# ---------------------------------------------------------------------------
+
+
+def _make_job(tmp_path, platform="github", **overrides):
+    """Build a minimal WebhookJob dict for testing."""
+    from pr_impact.webhook import WebhookJob
+    base = WebhookJob(
+        platform=platform,
+        repos_dir=str(tmp_path / "repos"),
+        owner="myorg",
+        repo_name="myrepo",
+        clone_url="https://github.com/myorg/myrepo.git",
+        pr_number=42,
+        base_sha="abc123",
+        head_sha="def456",
+        db_path=str(tmp_path / "h.db"),
+        github_token="ghp_test" if platform == "github" else None,
+        gitlab_token="glpat_test" if platform == "gitlab" else None,
+        gitlab_url="https://gitlab.com",
+        project_id="123" if platform == "gitlab" else None,
+    )
+    return {**base, **overrides}
+
+
+class TestProcessWebhookJob:
+    """Tests for _process_webhook_job — clone → analyse → post comment."""
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.run(coro)
+
+    def test_github_happy_path_posts_comment(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from pr_impact.web.server import _process_webhook_job
+
+        job = _make_job(tmp_path, platform="github")
+        fake_report = MagicMock()
+        fake_proc = MagicMock()
+        fake_proc.returncode = 0
+        fake_proc.communicate = AsyncMock(return_value=(b"", b""))
+
+        async def run():
+            with (
+                patch("pr_impact.webhook.ensure_repo", return_value="/local/repo"),
+                patch("asyncio.create_subprocess_exec", AsyncMock(return_value=fake_proc)),
+                patch("pr_impact.history.load_run", return_value=fake_report),
+                patch("pr_impact.reporter.render_markdown", return_value="## Report"),
+                patch("pr_impact.webhook.post_github_comment") as mock_post,
+            ):
+                await _process_webhook_job(job, MagicMock())
+            call_args = mock_post.call_args[0]
+            assert call_args[0] == "myorg"
+            assert call_args[1] == "myrepo"
+            assert call_args[2] == 42
+            assert call_args[3] == "## Report"
+            assert call_args[4] == "ghp_test"
+
+        self._run(run())
+
+    def test_gitlab_happy_path_posts_note(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from pr_impact.web.server import _process_webhook_job
+
+        job = _make_job(tmp_path, platform="gitlab")
+        fake_proc = MagicMock()
+        fake_proc.returncode = 0
+        fake_proc.communicate = AsyncMock(return_value=(b"", b""))
+
+        async def run():
+            with (
+                patch("pr_impact.webhook.ensure_repo", return_value="/local/repo"),
+                patch("asyncio.create_subprocess_exec", AsyncMock(return_value=fake_proc)),
+                patch("pr_impact.history.load_run", return_value=MagicMock()),
+                patch("pr_impact.reporter.render_markdown", return_value="## Report"),
+                patch("pr_impact.webhook.post_gitlab_comment") as mock_post,
+            ):
+                await _process_webhook_job(job, MagicMock())
+            call_args = mock_post.call_args[0]
+            assert call_args[0] == "123"   # project_id
+            assert call_args[1] == 42      # mr_iid
+            assert call_args[3] == "glpat_test"
+
+        self._run(run())
+
+    def test_subprocess_failure_raises(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from pr_impact.web.server import _process_webhook_job
+
+        job = _make_job(tmp_path)
+        fake_proc = MagicMock()
+        fake_proc.returncode = 5
+        fake_proc.communicate = AsyncMock(return_value=(b"", b"something went wrong"))
+
+        async def run():
+            with (
+                patch("pr_impact.webhook.ensure_repo", return_value="/local/repo"),
+                patch("asyncio.create_subprocess_exec", AsyncMock(return_value=fake_proc)),
+            ):
+                await _process_webhook_job(job, MagicMock())
+
+        with pytest.raises(RuntimeError, match="analyse subprocess failed"):
+            self._run(run())
+
+    def test_subprocess_timeout_kills_process_and_raises(self, tmp_path):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from pr_impact.web.server import _process_webhook_job
+
+        job = _make_job(tmp_path)
+        fake_proc = MagicMock()
+        fake_proc.returncode = None
+        fake_proc.kill = MagicMock()
+        fake_proc.wait = AsyncMock()
+
+        async def run():
+            with (
+                patch("pr_impact.webhook.ensure_repo", return_value="/local/repo"),
+                patch("asyncio.create_subprocess_exec", AsyncMock(return_value=fake_proc)),
+                patch("asyncio.wait_for", side_effect=asyncio.TimeoutError),
+            ):
+                await _process_webhook_job(job, MagicMock())
+
+        with pytest.raises(RuntimeError, match="timed out"):
+            self._run(run())
+        fake_proc.kill.assert_called_once()
+
+    def test_missing_report_in_db_raises(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from pr_impact.web.server import _process_webhook_job
+
+        job = _make_job(tmp_path)
+        fake_proc = MagicMock()
+        fake_proc.returncode = 0
+        fake_proc.communicate = AsyncMock(return_value=(b"", b""))
+
+        async def run():
+            with (
+                patch("pr_impact.webhook.ensure_repo", return_value="/local/repo"),
+                patch("asyncio.create_subprocess_exec", AsyncMock(return_value=fake_proc)),
+                patch("pr_impact.history.load_run", return_value=None),
+            ):
+                await _process_webhook_job(job, MagicMock())
+
+        with pytest.raises(RuntimeError, match="not found in history DB"):
+            self._run(run())

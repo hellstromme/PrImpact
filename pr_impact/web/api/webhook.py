@@ -21,6 +21,7 @@ Required environment variables:
 
 from __future__ import annotations
 
+import json
 import os
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -62,8 +63,8 @@ async def github_webhook(
         raise HTTPException(status_code=401, detail={"error": "Invalid signature"})
 
     try:
-        payload = await request.json()
-    except Exception:
+        payload = json.loads(payload_bytes)
+    except (json.JSONDecodeError, ValueError):
         raise HTTPException(status_code=400, detail={"error": "Invalid JSON payload"})
 
     job = parse_github_event(x_github_event, payload)
@@ -76,8 +77,13 @@ async def github_webhook(
     db_path: str = getattr(request.app.state, "db_path", ".primpact/history.db")
 
     if github_token:
+        if not job["clone_url"].startswith("https://"):
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "Expected HTTPS clone URL; cannot embed token"},
+            )
         clone_url = job["clone_url"].replace(
-            "https://", f"https://x-access-token:{github_token}@"
+            "https://", f"https://x-access-token:{github_token}@", 1
         )
     else:
         clone_url = job["clone_url"]
@@ -109,8 +115,8 @@ async def gitlab_webhook(
         raise HTTPException(status_code=401, detail={"error": "Invalid token"})
 
     try:
-        payload = await request.json()
-    except Exception:
+        payload = json.loads(await request.body())
+    except (json.JSONDecodeError, ValueError):
         raise HTTPException(status_code=400, detail={"error": "Invalid JSON payload"})
 
     job = parse_gitlab_event(payload)
