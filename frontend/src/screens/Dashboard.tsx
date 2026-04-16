@@ -304,6 +304,12 @@ function RecentRunsList({ runs }: { runs: RunSummary[] }) {
 
 export default function Dashboard() {
   const [repo, setRepo] = useState<string>(() => localStorage.getItem(REPO_KEY) ?? '')
+  const [debouncedRepo, setDebouncedRepo] = useState(repo)
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedRepo(repo), 300)
+    return () => clearTimeout(id)
+  }, [repo])
 
   function handleRepoChange(r: string) {
     setRepo(r)
@@ -311,9 +317,9 @@ export default function Dashboard() {
   }
 
   const { data: runs = [], isLoading } = useQuery({
-    queryKey: queryKeys.runs(repo),
-    queryFn: () => api.getRuns(repo),
-    enabled: repo.trim().length > 0,
+    queryKey: queryKeys.runs(debouncedRepo),
+    queryFn: () => api.getRuns(debouncedRepo),
+    enabled: debouncedRepo.trim().length > 0,
   })
 
   return (

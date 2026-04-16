@@ -27,6 +27,27 @@ _SEVERITY: dict[str, _SeverityStyle] = {
 }
 _DEFAULT_SEVERITY = _SeverityStyle(icon="🔵", color="bright_blue", bullet="○")
 
+# ASCII stand-ins for consoles that cannot encode Unicode (e.g. Windows CP1252)
+_ASCII_FALLBACKS: dict[str, str] = {
+    "●": "*", "◉": "*", "○": "-",
+    "⚠": "!", "◇": "-", "→": "->", "✓": "OK",
+}
+
+
+def _unicode_ok(console: Console) -> bool:
+    """Return True when the console encoding supports the non-ASCII chars used in output."""
+    enc = getattr(console, "encoding", None) or "ascii"
+    try:
+        "●◉○⚠◇→✓".encode(enc)
+        return True
+    except (UnicodeEncodeError, LookupError):
+        return False
+
+
+def _ch(char: str, ok: bool) -> str:
+    """Return *char* if Unicode output is available, else its ASCII fallback."""
+    return char if ok else _ASCII_FALLBACKS.get(char, char)
+
 
 def _sev(key: str) -> _SeverityStyle:
     return _SEVERITY.get(key, _DEFAULT_SEVERITY)
@@ -477,6 +498,7 @@ def _render_decisions_section(console: Console, report: ImpactReport) -> None:
 def _render_anomalies_section(console: Console, report: ImpactReport) -> None:
     if not report.ai_analysis.anomalies:
         return
+    ok = _unicode_ok(console)
     high = sum(1 for a in report.ai_analysis.anomalies if a.severity == "high")
     medium = sum(1 for a in report.ai_analysis.anomalies if a.severity == "medium")
     low = sum(1 for a in report.ai_analysis.anomalies if a.severity == "low")
@@ -489,7 +511,7 @@ def _render_anomalies_section(console: Console, report: ImpactReport) -> None:
     console.print()
     for anomaly in report.ai_analysis.anomalies:
         color = _sev_color(anomaly.severity, "bright_blue")
-        bullet = _sev(anomaly.severity).bullet
+        bullet = _ch(_sev(anomaly.severity).bullet, ok)
         console.print(
             f"  [{color}]{bullet}[/{color}] {anomaly.description}"
             f"  [{color}][bold]{anomaly.severity.upper()}[/bold][/{color}]"
@@ -503,13 +525,14 @@ def _render_semantic_section(console: Console, report: ImpactReport) -> None:
     equiv_verdicts = [v for v in report.ai_analysis.semantic_verdicts if v.verdict == "equivalent"]
     if not risky_verdicts and not equiv_verdicts:
         return
+    ok = _unicode_ok(console)
     console.print(Rule("SEMANTIC ANALYSIS", style="bright_blue"))
     console.print()
     if risky_verdicts:
-        console.print("  [bold yellow]⚠ Logic changes (small diff, significant impact)[/bold yellow]")
+        console.print(f"  [bold yellow]{_ch('⚠', ok)} Logic changes (small diff, significant impact)[/bold yellow]")
         console.print()
         for v in risky_verdicts:
-            console.print(f"  [yellow]◉[/yellow] [bold]{v.symbol}[/bold]  [cyan dim]{v.file}[/cyan dim]")
+            console.print(f"  [yellow]{_ch('◉', ok)}[/yellow] [bold]{v.symbol}[/bold]  [cyan dim]{v.file}[/cyan dim]")
             console.print(f"    [dim]{v.reason}[/dim]")
         console.print()
     if equiv_verdicts:
@@ -524,6 +547,7 @@ def _render_semantic_section(console: Console, report: ImpactReport) -> None:
 def _render_test_gaps_section(console: Console, report: ImpactReport) -> None:
     if not report.ai_analysis.test_gaps:
         return
+    ok = _unicode_ok(console)
     console.print(Rule("TEST GAPS", style="bright_blue"))
     console.print(f"  [dim]{len(report.ai_analysis.test_gaps)} behaviour(s) not covered[/dim]")
     console.print()
@@ -531,7 +555,7 @@ def _render_test_gaps_section(console: Console, report: ImpactReport) -> None:
     for gap in report.ai_analysis.test_gaps:
         colour = _severity_colour.get(gap.severity, "cyan")
         gap_type_tag = f" [dim]{gap.gap_type}[/dim]" if gap.gap_type else ""
-        console.print(f"  [dim]◇[/dim]  {gap.behaviour} [{colour}]{gap.severity.upper()}[/{colour}]{gap_type_tag}")
+        console.print(f"  [dim]{_ch('◇', ok)}[/dim]  {gap.behaviour} [{colour}]{gap.severity.upper()}[/{colour}]{gap_type_tag}")
         console.print(f"     [cyan dim]{gap.location}[/cyan dim]")
     console.print()
 
@@ -544,9 +568,10 @@ def _render_security_section(console: Console, report: ImpactReport) -> None:
     high_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "high")
     med_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "medium")
     low_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "low")
+    ok = _unicode_ok(console)
     console.print(Rule("SECURITY SIGNALS", style="bright_red"))
     console.print(
-        "  [dim]⚠ Not a security audit — signals for human review, not verdicts[/dim]"
+        f"  [dim]{_ch('⚠', ok)} Not a security audit — signals for human review, not verdicts[/dim]"
     )
     if has_signals:
         console.print(
@@ -557,7 +582,7 @@ def _render_security_section(console: Console, report: ImpactReport) -> None:
     console.print()
     for sig in report.ai_analysis.security_signals:
         color = _sev_color(sig.severity, "bright_blue")
-        bullet = _sev(sig.severity).bullet
+        bullet = _ch(_sev(sig.severity).bullet, ok)
         line_info = f" :{sig.location.line}" if sig.location.line else ""
         symbol_info = f":{sig.location.symbol}" if sig.location.symbol else ""
         console.print(
@@ -568,14 +593,14 @@ def _render_security_section(console: Console, report: ImpactReport) -> None:
         if sig.why_unusual:
             console.print(f"    [dim]{sig.why_unusual}[/dim]")
         if sig.suggested_action:
-            console.print(f"    [dim italic]→ {sig.suggested_action}[/dim italic]")
+            console.print(f"    [dim italic]{_ch('→', ok)} {sig.suggested_action}[/dim italic]")
         console.print()
     if has_dep_issues:
         console.print("  [bold]Dependency Issues[/bold]")
         console.print()
         for issue in report.dependency_issues:
             color = _sev_color(issue.severity, "bright_blue")
-            bullet = _sev(issue.severity).bullet
+            bullet = _ch(_sev(issue.severity).bullet, ok)
             console.print(
                 f"  [{color}]{bullet}[/{color}] [{color}]{issue.package_name}[/{color}]"
                 f" [dim]({issue.issue_type})[/dim]"
@@ -648,6 +673,7 @@ def render_terminal(
 
 def render_verdict_terminal(verdict: Verdict, console: Console) -> None:
     """Render the agent verdict panel to the console."""
+    ok = _unicode_ok(console)
     has_blockers = (
         verdict.agent_should_continue
         or verdict.status == "has_blockers"
@@ -655,10 +681,10 @@ def render_verdict_terminal(verdict: Verdict, console: Console) -> None:
     )
     if has_blockers:
         rule_style = "bright_red"
-        status_text = Text("● BLOCKERS FOUND — agent should continue", style="bold bright_red")
+        status_text = Text(f"{_ch('●', ok)} BLOCKERS FOUND — agent should continue", style="bold bright_red")
     else:
         rule_style = "green"
-        status_text = Text("✓ CLEAN — agent may stop", style="bold green")
+        status_text = Text(f"{_ch('✓', ok)} CLEAN — agent may stop", style="bold green")
 
     console.print(Rule("AGENT VERDICT", style=rule_style))
     console.print(f"  {status_text}")
@@ -668,7 +694,7 @@ def render_verdict_terminal(verdict: Verdict, console: Console) -> None:
 
     if verdict.blockers:
         for b in verdict.blockers:
-            console.print(f"  [bold bright_red]●[/bold bright_red] [{b.category}] {b.description}")
+            console.print(f"  [bold bright_red]{_ch('●', ok)}[/bold bright_red] [{b.category}] {b.description}")
             if b.location:
                 console.print(f"    [cyan dim]{b.location}[/cyan dim]")
         console.print()

@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api.analyse import router as analyse_router
+from .api.config import router as config_router
 from .api.runs import router as runs_router
 from .api.snippet import router as snippet_router
 
@@ -69,6 +70,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
     app.include_router(runs_router, prefix="/api")
     app.include_router(analyse_router, prefix="/api")
     app.include_router(snippet_router, prefix="/api")
+    app.include_router(config_router, prefix="/api")
 
     # Serve the built React bundle when present.
     # In dev mode, Vite runs separately and proxies /api to this server.

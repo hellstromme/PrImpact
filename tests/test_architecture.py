@@ -58,6 +58,7 @@ def test_pipeline_modules_do_not_cross_import():
                     "ai_client", "ai_context",       # called by ai_layer only
                     "language_resolvers",             # called by dependency_graph only
                     "config",                         # called by cli only
+                    "config_file",                   # called by cli only
                 ):
                     violations.append(f"{pyfile.name} imports {imported_module}")
 

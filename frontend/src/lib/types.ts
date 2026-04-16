@@ -171,3 +171,19 @@ export interface SnippetResponse {
   highlight_line: number
   total_lines: number
 }
+
+// Team configuration types mirroring pr_impact/models.py PrImpactConfig
+
+export interface SuppressedSignal {
+  signal_type: string
+  path_prefix: string
+  reason: string
+}
+
+export interface PrImpactConfig {
+  high_sensitivity_modules: string[]
+  suppressed_signals: SuppressedSignal[]
+  blast_radius_depth: Record<string, number>
+  fail_on_severity: string | null
+  anomaly_thresholds: Record<string, string>
+}

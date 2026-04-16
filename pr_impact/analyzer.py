@@ -14,12 +14,31 @@ from .ai_layer import run_ai_analysis
 from .classifier import classify_changed_file, get_interface_changes
 from .dependency_graph import build_import_graph, get_blast_radius
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
-from .models import AIAnalysis, BlastRadiusEntry, ChangedFile, DependencyIssue, InterfaceChange, RefsResult
+from .models import AIAnalysis, BlastRadiusEntry, ChangedFile, DependencyIssue, InterfaceChange, PrImpactConfig, RefsResult, SecuritySignal, SuppressedSignal
 from .security import check_dependency_integrity, detect_pattern_signals
 
 import git
 
 stderr = Console(stderr=True)
+
+
+def _apply_suppressions(
+    signals: list[SecuritySignal], suppressions: list[SuppressedSignal]
+) -> list[SecuritySignal]:
+    """Remove signals that match a suppression rule in .primpact.yml."""
+    result = []
+    for sig in signals:
+        suppressed = False
+        for rule in suppressions:
+            if (
+                sig.signal_type == rule.signal_type
+                and sig.location.file.startswith(rule.path_prefix)
+            ):
+                suppressed = True
+                break
+        if not suppressed:
+            result.append(sig)
+    return result
 
 
 class AnalyzerExit(Exception):
@@ -61,6 +80,7 @@ class ImpactAnalyzer:
         check_osv: bool = False,
         anomaly_history: list[dict] | None = None,
         hotspots: list[dict] | None = None,
+        pr_config: PrImpactConfig | None = None,
     ) -> None:
         self.repo = repo
         self.repo_obj = repo_obj
@@ -69,6 +89,7 @@ class ImpactAnalyzer:
         self.check_osv = check_osv
         self.anomaly_history = anomaly_history
         self.hotspots = hotspots
+        self.pr_config = pr_config
 
     def run(
         self, progress: object
@@ -121,8 +142,21 @@ class ImpactAnalyzer:
         progress.update(task, description="Calculating blast radius...")
         changed_paths = [f.path for f in changed_files]
         effective_depth = min(self.max_depth, 3)
+
+        # Per-module depth overrides from .primpact.yml
+        depth_overrides: dict[str, int] = {}
+        if self.pr_config and self.pr_config.blast_radius_depth:
+            for path in changed_paths:
+                for prefix, depth in self.pr_config.blast_radius_depth.items():
+                    if path.startswith(prefix):
+                        depth_overrides[path] = min(int(depth), 3)
+                        break
+
         try:
-            blast_radius = get_blast_radius(reverse_graph, changed_paths, effective_depth, self.repo)
+            blast_radius = get_blast_radius(
+                reverse_graph, changed_paths, effective_depth, self.repo,
+                depth_overrides=depth_overrides if depth_overrides else None,
+            )
         except Exception as e:
             stderr.print(f"[yellow]Warning:[/yellow] Blast radius calculation failed: {e}")
             blast_radius = []
@@ -159,6 +193,10 @@ class ImpactAnalyzer:
             stderr.print(f"[yellow]Warning:[/yellow] Security signal detection failed: {e}")
             pattern_signals = []
 
+        # Apply .primpact.yml suppressions
+        if self.pr_config and self.pr_config.suppressed_signals and pattern_signals:
+            pattern_signals = _apply_suppressions(pattern_signals, self.pr_config.suppressed_signals)
+
         try:
             dependency_issues = check_dependency_integrity(changed_files, osv_check=self.check_osv)
         except Exception as e:
@@ -181,6 +219,7 @@ class ImpactAnalyzer:
                 pattern_signals or None,
                 anomaly_history=self.anomaly_history,
                 hotspots=self.hotspots,
+                high_sensitivity_modules=self.pr_config.high_sensitivity_modules if self.pr_config else None,
             )
         except Exception as e:
             stderr.print(f"[yellow]Warning:[/yellow] AI analysis failed: {e}")

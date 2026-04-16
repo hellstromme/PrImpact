@@ -16,6 +16,7 @@ from typing import Protocol
 from .ai_layer import run_verdict_analysis
 from .analyzer import AnalyzerExit, ImpactAnalyzer
 from .config import CONFIG_PATH, env_placeholder, load_config, read_toml_config
+from .config_file import load_config_file
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .history import get_run_count, load_anomaly_patterns, load_hotspots, save_run
 from .models import HistoricalHotspot, ImpactReport, RefsResult
@@ -484,6 +485,12 @@ def analyse(
     except Exception as e:
         stderr.print(f"[yellow]Warning:[/yellow] Could not load config: {e}")
 
+    # Load .primpact.yml if present (best-effort — never blocks the pipeline)
+    try:
+        pr_config = load_config_file(repo)
+    except Exception:
+        pr_config = None
+
     _validate_ref_options(pr_number, base, head)
     base, head = _normalize_direct_refs(pr_number, base, head)
 
@@ -513,6 +520,7 @@ def analyse(
             check_osv=check_osv,
             anomaly_history=anomaly_history,
             hotspots=hotspots,
+            pr_config=pr_config,
         )
         try:
             changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
@@ -542,7 +550,10 @@ def analyse(
     # Collect both exit conditions before exiting so neither silently suppresses the other.
     # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),
     # because exit 2 carries a concrete remediation list for an agent loop.
-    severity_exit = _check_severity_threshold(fail_on_severity, report.ai_analysis.anomalies)
+    effective_fail_severity = fail_on_severity
+    if effective_fail_severity == "none" and pr_config and pr_config.fail_on_severity:
+        effective_fail_severity = pr_config.fail_on_severity
+    severity_exit = _check_severity_threshold(effective_fail_severity, report.ai_analysis.anomalies)
     _, verdict_continue = _run_verdict_if_requested(
         run_verdict, verdict_output, report.ai_analysis, report.dependency_issues
     )
