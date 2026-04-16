@@ -8,7 +8,7 @@ interface NavItem {
 }
 
 const perAnalysisItems: NavItem[] = [
-  { label: 'SUMMARY', href: '', icon: 'summarize' },
+  { label: 'SUMMARY', href: '/summary', icon: 'summarize' },
   { label: 'BLAST RADIUS', href: '/blast-radius', icon: 'hub' },
   { label: 'SECURITY', href: '/security', icon: 'security' },
   { label: 'DEPENDENCIES', href: '/dependencies', icon: 'account_tree' },
@@ -17,6 +17,7 @@ const perAnalysisItems: NavItem[] = [
 
 const globalItems: NavItem[] = [
   { label: 'HISTORY', href: '/history', icon: 'history' },
+  { label: 'SETTINGS', href: '/settings', icon: 'settings' },
 ]
 
 const bottomItems: NavItem[] = [

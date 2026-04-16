@@ -2,6 +2,7 @@ import type {
   AnalyseRequest,
   AnalysisStatusResponse,
   ImpactReport,
+  PrImpactConfig,
   RunSummary,
   SnippetResponse,
 } from './types'
@@ -40,4 +41,9 @@ export const api = {
     fetch(
       `/api/runs/${runId}/snippet?file=${encodeURIComponent(file)}&line=${line}&context=${context}`
     ).then((r) => _json<SnippetResponse>(r)),
+
+  getConfig: (repo: string): Promise<PrImpactConfig & { path: string }> =>
+    fetch(`/api/config?repo=${encodeURIComponent(repo)}`).then((r) =>
+      _json<PrImpactConfig & { path: string }>(r)
+    ),
 }

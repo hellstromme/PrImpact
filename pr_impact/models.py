@@ -208,3 +208,21 @@ class ImpactReport:
     dependency_issues: list[DependencyIssue] = field(default_factory=list)
     # v0.4: historical hotspots from prior runs (populated when --history-db is active)
     historical_hotspots: list[HistoricalHotspot] = field(default_factory=list)
+
+
+@dataclass
+class SuppressedSignal:
+    """A signal type suppressed in a specific path prefix."""
+    signal_type: str    # matches SecuritySignal.signal_type
+    path_prefix: str    # e.g. "tools/" — suppressed if file starts with this
+    reason: str = ""
+
+
+@dataclass
+class PrImpactConfig:
+    """Loaded from .primpact.yml in the repo root. All fields are optional."""
+    high_sensitivity_modules: list[str] = field(default_factory=list)
+    suppressed_signals: list[SuppressedSignal] = field(default_factory=list)
+    blast_radius_depth: dict[str, int] = field(default_factory=dict)  # path_prefix → depth
+    fail_on_severity: str | None = None   # overrides CLI flag when not "none"
+    anomaly_thresholds: dict[str, str] = field(default_factory=dict)  # signal_type → severity
