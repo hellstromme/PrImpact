@@ -1,5 +1,8 @@
 """Unit tests for pr_impact/classifier.py."""
 
+from unittest.mock import patch
+
+from pr_impact.ast_extractor import ASTSymbol
 from pr_impact.classifier import classify_changed_file, get_interface_changes
 from pr_impact.models import ChangedSymbol
 from tests.helpers import make_file
@@ -494,9 +497,6 @@ def test_abstract_class_classify_kind_is_class():
 
 # --- AST-first / regex-fallback path tests ---
 
-from unittest.mock import patch
-from pr_impact.ast_extractor import ASTSymbol
-
 
 def test_ast_path_python_signature_change_populates_fields():
     """When extract_symbols returns non-None for both before/after, the AST path is used."""
@@ -801,7 +801,12 @@ def test_unknown_language_returns_empty_symbols():
 
 
 def test_ast_path_body_only_change_is_internal():
-    """AST path: when signatures are identical but diff touches the function, result is internal."""
+    """AST path: when signatures are identical, change_type is 'internal'.
+
+    The diff must mention the function name so the classifier registers it as
+    touched.  We include the signature line (unchanged, so it appears on both
+    the - and + sides) alongside the differing body line.
+    """
     sym = ASTSymbol(
         name="compute",
         kind="function",
@@ -819,11 +824,13 @@ def test_ast_path_body_only_change_is_internal():
             language="python",
             before="def compute(x):\n    return x\n",
             after="def compute(x):\n    return x * 2\n",
-            diff="-    return x\n+    return x * 2\n",
+            # Include the def line so "compute" appears in the diff token set
+            diff="-def compute(x):\n-    return x\n+def compute(x):\n+    return x * 2\n",
         )
         symbols = classify_changed_file(f)
 
     compute_syms = [s for s in symbols if s.name == "compute"]
+    assert len(compute_syms) >= 1, "expected compute to appear as a changed symbol"
     for s in compute_syms:
         assert s.change_type == "internal"
 
