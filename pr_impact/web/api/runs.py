@@ -11,7 +11,7 @@ import dataclasses
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from ...history import load_run, load_run_summary, load_runs
+from ...history import clear_history, load_run, load_run_summary, load_runs
 
 router = APIRouter()
 
@@ -39,6 +39,19 @@ def get_run(run_id: str, request: Request) -> dict:
     if summary is None:
         raise HTTPException(status_code=404, detail={"error": "Run not found"})
     return dataclasses.asdict(summary)
+
+
+@router.delete("/history")
+def delete_history(
+    request: Request,
+    repo: str = Query(..., description="Absolute path to the repository"),
+) -> dict:
+    """Delete all recorded runs for the given repo."""
+    try:
+        clear_history(_db_path(request), repo)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"error": str(exc)}) from exc
+    return {"deleted": True}
 
 
 @router.get("/runs/{run_id}/report")
