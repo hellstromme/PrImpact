@@ -8,7 +8,7 @@ Language-specific import resolution is delegated to language_resolvers.py.
 
 import os
 import re
-from collections import deque
+from collections import defaultdict, deque
 from pathlib import Path
 
 import git
@@ -133,14 +133,14 @@ def get_blast_radius(
     else:
         # Per-file depth: group starting files by their effective depth and BFS each group
         # separately, then merge results taking minimum distance.
-        from collections import defaultdict as _dd
-        depth_groups: dict[int, list[str]] = _dd(list)
+        depth_groups: dict[int, list[str]] = defaultdict(list)
         for path in changed_files:
             effective = depth_overrides.get(path, max_depth)
             depth_groups[effective].append(path)
 
         visited = {}
         for group_depth, group_paths in depth_groups.items():
+            group_depth = min(group_depth, 3)  # enforce documented cap defensively
             group_visited: dict[str, int] = {}
             q: deque[tuple[str, int]] = deque()
             for path in group_paths:

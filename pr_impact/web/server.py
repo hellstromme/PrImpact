@@ -70,7 +70,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
     app.include_router(runs_router, prefix="/api")
     app.include_router(analyse_router, prefix="/api")
     app.include_router(snippet_router, prefix="/api")
-    app.include_router(config_router)
+    app.include_router(config_router, prefix="/api")
 
     # Serve the built React bundle when present.
     # In dev mode, Vite runs separately and proxies /api to this server.

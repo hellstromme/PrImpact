@@ -92,6 +92,8 @@ def build_diffs_context(
         single_available = max(0, available - len(_TRUNCATION_SUFFIX))
         result = f"### {single.path}\n{single.diff[:single_available]}{_TRUNCATION_SUFFIX}"
 
+    # Appended after budget calculation — intentionally outside the char limit
+    # because the annotation is small (O(module count) chars) and fixed-size.
     if high_sensitivity_modules:
         module_list = "\n".join(f"- {m}" for m in high_sensitivity_modules)
         result += (
