@@ -5,6 +5,7 @@ They run against an in-process FastAPI app backed by a tmp-path SQLite DB.
 """
 
 from typing import NamedTuple
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -192,3 +193,111 @@ def test_get_status_returns_error_field(client):
     status_resp = client.tc.get(f"/api/analyse/{run_id}/status")
     assert status_resp.status_code == 200
     assert "error" in status_resp.json()
+
+
+# ---------------------------------------------------------------------------
+# merged field — integration tests for _check_merged via the list endpoint
+# ---------------------------------------------------------------------------
+#
+# These tests exercise the full path: API request → _enrich() → _check_merged()
+# → GitHub API (mocked) or git ancestry (mocked) → `merged` field in response.
+# pr_number is extracted from pr_title in save_run when the title starts with "#".
+
+
+def _git_returncode(code: int) -> MagicMock:
+    m = MagicMock()
+    m.returncode = code
+    return m
+
+
+def _make_client(db_path, pr_title):
+    rid = save_run(db_path, make_report(pr_title=pr_title), repo_path="/repo")
+    app = create_app(db_path=db_path)
+    return TestClient(app), rid
+
+
+def test_merged_true_when_github_api_says_merged(db_path):
+    """PR-backed run: GitHub API returns merged → list endpoint returns merged=true."""
+    tc, _ = _make_client(db_path, "#42: fix auth")
+    with (
+        patch("pr_impact.web.api.runs._github_owner_repo", return_value=("acme", "myrepo")),
+        patch("pr_impact.web.api.runs.is_pr_merged", return_value=True),
+    ):
+        data = tc.get("/api/runs", params={"repo": "/repo"}).json()
+    assert data[0]["merged"] is True
+
+
+def test_merged_false_when_github_api_says_open(db_path):
+    """PR-backed run: GitHub API returns not merged → list endpoint returns merged=false."""
+    tc, _ = _make_client(db_path, "#43: add feature")
+    with (
+        patch("pr_impact.web.api.runs._github_owner_repo", return_value=("acme", "myrepo")),
+        patch("pr_impact.web.api.runs.is_pr_merged", return_value=False),
+    ):
+        data = tc.get("/api/runs", params={"repo": "/repo"}).json()
+    assert data[0]["merged"] is False
+
+
+def test_merged_uses_github_token_from_env(db_path, monkeypatch):
+    """GITHUB_TOKEN env var is forwarded to is_pr_merged."""
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token-xyz")
+    tc, _ = _make_client(db_path, "#44: refactor")
+    captured = {}
+
+    def fake_is_pr_merged(owner, repo_name, pr_number, token):
+        captured["token"] = token
+        return False
+
+    with (
+        patch("pr_impact.web.api.runs._github_owner_repo", return_value=("acme", "myrepo")),
+        patch("pr_impact.web.api.runs.is_pr_merged", side_effect=fake_is_pr_merged),
+    ):
+        tc.get("/api/runs", params={"repo": "/repo"})
+    assert captured["token"] == "test-token-xyz"
+
+
+def test_merged_falls_back_to_git_when_api_returns_none(db_path):
+    """When is_pr_merged returns None (API error), falls back to git ancestry (not merged)."""
+    tc, _ = _make_client(db_path, "#45: hotfix")
+    with (
+        patch("pr_impact.web.api.runs._github_owner_repo", return_value=("acme", "myrepo")),
+        patch("pr_impact.web.api.runs.is_pr_merged", return_value=None),
+        patch("pr_impact.web.api.runs.subprocess.run", return_value=_git_returncode(1)),
+    ):
+        data = tc.get("/api/runs", params={"repo": "/repo"}).json()
+    assert data[0]["merged"] is False
+
+
+def test_merged_falls_back_to_git_when_no_github_remote(db_path):
+    """When _github_owner_repo returns None (no GitHub remote), git ancestry is used."""
+    tc, _ = _make_client(db_path, "#46: cleanup")
+    with (
+        patch("pr_impact.web.api.runs._github_owner_repo", return_value=None),
+        patch("pr_impact.web.api.runs.subprocess.run", return_value=_git_returncode(0)),
+    ):
+        data = tc.get("/api/runs", params={"repo": "/repo"}).json()
+    assert data[0]["merged"] is True
+
+
+def test_sha_only_run_skips_github_api(db_path):
+    """SHA-only run (no pr_number) goes directly to git ancestry; GitHub API is never called."""
+    # pr_title doesn't start with "#" so pr_number is stored as None
+    tc, _ = _make_client(db_path, "feat: direct sha analysis")
+    with (
+        patch("pr_impact.web.api.runs.is_pr_merged") as mock_api,
+        patch("pr_impact.web.api.runs.subprocess.run", return_value=_git_returncode(0)),
+    ):
+        data = tc.get("/api/runs", params={"repo": "/repo"}).json()
+    mock_api.assert_not_called()
+    assert data[0]["merged"] is True
+
+
+def test_get_run_single_endpoint_also_has_merged_field(db_path):
+    """GET /api/runs/{id} (single-run endpoint) also populates merged."""
+    tc, rid = _make_client(db_path, "#47: single-run check")
+    with (
+        patch("pr_impact.web.api.runs._github_owner_repo", return_value=("acme", "myrepo")),
+        patch("pr_impact.web.api.runs.is_pr_merged", return_value=True),
+    ):
+        data = tc.get(f"/api/runs/{rid}").json()
+    assert data["merged"] is True

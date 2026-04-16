@@ -13,6 +13,7 @@ from pr_impact.github import (
     detect_github_remote,
     fetch_open_prs,
     fetch_pr,
+    is_pr_merged,
 )
 
 # ---------------------------------------------------------------------------
@@ -177,3 +178,41 @@ def test_fetch_pr_unexpected_shape_raises():
     with patch("pr_impact.github._make_github_request", return_value=[1, 2, 3]):
         with pytest.raises(RuntimeError, match="Unexpected"):
             fetch_pr("owner", "repo", 42)
+
+
+# ---------------------------------------------------------------------------
+# is_pr_merged
+# ---------------------------------------------------------------------------
+
+
+def test_is_pr_merged_returns_true_when_merged():
+    with patch("pr_impact.github._make_github_request", return_value={"merged": True, "state": "closed"}):
+        assert is_pr_merged("owner", "repo", 42) is True
+
+
+def test_is_pr_merged_returns_false_when_open():
+    with patch("pr_impact.github._make_github_request", return_value={"merged": False, "state": "open"}):
+        assert is_pr_merged("owner", "repo", 42) is False
+
+
+def test_is_pr_merged_returns_none_on_api_error():
+    with patch("pr_impact.github._make_github_request", side_effect=RuntimeError("network")):
+        assert is_pr_merged("owner", "repo", 42) is None
+
+
+def test_is_pr_merged_returns_none_on_unexpected_shape():
+    with patch("pr_impact.github._make_github_request", return_value=[1, 2, 3]):
+        assert is_pr_merged("owner", "repo", 42) is None
+
+
+def test_is_pr_merged_passes_token():
+    captured = {}
+
+    def fake_request(url, token):
+        captured["token"] = token
+        return {"merged": False}
+
+    with patch("pr_impact.github._make_github_request", side_effect=fake_request):
+        is_pr_merged("owner", "repo", 42, token="mytoken")
+
+    assert captured["token"] == "mytoken"
