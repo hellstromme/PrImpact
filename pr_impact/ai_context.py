@@ -60,16 +60,18 @@ def _extract_signatures(content: str, language: str) -> str:
 
 
 
-def build_diffs_context(changed_files: list[ChangedFile]) -> str:
+def build_diffs_context(
+    changed_files: list[ChangedFile],
+    high_sensitivity_modules: list[str] | None = None,
+) -> str:
     header_overhead = sum(len(f"### {f.path}\n") for f in changed_files)
     sep_overhead = max(0, len(changed_files) - 1) * len("\n\n")
     available = _DIFF_CHAR_LIMIT - header_overhead - sep_overhead
 
     total_diffs = sum(len(f.diff) for f in changed_files)
     if total_diffs <= available:
-        return "\n\n".join(f"### {f.path}\n{f.diff}" for f in changed_files)
-
-    if len(changed_files) > 1:
+        result = "\n\n".join(f"### {f.path}\n{f.diff}" for f in changed_files)
+    elif len(changed_files) > 1:
         # Greedily include each file in full until the budget is exhausted
         parts: list[str] = []
         remaining = available
@@ -83,12 +85,22 @@ def build_diffs_context(changed_files: list[ChangedFile]) -> str:
                 diff_chars = max(0, remaining - len(_TRUNCATION_SUFFIX))
                 parts.append(f"### {f.path}\n{f.diff[:diff_chars]}{_TRUNCATION_SUFFIX}")
                 remaining = 0
-        return "\n\n".join(parts)
+        result = "\n\n".join(parts)
+    else:
+        # Single file exceeds limit
+        single = changed_files[0]
+        single_available = max(0, available - len(_TRUNCATION_SUFFIX))
+        result = f"### {single.path}\n{single.diff[:single_available]}{_TRUNCATION_SUFFIX}"
 
-    # Single file exceeds limit
-    single = changed_files[0]
-    single_available = max(0, available - len(_TRUNCATION_SUFFIX))
-    return f"### {single.path}\n{single.diff[:single_available]}{_TRUNCATION_SUFFIX}"
+    if high_sensitivity_modules:
+        module_list = "\n".join(f"- {m}" for m in high_sensitivity_modules)
+        result += (
+            "\n\n## High-Sensitivity Modules\n"
+            "The following paths have been marked as requiring extra scrutiny:\n"
+            + module_list
+        )
+
+    return result
 
 
 def build_blast_radius_signatures(

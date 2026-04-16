@@ -105,24 +105,58 @@ def get_blast_radius(
     changed_files: list[str],
     max_depth: int = 3,
     repo_path: str = "",
+    depth_overrides: dict[str, int] | None = None,
 ) -> list[BlastRadiusEntry]:
-    """BFS through reverse graph from changed files. Returns entries sorted by distance then path."""
-    visited: dict[str, int] = {}  # path -> shortest distance
-    queue: deque[tuple[str, int]] = deque()
+    """BFS through reverse graph from changed files. Returns entries sorted by distance then path.
 
-    for path in changed_files:
-        queue.append((path, 0))
+    When *depth_overrides* is provided it maps individual starting file paths to a
+    per-file max BFS depth (overriding *max_depth* for that file only, still capped
+    at 3). If different starting files have different depths the BFS is run once per
+    unique depth group and results are merged, keeping the minimum distance when a
+    dependent appears via multiple starting files.
+    """
+    if not depth_overrides:
+        # Fast path: single BFS with uniform depth
+        visited: dict[str, int] = {}
+        queue: deque[tuple[str, int]] = deque()
+        for path in changed_files:
+            queue.append((path, 0))
+        while queue:
+            current, dist = queue.popleft()
+            if current in visited:
+                continue
+            visited[current] = dist
+            if dist < max_depth:
+                for dependent in reverse_graph.get(current, []):
+                    if dependent not in visited:
+                        queue.append((dependent, dist + 1))
+    else:
+        # Per-file depth: group starting files by their effective depth and BFS each group
+        # separately, then merge results taking minimum distance.
+        from collections import defaultdict as _dd
+        depth_groups: dict[int, list[str]] = _dd(list)
+        for path in changed_files:
+            effective = depth_overrides.get(path, max_depth)
+            depth_groups[effective].append(path)
 
-    while queue:
-        current, dist = queue.popleft()
-        if current in visited:
-            continue
-        visited[current] = dist
-
-        if dist < max_depth:
-            for dependent in reverse_graph.get(current, []):
-                if dependent not in visited:
-                    queue.append((dependent, dist + 1))
+        visited = {}
+        for group_depth, group_paths in depth_groups.items():
+            group_visited: dict[str, int] = {}
+            q: deque[tuple[str, int]] = deque()
+            for path in group_paths:
+                q.append((path, 0))
+            while q:
+                current, dist = q.popleft()
+                if current in group_visited:
+                    continue
+                group_visited[current] = dist
+                if dist < group_depth:
+                    for dependent in reverse_graph.get(current, []):
+                        if dependent not in group_visited:
+                            q.append((dependent, dist + 1))
+            for path, dist in group_visited.items():
+                if path not in visited or dist < visited[path]:
+                    visited[path] = dist
 
     # Build entries for dependents only (exclude the changed files themselves at dist 0)
     entries: list[BlastRadiusEntry] = []

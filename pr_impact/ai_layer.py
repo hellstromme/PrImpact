@@ -68,6 +68,7 @@ def run_ai_analysis(
     pattern_signals: list[SecuritySignal] | None = None,
     anomaly_history: list[dict] | None = None,
     hotspots: list[dict] | None = None,
+    high_sensitivity_modules: list[str] | None = None,
 ) -> AIAnalysis:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -78,7 +79,7 @@ def run_ai_analysis(
     client = anthropic.Anthropic(api_key=api_key)
     result = AIAnalysis()
 
-    diffs_ctx = build_diffs_context(changed_files)
+    diffs_ctx = build_diffs_context(changed_files, high_sensitivity_modules=high_sensitivity_modules)
     blast_sigs = build_blast_radius_signatures(blast_radius, repo_path)
 
     # Call 1: summary, decisions, assumptions
