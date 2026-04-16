@@ -239,7 +239,7 @@ function RecentRunsList({ runs }: { runs: RunSummary[] }) {
     return (
       <div className="text-center py-16 text-on-surface-variant">
         <span className="material-symbols-outlined text-[48px] mb-4 block">history</span>
-        <p className="font-mono text-sm">No analyses yet for this repository.</p>
+        <p className="font-mono text-sm">No analyses in the last 7 days for this repository.</p>
         <p className="text-xs mt-1">Run an analysis above to get started.</p>
       </div>
     )
@@ -322,6 +322,11 @@ export default function Dashboard() {
     enabled: debouncedRepo.trim().length > 0,
   })
 
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+  const recentRuns = runs.filter(
+    (r) => new Date(r.created_at).getTime() >= sevenDaysAgo
+  )
+
   return (
     <div className="px-8 py-12">
       {/* Hero */}
@@ -341,12 +346,13 @@ export default function Dashboard() {
       </div>
 
       {/* Stats */}
-      <StatsRow runs={runs} />
+      <StatsRow runs={recentRuns} />
 
       {/* Recent runs */}
       <section>
         <div className="flex items-center justify-between mb-6">
           <h2 className="font-headline text-2xl font-bold tracking-tight">Recent Reports</h2>
+          <span className="text-xs font-mono text-on-surface-variant">Last 7 days</span>
         </div>
         {isLoading ? (
           <div className="text-center py-12 text-on-surface-variant">
@@ -356,7 +362,7 @@ export default function Dashboard() {
             <p className="text-sm font-mono">Loading runs…</p>
           </div>
         ) : (
-          <RecentRunsList runs={runs} />
+          <RecentRunsList runs={recentRuns} />
         )}
       </section>
     </div>
