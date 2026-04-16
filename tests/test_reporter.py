@@ -14,8 +14,10 @@ from pr_impact.models import (
     BlastRadiusEntry,
     Decision,
     DependencyIssue,
+    HistoricalHotspot,
     InterfaceChange,
     SecuritySignal,
+    SemanticVerdict,
     SourceLocation,
     TestGap,
     Verdict,
@@ -1384,3 +1386,250 @@ def test_verdict_banner_red_when_blockers_present_even_if_flag_false():
                       blockers=[VerdictBlocker(category="test_gap", description="y", location="")])
     out = _capture_verdict(v)
     assert "BLOCKER" in out or "continue" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Historical hotspots — render_markdown
+# ---------------------------------------------------------------------------
+
+
+def test_markdown_historical_hotspots_section_present_when_populated():
+    report = make_report(historical_hotspots=[
+        HistoricalHotspot(file="src/auth.py", appearances=5),
+        HistoricalHotspot(file="src/db.py", appearances=3),
+    ])
+    md = render_markdown(report)
+    assert "## Historical Hotspots" in md
+    assert "src/auth.py" in md
+    assert "5" in md
+    assert "src/db.py" in md
+    assert "3" in md
+
+
+def test_markdown_historical_hotspots_table_has_header_row():
+    report = make_report(historical_hotspots=[
+        HistoricalHotspot(file="src/auth.py", appearances=5),
+    ])
+    md = render_markdown(report)
+    assert "| File | Appearances |" in md
+
+
+def test_markdown_historical_hotspots_absent_when_empty():
+    report = make_report(historical_hotspots=[])
+    md = render_markdown(report)
+    assert "## Historical Hotspots" not in md
+    assert "Historical Hotspots" not in md
+
+
+def test_markdown_historical_hotspots_description_text():
+    report = make_report(historical_hotspots=[
+        HistoricalHotspot(file="src/auth.py", appearances=2),
+    ])
+    md = render_markdown(report)
+    assert "appeared most frequently in blast radii" in md
+
+
+# ---------------------------------------------------------------------------
+# Historical hotspots — render_terminal
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_historical_hotspots_section_present():
+    report = make_report(historical_hotspots=[
+        HistoricalHotspot(file="src/auth.py", appearances=7),
+    ])
+    out = _capture_terminal(report)
+    assert "HISTORICAL HOTSPOTS" in out
+    assert "src/auth.py" in out
+    assert "7" in out
+
+
+def test_terminal_historical_hotspots_absent_when_empty():
+    report = make_report(historical_hotspots=[])
+    out = _capture_terminal(report)
+    assert "HISTORICAL HOTSPOTS" not in out
+
+
+def test_terminal_historical_hotspots_multiple_entries():
+    report = make_report(historical_hotspots=[
+        HistoricalHotspot(file="src/auth.py", appearances=10),
+        HistoricalHotspot(file="src/db.py", appearances=4),
+    ])
+    out = _capture_terminal(report)
+    assert "src/auth.py" in out
+    assert "10" in out
+    assert "src/db.py" in out
+    assert "4" in out
+
+
+# ---------------------------------------------------------------------------
+# Historical hotspots — render_json
+# ---------------------------------------------------------------------------
+
+
+def test_json_historical_hotspots_serialised():
+    report = make_report(historical_hotspots=[
+        HistoricalHotspot(file="src/auth.py", appearances=5),
+    ])
+    data = json.loads(render_json(report))
+    hotspots = data["historical_hotspots"]
+    assert len(hotspots) == 1
+    assert hotspots[0]["file"] == "src/auth.py"
+    assert hotspots[0]["appearances"] == 5
+
+
+def test_json_historical_hotspots_empty_when_none():
+    report = make_report(historical_hotspots=[])
+    data = json.loads(render_json(report))
+    assert data["historical_hotspots"] == []
+
+
+# ---------------------------------------------------------------------------
+# Semantic verdicts — render_terminal
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_semantic_verdicts_risky_shown():
+    report = make_report(ai_analysis=AIAnalysis(
+        summary="test",
+        semantic_verdicts=[
+            SemanticVerdict(file="src/auth.py", symbol="login", verdict="risky", reason="sig changed"),
+        ],
+    ))
+    out = _capture_terminal(report)
+    assert "SEMANTIC ANALYSIS" in out
+    assert "login" in out
+    assert "sig changed" in out
+
+
+def test_terminal_semantic_verdicts_equivalent_shown():
+    report = make_report(ai_analysis=AIAnalysis(
+        summary="test",
+        semantic_verdicts=[
+            SemanticVerdict(file="src/util.py", symbol="hash", verdict="equivalent", reason="same logic"),
+        ],
+    ))
+    out = _capture_terminal(report)
+    assert "SEMANTIC ANALYSIS" in out
+    assert "hash" in out
+    assert "same logic" in out
+
+
+def test_terminal_semantic_verdicts_both_risky_and_equivalent():
+    report = make_report(ai_analysis=AIAnalysis(
+        summary="test",
+        semantic_verdicts=[
+            SemanticVerdict(file="src/auth.py", symbol="login", verdict="risky", reason="sig changed"),
+            SemanticVerdict(file="src/util.py", symbol="hash", verdict="equivalent", reason="same"),
+        ],
+    ))
+    out = _capture_terminal(report)
+    assert "login" in out
+    assert "hash" in out
+
+
+def test_terminal_semantic_verdicts_empty_does_not_crash():
+    report = make_report()
+    out = _capture_terminal(report)
+    assert isinstance(out, str)
+    assert "SEMANTIC ANALYSIS" not in out
+
+
+def test_terminal_semantic_verdicts_normal_only_no_section():
+    """Verdicts with 'normal' status are neither risky nor equivalent — section should not appear."""
+    report = make_report(ai_analysis=AIAnalysis(
+        summary="test",
+        semantic_verdicts=[
+            SemanticVerdict(file="src/foo.py", symbol="bar", verdict="normal", reason="nothing special"),
+        ],
+    ))
+    out = _capture_terminal(report)
+    assert "SEMANTIC ANALYSIS" not in out
+
+
+# ---------------------------------------------------------------------------
+# Semantic verdicts — render_markdown
+# ---------------------------------------------------------------------------
+
+
+def test_markdown_semantic_verdicts_risky_section():
+    report = make_report(ai_analysis=AIAnalysis(
+        summary="test",
+        semantic_verdicts=[
+            SemanticVerdict(file="src/auth.py", symbol="login", verdict="risky", reason="sig changed"),
+        ],
+    ))
+    md = render_markdown(report)
+    assert "## Semantic Analysis" in md
+    assert "Logic Changes" in md
+    assert "login" in md
+    assert "src/auth.py" in md
+    assert "sig changed" in md
+
+
+def test_markdown_semantic_verdicts_equivalent_section():
+    report = make_report(ai_analysis=AIAnalysis(
+        summary="test",
+        semantic_verdicts=[
+            SemanticVerdict(file="src/util.py", symbol="hash", verdict="equivalent", reason="same logic"),
+        ],
+    ))
+    md = render_markdown(report)
+    assert "## Semantic Analysis" in md
+    assert "Refactors" in md
+    assert "hash" in md
+    assert "same logic" in md
+
+
+def test_markdown_semantic_verdicts_absent_when_empty():
+    report = make_report(ai_analysis=AIAnalysis(summary="test"))
+    md = render_markdown(report)
+    assert "## Semantic Analysis" not in md
+
+
+def test_markdown_semantic_verdicts_normal_only_no_section():
+    report = make_report(ai_analysis=AIAnalysis(
+        summary="test",
+        semantic_verdicts=[
+            SemanticVerdict(file="src/foo.py", symbol="bar", verdict="normal", reason="ok"),
+        ],
+    ))
+    md = render_markdown(report)
+    assert "## Semantic Analysis" not in md
+
+
+# ---------------------------------------------------------------------------
+# Semantic verdicts — render_sarif
+# ---------------------------------------------------------------------------
+
+
+def test_sarif_semantic_risk_rule_present_for_risky_verdicts():
+    report = make_report(ai_analysis=AIAnalysis(
+        semantic_verdicts=[
+            SemanticVerdict(file="src/auth.py", symbol="login", verdict="risky", reason="sig changed"),
+        ],
+    ))
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/semantic-risk" in rule_ids
+    results = [r for r in sarif["runs"][0]["results"] if r["ruleId"] == "primpact/semantic-risk"]
+    assert len(results) == 1
+    assert "login" in results[0]["message"]["text"]
+
+
+def test_sarif_no_semantic_risk_rule_when_only_equivalent():
+    report = make_report(ai_analysis=AIAnalysis(
+        semantic_verdicts=[
+            SemanticVerdict(file="src/util.py", symbol="hash", verdict="equivalent", reason="same"),
+        ],
+    ))
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/semantic-risk" not in rule_ids
+
+
+def test_sarif_no_semantic_risk_rule_when_empty():
+    report = make_report(ai_analysis=AIAnalysis())
+    sarif = json.loads(render_sarif(report))
+    rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+    assert "primpact/semantic-risk" not in rule_ids
