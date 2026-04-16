@@ -47,14 +47,21 @@ def _cors_origins() -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
-def create_app(db_path: str | None = None, lifespan=None) -> FastAPI:
+def create_app(
+    db_path: str | None = None,
+    lifespan=None,
+    extra_routers: list | None = None,
+) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Args:
-        db_path:   Path to the SQLite history database. Defaults to
-                   PRIMPACT_DB_PATH env var or .primpact/history.db.
-        lifespan:  Optional asynccontextmanager lifespan for the app.
-                   Used by create_server_app() to attach the webhook worker.
+        db_path:       Path to the SQLite history database. Defaults to
+                       PRIMPACT_DB_PATH env var or .primpact/history.db.
+        lifespan:      Optional asynccontextmanager lifespan for the app.
+                       Used by create_server_app() to attach the webhook worker.
+        extra_routers: Additional APIRouter instances to include before the SPA
+                       catch-all route. create_server_app() passes the webhook
+                       router here so it is registered before /{full_path:path}.
     """
     resolved_db = db_path or os.environ.get("PRIMPACT_DB_PATH", _DEFAULT_DB)
 
@@ -81,6 +88,11 @@ def create_app(db_path: str | None = None, lifespan=None) -> FastAPI:
     app.include_router(analyse_router, prefix="/api")
     app.include_router(snippet_router, prefix="/api")
     app.include_router(config_router, prefix="/api")
+
+    # Extra routers (e.g. webhook) must be registered before the SPA catch-all
+    # so that /webhook/* paths are not swallowed by /{full_path:path}.
+    for router in (extra_routers or []):
+        app.include_router(router)
 
     # Serve the built React bundle when present.
     # In dev mode, Vite runs separately and proxies /api to this server.
@@ -131,10 +143,10 @@ def create_server_app(
         except asyncio.CancelledError:
             pass
 
-    app = create_app(db_path=db_path, lifespan=_lifespan)
+    # Pass webhook_router via extra_routers so it is registered before the
+    # SPA catch-all route (/{full_path:path}) in create_app().
+    app = create_app(db_path=db_path, lifespan=_lifespan, extra_routers=[webhook_router])
     app.state.repos_dir = resolved_repos
-
-    app.include_router(webhook_router)
     return app
 
 

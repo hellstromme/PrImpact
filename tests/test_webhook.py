@@ -571,3 +571,149 @@ class TestProcessWebhookJob:
 
         with pytest.raises(RuntimeError, match="not found in history DB"):
             self._run(run())
+
+
+# ---------------------------------------------------------------------------
+# ensure_repo path traversal protection
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureRepoPathTraversal:
+    def test_traversal_in_owner_raises(self, tmp_path):
+        from pr_impact.webhook import ensure_repo
+        with pytest.raises(ValueError, match="owner"):
+            ensure_repo(str(tmp_path), "../evil", "repo", "https://example.com/r.git")
+
+    def test_absolute_path_in_owner_raises(self, tmp_path):
+        from pr_impact.webhook import ensure_repo
+        with pytest.raises(ValueError, match="owner"):
+            ensure_repo(str(tmp_path), "/etc/passwd", "repo", "https://example.com/r.git")
+
+    def test_traversal_in_repo_name_raises(self, tmp_path):
+        from pr_impact.webhook import ensure_repo
+        with pytest.raises(ValueError, match="repo_name"):
+            ensure_repo(str(tmp_path), "myorg", "../../etc/shadow", "https://example.com/r.git")
+
+    def test_dot_dot_owner_raises(self, tmp_path):
+        from pr_impact.webhook import ensure_repo
+        with pytest.raises(ValueError, match="owner"):
+            ensure_repo(str(tmp_path), "..", "repo", "https://example.com/r.git")
+
+    def test_valid_names_do_not_raise(self, tmp_path, monkeypatch):
+        import git
+        from pr_impact.webhook import ensure_repo
+        monkeypatch.setattr(git.Repo, "clone_from", lambda *a, **k: None)
+        # Should not raise — the actual clone will fail, but validation passes
+        try:
+            ensure_repo(str(tmp_path), "myorg", "my-repo.git", "https://example.com/r.git")
+        except Exception as exc:
+            assert "Unsafe" not in str(exc), f"Unexpected ValueError: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# Malformed JSON → 400
+# ---------------------------------------------------------------------------
+
+
+class TestMalformedJsonReturns400:
+    def test_github_malformed_json_returns_400(self, app_with_queue, monkeypatch):
+        monkeypatch.setenv("WEBHOOK_SECRET", _SECRET)
+        client = TestClient(app_with_queue)
+        bad_body = b"not-json{"
+        resp = client.post(
+            "/webhook/github",
+            content=bad_body,
+            headers={
+                "X-Hub-Signature-256": _sign(bad_body),
+                "X-GitHub-Event": "pull_request",
+            },
+        )
+        assert resp.status_code == 400
+        assert "error" in resp.json()["detail"]
+
+    def test_gitlab_malformed_json_returns_400(self, app_with_queue, monkeypatch):
+        monkeypatch.setenv("GITLAB_WEBHOOK_TOKEN", _GITLAB_SECRET)
+        client = TestClient(app_with_queue)
+        resp = client.post(
+            "/webhook/gitlab",
+            content=b"not-json{",
+            headers={"X-Gitlab-Token": _GITLAB_SECRET},
+        )
+        assert resp.status_code == 400
+        assert "error" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# GitLab token embedded into clone URL
+# ---------------------------------------------------------------------------
+
+
+class TestGitlabCloneUrlAuthentication:
+    def test_gitlab_token_embedded_in_clone_url(self, app_with_queue, monkeypatch):
+        monkeypatch.setenv("GITLAB_WEBHOOK_TOKEN", _GITLAB_SECRET)
+        monkeypatch.setenv("GITLAB_TOKEN", "glpat_mytoken")
+        client = TestClient(app_with_queue)
+        payload = json.dumps(_gitlab_mr_payload("open")).encode()
+        client.post(
+            "/webhook/gitlab",
+            content=payload,
+            headers={"X-Gitlab-Token": _GITLAB_SECRET},
+        )
+        job = app_with_queue.state.webhook_queue.get_nowait()
+        assert "glpat_mytoken" in job["clone_url"]
+        assert job["clone_url"].startswith("https://oauth2:")
+
+    def test_gitlab_plain_clone_url_when_no_token(self, app_with_queue, monkeypatch):
+        monkeypatch.setenv("GITLAB_WEBHOOK_TOKEN", _GITLAB_SECRET)
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        client = TestClient(app_with_queue)
+        payload = json.dumps(_gitlab_mr_payload("open")).encode()
+        client.post(
+            "/webhook/gitlab",
+            content=payload,
+            headers={"X-Gitlab-Token": _GITLAB_SECRET},
+        )
+        job = app_with_queue.state.webhook_queue.get_nowait()
+        assert "oauth2" not in job["clone_url"]
+        assert job["clone_url"].startswith("https://")
+
+
+# ---------------------------------------------------------------------------
+# Webhook worker resilience
+# ---------------------------------------------------------------------------
+
+
+class TestWebhookWorkerResilience:
+    def test_worker_continues_after_job_failure(self):
+        """_webhook_worker must not crash when a job raises; subsequent jobs run."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from pr_impact.web.server import _webhook_worker
+
+        results: list[str] = []
+
+        async def run():
+            queue: asyncio.Queue = asyncio.Queue()
+            app = MagicMock()
+            app.state = MagicMock()
+
+            # First job will raise; second job succeeds
+            async def fake_process(job, _app):
+                if job == "fail":
+                    raise RuntimeError("boom")
+                results.append(job)
+
+            await queue.put("fail")
+            await queue.put("ok")
+
+            with patch("pr_impact.web.server._process_webhook_job", side_effect=fake_process):
+                worker = asyncio.create_task(_webhook_worker(queue, app))
+                await asyncio.sleep(0.05)
+                worker.cancel()
+                try:
+                    await worker
+                except asyncio.CancelledError:
+                    pass
+
+        asyncio.run(run())
+        assert results == ["ok"]

@@ -17,7 +17,6 @@ import hashlib
 import hmac
 import json
 import os
-import subprocess
 import urllib.error
 import urllib.request
 from typing import TypedDict
@@ -180,26 +179,38 @@ def parse_gitlab_event(payload: dict) -> WebhookJob | None:
 # ---------------------------------------------------------------------------
 
 
+def _safe_path_component(name: str, label: str) -> str:
+    """Return name unchanged if it is a safe single filesystem component.
+
+    Raises ValueError if name contains path separators or is a relative-path
+    component (``..`` or ``.``), which would allow directory traversal when
+    used inside os.path.join().
+    """
+    safe = os.path.basename(name)
+    if safe != name or not safe or safe in (".", ".."):
+        raise ValueError(f"Unsafe {label} in webhook payload: {name!r}")
+    return name
+
+
 def ensure_repo(repos_dir: str, owner: str, repo_name: str, clone_url: str) -> str:
     """Clone the repo into repos_dir/{owner}/{repo_name} if absent, then fetch.
 
-    Returns the local repo path.
+    Returns the local repo path. Uses GitPython (git.Repo) consistent with the
+    rest of the codebase. Raises ValueError if owner or repo_name contain path
+    traversal sequences.
     """
+    import git
+
+    owner = _safe_path_component(owner, "owner")
+    repo_name = _safe_path_component(repo_name, "repo_name")
+
     local_path = os.path.join(repos_dir, owner, repo_name)
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
     if not os.path.isdir(os.path.join(local_path, ".git")):
-        subprocess.run(
-            ["git", "clone", "--no-single-branch", clone_url, local_path],
-            check=True,
-            capture_output=True,
-        )
+        git.Repo.clone_from(clone_url, local_path, multi_options=["--no-single-branch"])
     else:
-        subprocess.run(
-            ["git", "-C", local_path, "fetch", "--all", "--quiet"],
-            check=True,
-            capture_output=True,
-        )
+        git.Repo(local_path).git.fetch("--all", "--quiet")
 
     return local_path
 

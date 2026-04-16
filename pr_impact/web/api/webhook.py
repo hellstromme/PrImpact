@@ -128,9 +128,16 @@ async def gitlab_webhook(
     repos_dir: str = getattr(request.app.state, "repos_dir", "./repos")
     db_path: str = getattr(request.app.state, "db_path", ".primpact/history.db")
 
+    # Embed PAT into clone URL so ensure_repo can authenticate against private projects.
+    # GitLab HTTPS clone with a PAT uses oauth2 as the username.
+    clone_url = job["clone_url"]
+    if gitlab_token and clone_url.startswith("https://"):
+        clone_url = clone_url.replace("https://", f"https://oauth2:{gitlab_token}@", 1)
+
     job = WebhookJob(
         **{**job, "repos_dir": repos_dir, "db_path": db_path,
-           "gitlab_token": gitlab_token, "gitlab_url": gitlab_url},
+           "gitlab_token": gitlab_token, "gitlab_url": gitlab_url,
+           "clone_url": clone_url},
     )
 
     _enqueue(request, job)
