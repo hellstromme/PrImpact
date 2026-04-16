@@ -23,11 +23,16 @@ def _db_path(request: Request) -> str:
 
 
 def _check_merged(repo_path: str, head_sha: str) -> bool:
-    """Return True if head_sha is an ancestor of the repo's main branch."""
-    for branch in ("main", "master"):
+    """Return True if head_sha is an ancestor of the remote main branch.
+
+    Checks origin/main and origin/master (remote-tracking refs) so the result
+    reflects what has landed on the remote without requiring a local git pull.
+    Falls back to local main/master for repos with no remote.
+    """
+    for ref in ("origin/main", "origin/master", "main", "master"):
         try:
             result = subprocess.run(
-                ["git", "-C", repo_path, "merge-base", "--is-ancestor", head_sha, branch],
+                ["git", "-C", repo_path, "merge-base", "--is-ancestor", head_sha, ref],
                 capture_output=True,
                 timeout=5,
             )
