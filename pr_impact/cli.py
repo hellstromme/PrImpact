@@ -599,5 +599,56 @@ def serve(port: int, host: str, open_browser: bool, history_db: str | None) -> N
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
+@main.command()
+@click.option("--port", default=8080, show_default=True, help="Port to listen on")
+@click.option("--host", default="0.0.0.0", show_default=True, help="Host to bind to")
+@click.option(
+    "--repos",
+    "repos_dir",
+    default="./repos",
+    show_default=True,
+    help="Directory where repos are cloned (one sub-dir per owner/repo)",
+)
+@click.option(
+    "--history-db",
+    "history_db",
+    default=None,
+    help="Path to the history SQLite database (default: .primpact/history.db)",
+)
+def server(port: int, host: str, repos_dir: str, history_db: str | None) -> None:
+    """Start the PrImpact webhook server (Primpact-as-a-Service).
+
+    Receives GitHub and GitLab webhook events, runs analysis automatically,
+    and posts the Markdown report as a PR / MR comment.
+
+    Required environment variables:
+
+    \b
+      ANTHROPIC_API_KEY      — Claude API key (required for analysis)
+      WEBHOOK_SECRET         — GitHub webhook HMAC-SHA256 secret
+      GITLAB_WEBHOOK_TOKEN   — GitLab webhook token
+      GITHUB_TOKEN           — GitHub PAT for posting PR comments
+      GITLAB_TOKEN           — GitLab PAT for posting MR notes
+      GITLAB_URL             — GitLab base URL (default: https://gitlab.com)
+    """
+    try:
+        import uvicorn
+        from .web.server import create_server_app
+    except ImportError:
+        raise click.ClickException(
+            "Web dependencies are not installed. Run: pip install 'primpact[web]'"
+        )
+
+    db_path = history_db or os.environ.get("PRIMPACT_DB_PATH", ".primpact/history.db")
+    app = create_server_app(db_path=db_path, repos_dir=repos_dir)
+
+    url = f"http://{host}:{port}"
+    stderr.print(f"[bold green]PrImpact server[/bold green] listening at [link={url}]{url}[/link]")
+    stderr.print("[dim]Webhook endpoints: POST /webhook/github  POST /webhook/gitlab[/dim]")
+    stderr.print("[dim]Press Ctrl+C to stop[/dim]")
+
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
 if __name__ == "__main__":
     main()
