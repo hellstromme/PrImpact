@@ -20,3 +20,6 @@ venv/
 secrets.json
 secrets.yaml
 secrets.yml
+
+# PrImpact runtime data — history DB and analysis artifacts
+.primpact/
