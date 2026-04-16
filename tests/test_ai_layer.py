@@ -1846,3 +1846,118 @@ def test_test_file_collection_failure_warning_printed_to_stderr(monkeypatch, tmp
     with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client),          patch("pr_impact.ai_layer.find_test_files", side_effect=OSError("permission denied")):
         run_ai_analysis([make_file()], [], str(tmp_path))
     assert "Test file collection failed" in capsys.readouterr().err
+
+
+# --- Semantic equivalence (call 5) tests ---
+
+
+def _big_diff_file(**kwargs):
+    """Return a ChangedFile with a diff large enough to trigger call 5 (>20 lines)."""
+    diff = "\n".join([f"+line {i}" for i in range(25)])
+    defaults = dict(path="src/auth.py", diff=diff)
+    defaults.update(kwargs)
+    return make_file(**defaults)
+
+
+def _base_responses():
+    """Return the 3 base JSON responses for calls 1-3."""
+    r1 = json.dumps({"summary": "All good", "decisions": [], "assumptions": []})
+    r2 = json.dumps({"anomalies": []})
+    r3 = json.dumps({"test_gaps": []})
+    return r1, r2, r3
+
+
+def test_semantic_equivalence_happy_path_filters_normal_verdicts(monkeypatch, tmp_path):
+    """Call 5 returns a list of verdicts; only equivalent/risky are kept, normal filtered."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1, r2, r3 = _base_responses()
+    r5 = json.dumps([
+        {"file": "src/auth.py", "symbol": "login", "verdict": "risky", "reason": "signature changed"},
+        {"file": "src/util.py", "symbol": "hash", "verdict": "equivalent", "reason": "same logic"},
+        {"file": "src/util.py", "symbol": "noop", "verdict": "normal", "reason": "trivial"},
+    ])
+    client = _mock_client(r1, r2, r3, r5)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([_big_diff_file()], [], str(tmp_path))
+    assert len(result.semantic_verdicts) == 2
+    assert result.semantic_verdicts[0].file == "src/auth.py"
+    assert result.semantic_verdicts[0].symbol == "login"
+    assert result.semantic_verdicts[0].verdict == "risky"
+    assert result.semantic_verdicts[1].file == "src/util.py"
+    assert result.semantic_verdicts[1].symbol == "hash"
+    assert result.semantic_verdicts[1].verdict == "equivalent"
+
+
+def test_semantic_equivalence_response_wrapped_in_verdicts_key(monkeypatch, tmp_path):
+    """Call 5 response wrapped in dict under 'verdicts' key is unwrapped correctly."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1, r2, r3 = _base_responses()
+    r5 = json.dumps({"verdicts": [
+        {"file": "f.py", "symbol": "x", "verdict": "risky", "reason": "r"},
+    ]})
+    client = _mock_client(r1, r2, r3, r5)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([_big_diff_file()], [], str(tmp_path))
+    assert len(result.semantic_verdicts) == 1
+    assert result.semantic_verdicts[0].verdict == "risky"
+
+
+def test_semantic_equivalence_response_wrapped_in_results_key(monkeypatch, tmp_path):
+    """Call 5 response wrapped in dict under 'results' key is unwrapped correctly."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1, r2, r3 = _base_responses()
+    r5 = json.dumps({"results": [
+        {"file": "g.py", "symbol": "y", "verdict": "equivalent", "reason": "same"},
+    ]})
+    client = _mock_client(r1, r2, r3, r5)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([_big_diff_file()], [], str(tmp_path))
+    assert len(result.semantic_verdicts) == 1
+    assert result.semantic_verdicts[0].verdict == "equivalent"
+    assert result.semantic_verdicts[0].file == "g.py"
+
+
+def test_semantic_equivalence_non_dict_items_filtered(monkeypatch, tmp_path):
+    """Non-dict items in the call 5 response list are silently filtered out."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1, r2, r3 = _base_responses()
+    r5 = json.dumps([
+        {"file": "f.py", "symbol": "x", "verdict": "risky", "reason": "r"},
+        "not a dict",
+        42,
+    ])
+    client = _mock_client(r1, r2, r3, r5)
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([_big_diff_file()], [], str(tmp_path))
+    assert len(result.semantic_verdicts) == 1
+    assert result.semantic_verdicts[0].symbol == "x"
+
+
+def test_semantic_equivalence_api_failure_returns_empty_verdicts(monkeypatch, tmp_path):
+    """When call 5 API fails, semantic_verdicts is empty and the run completes normally."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1, r2, r3 = _base_responses()
+    # Two consecutive failures to exhaust _call_claude retry logic
+    client = _mock_client(r1, r2, r3, RuntimeError("timeout"), RuntimeError("timeout"))
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        result = run_ai_analysis([_big_diff_file()], [], str(tmp_path))
+    assert result.semantic_verdicts == []
+    assert result.summary == "All good"
+
+
+def test_semantic_equivalence_prompt_contains_signatures_before_after(monkeypatch, tmp_path):
+    """The call 5 prompt includes content from build_signatures_before_after."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    r1, r2, r3 = _base_responses()
+    r5 = json.dumps([])
+    client = _mock_client(r1, r2, r3, r5)
+    f = _big_diff_file(
+        before="def UNIQUE_BEFORE_SIG(): pass\n",
+        after="def UNIQUE_AFTER_SIG(x): pass\n",
+    )
+    with patch("pr_impact.ai_layer.anthropic.Anthropic", return_value=client):
+        run_ai_analysis([f], [], str(tmp_path))
+    # Call 5 is the 4th messages.create call (index 3) when no security signals
+    call5_prompt = client.messages.create.call_args_list[3][1]["messages"][0]["content"]
+    assert "UNIQUE_BEFORE_SIG" in call5_prompt
+    assert "UNIQUE_AFTER_SIG" in call5_prompt
