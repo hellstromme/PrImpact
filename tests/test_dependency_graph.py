@@ -1,8 +1,10 @@
 """Unit tests for pr_impact/dependency_graph.py."""
 
+import pytest
 import git
 from unittest.mock import patch
 
+from pr_impact.ast_extractor import ASTImport
 from pr_impact.dependency_graph import (
     _list_repo_files,
     build_import_graph,
@@ -1129,3 +1131,160 @@ def test_load_tsconfig_aliases_cycle_does_not_loop(mock_read):
     base_url, paths = _load_tsconfig_aliases("/repo")
     assert base_url == "src"
     assert paths == {}
+
+
+# --- get_imported_symbols AST-first path ---
+
+
+def test_get_imported_symbols_ast_python_exact_stem_match(tmp_path):
+    """AST path returns named imports when specifier stem matches imported_from stem."""
+    tmp_file = tmp_path / "consumer.py"
+    tmp_file.write_text("from .auth import login, logout\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="./auth", imported_names=["login", "logout"]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "src/auth.py")
+    assert "login" in result
+    assert "logout" in result
+    assert len(result) == 2
+
+
+def test_get_imported_symbols_ast_python_no_stem_match_returns_empty(tmp_path):
+    """AST path returns empty when no specifier stem matches imported_from stem."""
+    tmp_file = tmp_path / "consumer.py"
+    tmp_file.write_text("from .utils import helper\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="./utils", imported_names=["helper"]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "src/auth.py")
+    assert result == []
+
+
+def test_get_imported_symbols_ast_typescript_stem_match(tmp_path):
+    """AST path works for TypeScript files — stem matching on specifier."""
+    tmp_file = tmp_path / "consumer.ts"
+    tmp_file.write_text("import { doThing } from './utils';\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="./utils", imported_names=["doThing", "helper"]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "src/utils.ts")
+    assert "doThing" in result
+    assert "helper" in result
+    assert len(result) == 2
+
+
+def test_get_imported_symbols_ast_returns_none_falls_back_to_regex(tmp_path):
+    """When AST returns None, regex fallback is used for Python."""
+    tmp_file = tmp_path / "consumer.py"
+    tmp_file.write_text("from auth import login\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports", return_value=None):
+        result = get_imported_symbols(str(tmp_file), "src/auth.py")
+    assert "login" in result
+
+
+@pytest.mark.parametrize(
+    "filename, content, imported_from",
+    [
+        ("consumer.go", 'import "mypackage/auth"\n', "auth"),
+        ("Consumer.java", "import com.example.Auth;\n", "com/example/Auth.java"),
+        ("Consumer.cs", "using MyApp.Auth;\n", "Auth.cs"),
+        ("consumer.rb", "require 'auth'\n", "auth.rb"),
+    ],
+    ids=["go", "java", "csharp", "ruby"],
+)
+def test_get_imported_symbols_ast_not_called_for_non_ast_languages(
+    tmp_path, filename, content, imported_from
+):
+    """Languages without AST support skip the AST path entirely."""
+    tmp_file = tmp_path / filename
+    tmp_file.write_text(content)
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        get_imported_symbols(str(tmp_file), imported_from)
+        mock_ast.assert_not_called()
+
+
+def test_get_imported_symbols_ast_star_import_names_included(tmp_path):
+    """Star imports with populated imported_names still return those names via AST path."""
+    tmp_file = tmp_path / "consumer.py"
+    tmp_file.write_text("from auth import *\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="./auth", imported_names=["login", "logout"]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "src/auth.py")
+    assert "login" in result
+    assert "logout" in result
+
+
+def test_get_imported_symbols_ast_multiple_imports_same_stem(tmp_path):
+    """Multiple AST imports matching the same stem are merged and deduplicated."""
+    tmp_file = tmp_path / "consumer.py"
+    tmp_file.write_text("from .auth import login\nfrom .auth import login, signup\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="./auth", imported_names=["login"]),
+            ASTImport(specifier="../auth", imported_names=["login", "signup"]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "src/auth.py")
+    assert "login" in result
+    assert "signup" in result
+    # Deduplication: "login" appears in both but result should have unique entries
+    assert result.count("login") == 1
+
+
+def test_get_imported_symbols_ast_empty_imported_names_returns_empty(tmp_path):
+    """AST import with matching stem but empty imported_names returns empty list."""
+    tmp_file = tmp_path / "consumer.py"
+    tmp_file.write_text("import auth\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="./auth", imported_names=[]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "src/auth.py")
+    assert result == []
+
+
+def test_get_imported_symbols_ast_javascript_stem_match(tmp_path):
+    """AST path works for JavaScript files."""
+    tmp_file = tmp_path / "consumer.js"
+    tmp_file.write_text("import { render } from './component';\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="./component", imported_names=["render"]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "src/component.js")
+    assert result == ["render"]
+
+
+def test_get_imported_symbols_ast_specifier_with_nested_path(tmp_path):
+    """AST specifier with nested path — only the final stem component is compared."""
+    tmp_file = tmp_path / "consumer.py"
+    tmp_file.write_text("from some.deep.auth import verify\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="some/deep/auth", imported_names=["verify"]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "lib/auth.py")
+    assert "verify" in result
+
+
+def test_get_imported_symbols_ast_specifier_with_dot_extension_no_match(tmp_path):
+    """AST specifier './utils.js' has last dot-component 'js', not 'utils'.
+
+    The stem matching logic splits on '.' and takes the last component,
+    so './utils.js' -> spec_stem='js' which does NOT match from_stem='utils'.
+    This documents the actual behavior: dotted specifiers compare the final
+    dot-segment, not the Path stem.
+    """
+    tmp_file = tmp_path / "consumer.ts"
+    tmp_file.write_text("import { foo } from './utils.js';\n")
+    with patch("pr_impact.dependency_graph.ast_extract_imports") as mock_ast:
+        mock_ast.return_value = [
+            ASTImport(specifier="./utils.js", imported_names=["foo"]),
+        ]
+        result = get_imported_symbols(str(tmp_file), "src/utils.ts")
+    # spec_stem = "js" != from_stem = "utils", so no match
+    assert result == []
