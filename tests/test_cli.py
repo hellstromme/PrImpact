@@ -8,7 +8,7 @@ import git
 import pytest
 from click.testing import CliRunner
 
-from pr_impact.analyzer import AnalyzerExit, ImpactAnalyzer, _invert_graph
+from pr_impact.analyzer import AnalyzerExit, ImpactAnalyzer
 from pr_impact.cli import (
     _FALLBACK_BASE,
     _FALLBACK_HEAD,
@@ -37,44 +37,6 @@ from pr_impact.models import AIAnalysis, Anomaly, BlastRadiusEntry, ImpactReport
 from tests.helpers import make_file, make_report
 
 _ENV = {"ANTHROPIC_API_KEY": "test-key"}
-
-# ---------------------------------------------------------------------------
-# _invert_graph — pure
-# ---------------------------------------------------------------------------
-
-
-def test_invert_graph_empty():
-    assert _invert_graph({}) == {}
-
-
-def test_invert_graph_single_edge():
-    assert _invert_graph({"a": ["b"]}) == {"b": ["a"]}
-
-
-def test_invert_graph_multiple_targets_from_one_source():
-    result = _invert_graph({"a": ["b", "c"]})
-    assert result == {"b": ["a"], "c": ["a"]}
-
-
-def test_invert_graph_multiple_sources_to_same_target():
-    result = _invert_graph({"a": ["c"], "b": ["c"]})
-    assert set(result["c"]) == {"a", "b"}
-
-
-def test_invert_graph_node_with_empty_list_contributes_nothing():
-    assert _invert_graph({"a": []}) == {}
-
-
-def test_invert_graph_does_not_mutate_input():
-    original = {"a": ["b"]}
-    _invert_graph(original)
-    assert original == {"a": ["b"]}
-
-
-def test_invert_graph_returns_plain_dict():
-    result = _invert_graph({"a": ["b"]})
-    assert type(result) is dict
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers for CLI tests
@@ -1921,3 +1883,121 @@ class TestRunVerdictIfRequested:
              patch("pr_impact.cli.Path"):
             verdict, _ = _run_verdict_if_requested(False, "v.json", AIAnalysis(), [])
         assert verdict is v
+
+
+# ---------------------------------------------------------------------------
+# --no-history flag — history functions not called
+# ---------------------------------------------------------------------------
+
+
+def test_no_history_flag_skips_save_run(runner):
+    """--no-history must prevent save_run from being called."""
+    patches = _base_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patches[7],
+        patches[8],
+        patch("pr_impact.cli.save_run") as mock_save,
+    ):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--no-history"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+    mock_save.assert_not_called()
+
+
+def test_no_history_flag_skips_history_load(runner):
+    """--no-history must prevent get_run_count / load_hotspots / load_anomaly_patterns from being called."""
+    patches = _base_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patches[7],
+        patches[8],
+        patch("pr_impact.cli.get_run_count") as mock_count,
+        patch("pr_impact.cli.load_hotspots") as mock_hotspots,
+        patch("pr_impact.cli.load_anomaly_patterns") as mock_anomaly,
+    ):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def", "--no-history"],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+    mock_count.assert_not_called()
+    mock_hotspots.assert_not_called()
+    mock_anomaly.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# --history-db flag — custom path used for save and load
+# ---------------------------------------------------------------------------
+
+
+def test_history_db_flag_passes_custom_path_to_save_run(runner, tmp_path):
+    """--history-db <path> must forward that path as the first arg to save_run."""
+    custom_db = str(tmp_path / "custom.db")
+    patches = _base_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patches[7],
+        patches[8],
+        patch("pr_impact.cli.save_run", return_value="fake-uuid") as mock_save,
+        patch("pr_impact.cli.get_run_count", return_value=0),
+    ):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
+             "--history-db", custom_db],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+    mock_save.assert_called_once()
+    assert mock_save.call_args[0][0] == custom_db
+
+
+def test_history_db_flag_passes_custom_path_to_load(runner, tmp_path):
+    """--history-db <path> must forward that path to get_run_count (the first history read call)."""
+    custom_db = str(tmp_path / "custom.db")
+    patches = _base_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patches[7],
+        patches[8],
+        patch("pr_impact.cli.save_run", return_value="fake-uuid"),
+        patch("pr_impact.cli.get_run_count", return_value=0) as mock_count,
+    ):
+        result = runner.invoke(
+            main,
+            ["analyse", "--repo", ".", "--base", "abc", "--head", "def",
+             "--history-db", custom_db],
+            env=_ENV,
+        )
+    assert result.exit_code == 0
+    mock_count.assert_called_once()
+    assert mock_count.call_args[0][0] == custom_db

@@ -3,6 +3,8 @@
 import ast
 from pathlib import Path
 
+_PKG_DIR = Path(__file__).parent.parent / "pr_impact"
+
 
 def test_pipeline_modules_do_not_cross_import():
     """No pipeline module may import another pipeline module.
@@ -11,7 +13,7 @@ def test_pipeline_modules_do_not_cross_import():
     ast_extractor and history (shared utilities), cli (orchestrator), __init__.
     All other pipeline modules must only import from that exempt set.
     """
-    pkg = Path(__file__).parent.parent / "pr_impact"
+    pkg = _PKG_DIR
     # Exempt: cli/analyzer (orchestrator layer), models/prompts (shared data),
     # ast_extractor/history (shared utilities), __init__
     exempt = {
@@ -63,3 +65,51 @@ def test_pipeline_modules_do_not_cross_import():
                     violations.append(f"{pyfile.name} imports {imported_module}")
 
     assert violations == [], "Cross-module imports detected:\n" + "\n".join(violations)
+
+
+def test_pipeline_modules_do_not_write_to_stdout():
+    """Pipeline modules must not call print() or sys.stdout.write() -- output goes to stderr."""
+    pkg = Path(__file__).parent.parent / "pr_impact"
+
+    pipeline_modules = [
+        "git_analysis.py",
+        "dependency_graph.py",
+        "classifier.py",
+        "ai_layer.py",
+        "security.py",
+    ]
+    violations: list[str] = []
+
+    for module_name in pipeline_modules:
+        path = pkg / module_name
+        if not path.exists():
+            continue
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                # Check for print() calls that do NOT redirect to stderr
+                if isinstance(node.func, ast.Name) and node.func.id == "print":
+                    # Allow print(..., file=sys.stderr) — that's the correct stderr pattern
+                    file_kw = next((kw for kw in node.keywords if kw.arg == "file"), None)
+                    redirects_to_stderr = (
+                        file_kw is not None
+                        and isinstance(file_kw.value, ast.Attribute)
+                        and file_kw.value.attr == "stderr"
+                    )
+                    if not redirects_to_stderr:
+                        violations.append(f"{module_name}:{node.lineno}: print() call")
+                # Check for sys.stdout.write() calls
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "write"
+                    and isinstance(node.func.value, ast.Attribute)
+                    and node.func.value.attr == "stdout"
+                ):
+                    violations.append(
+                        f"{module_name}:{node.lineno}: sys.stdout.write()"
+                    )
+
+    assert violations == [], (
+        "Pipeline modules must not write to stdout:\n" + "\n".join(violations)
+    )
