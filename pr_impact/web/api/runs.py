@@ -8,10 +8,12 @@ GET /api/runs/{run_id}/report — full ImpactReport JSON
 from __future__ import annotations
 
 import dataclasses
+import os
 import subprocess
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from ...github import _parse_github_remote, is_pr_merged
 from ...history import load_run, load_run_summary, load_runs
 from ...models import RunSummary
 
@@ -22,19 +24,41 @@ def _db_path(request: Request) -> str:
     return request.app.state.db_path
 
 
-def _check_merged(repo_path: str, head_sha: str) -> bool:
-    """Return True if head_sha is an ancestor of the remote main branch.
+def _github_owner_repo(repo_path: str) -> tuple[str, str] | None:
+    """Return (owner, repo) by parsing the origin remote URL, or None."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_path, "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return _parse_github_remote(result.stdout.strip())
+    except Exception:
+        pass
+    return None
 
-    Checks origin/main and origin/master (remote-tracking refs) so the result
-    reflects what has landed on the remote without requiring a local git pull.
-    Falls back to local main/master for repos with no remote.
+
+def _check_merged(repo_path: str, head_sha: str, pr_number: int | None) -> bool:
+    """Return True if the analysed changes have landed on the main branch.
+
+    For PR-backed runs uses the GitHub API (works for squash/rebase merges).
+    Falls back to git ancestry for SHA-only runs or when the API is unavailable.
     """
+    if pr_number is not None:
+        coords = _github_owner_repo(repo_path)
+        if coords is not None:
+            owner, repo_name = coords
+            token = os.environ.get("GITHUB_TOKEN")
+            merged = is_pr_merged(owner, repo_name, pr_number, token)
+            if merged is not None:
+                return merged
+
+    # Fallback: git ancestry (works for regular merges; not squash/rebase)
     for ref in ("origin/main", "origin/master", "main", "master"):
         try:
             result = subprocess.run(
                 ["git", "-C", repo_path, "merge-base", "--is-ancestor", head_sha, ref],
-                capture_output=True,
-                timeout=5,
+                capture_output=True, timeout=5,
             )
             if result.returncode == 0:
                 return True
@@ -44,7 +68,7 @@ def _check_merged(repo_path: str, head_sha: str) -> bool:
 
 
 def _enrich(summary: RunSummary) -> RunSummary:
-    summary.merged = _check_merged(summary.repo_path, summary.head_sha)
+    summary.merged = _check_merged(summary.repo_path, summary.head_sha, summary.pr_number)
     return summary
 
 
