@@ -20,11 +20,14 @@ from .models import (
     AIAnalysis,
     Anomaly,
     Assumption,
+    BlastGraph,
     BlastRadiusEntry,
     ChangedFile,
     ChangedSymbol,
     Decision,
     DependencyIssue,
+    GraphEdge,
+    GraphNode,
     HistoricalHotspot,
     ImpactReport,
     InterfaceChange,
@@ -505,6 +508,31 @@ def _report_from_dict(data: dict) -> ImpactReport:
                 ],
             )
             if (v := data.get("verdict")) is not None
+            else None
+        ),
+        blast_graph=(
+            BlastGraph(
+                nodes=[
+                    GraphNode(
+                        id=n.get("id", ""),
+                        path=n.get("path", ""),
+                        type=n.get("type", "affected"),
+                        distance=n.get("distance", 0),
+                        language=n.get("language"),
+                        churn_score=n.get("churn_score"),
+                    )
+                    for n in bg.get("nodes", [])
+                ],
+                edges=[
+                    GraphEdge(
+                        source=e.get("source", ""),
+                        target=e.get("target", ""),
+                        symbols=e.get("symbols", []),
+                    )
+                    for e in bg.get("edges", [])
+                ],
+            )
+            if (bg := data.get("blast_graph")) is not None
             else None
         ),
     )
