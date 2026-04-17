@@ -190,10 +190,7 @@ function HeroForm({ repo, onRepoChange }: { repo: string; onRepoChange: (r: stri
 // ---------------------------------------------------------------------------
 
 function StatsRow({ runs }: { runs: RunSummary[] }) {
-  const now = Date.now()
-  const last24h = runs.filter(
-    (r) => now - new Date(r.created_at).getTime() < 24 * 60 * 60 * 1000
-  ).length
+  const activeAnalyses = runs.filter((r) => !r.merged).length
 
   const avgBlast =
     runs.length > 0
@@ -203,7 +200,7 @@ function StatsRow({ runs }: { runs: RunSummary[] }) {
   const resolved = runs.filter((r) => r.verdict === 'clean').length
 
   const stats = [
-    { label: 'Active Analyses', value: last24h.toString().padStart(2, '0'), icon: 'sync' },
+    { label: 'Active Analyses', value: activeAnalyses.toString().padStart(2, '0'), icon: 'sync' },
     { label: 'Avg Blast Radius', value: avgBlast.toString(), icon: 'explosion' },
     { label: 'Blockers Resolved', value: resolved.toString(), icon: 'gavel' },
   ]

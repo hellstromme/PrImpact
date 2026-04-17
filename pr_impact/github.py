@@ -1,4 +1,4 @@
-"""GitHub API helpers — only imported by cli.py."""
+"""GitHub API helpers — imported by cli.py and the web API layer."""
 
 import json
 import re
@@ -74,6 +74,20 @@ def _make_github_request(url: str, token: str | None) -> dict | list:
         raise RuntimeError(f"GitHub API error {e.code}: {body[:200]}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"Network error reaching GitHub API: {e.reason}") from e
+
+
+def is_pr_merged(owner: str, repo_name: str, pr_number: int, token: str | None = None) -> bool | None:
+    """Return True/False for the PR's merged state, or None on any API error."""
+    try:
+        data = _make_github_request(
+            f"https://api.github.com/repos/{owner}/{repo_name}/pulls/{pr_number}",
+            token,
+        )
+        if not isinstance(data, dict):
+            return None
+        return bool(data.get("merged"))
+    except Exception:
+        return None
 
 
 def fetch_open_prs(owner: str, repo_name: str, token: str | None = None) -> list[dict]:
