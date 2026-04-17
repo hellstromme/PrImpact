@@ -98,11 +98,12 @@ def test_body_only_change_is_internal():
     """When only the body changes and the signature is identical, change is internal."""
     before = "def foo(x):\n    return x\n"
     after = "def foo(x):\n    return x * 2\n"
-    # Diff only touches body lines, not the def line
-    diff = "-    return x\n+    return x * 2\n"
+    # Diff only touches body lines, not the def line; hunk header gives us correct line numbers
+    diff = "@@ -1,2 +1,2 @@\n def foo(x):\n-    return x\n+    return x * 2\n"
     f = make_file(before=before, after=after, diff=diff)
     symbols = [s for s in classify_changed_file(f) if s.name == "foo"]
-    # foo is not in the diff tokens, so it's either absent or internal
+    # body-change detection must surface foo even without its name on a diff line
+    assert len(symbols) >= 1, "expected foo to be detected via body-change heuristic"
     for s in symbols:
         assert s.change_type == "internal"
 
@@ -801,12 +802,7 @@ def test_unknown_language_returns_empty_symbols():
 
 
 def test_ast_path_body_only_change_is_internal():
-    """AST path: when signatures are identical, change_type is 'internal'.
-
-    The diff must mention the function name so the classifier registers it as
-    touched.  We include the signature line (unchanged, so it appears on both
-    the - and + sides) alongside the differing body line.
-    """
+    """AST path: when signatures are identical, change_type is 'internal'."""
     sym = ASTSymbol(
         name="compute",
         kind="function",
