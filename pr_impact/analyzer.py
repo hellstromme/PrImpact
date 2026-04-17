@@ -6,13 +6,14 @@ entry point (CLI, web API, scheduled job) without coupling to Click or Rich.
 This module is a helper called exclusively by cli.py.
 """
 
+import os
 from collections import defaultdict
 
 from rich.console import Console
 
 from .ai_layer import run_ai_analysis
 from .classifier import classify_changed_file, get_interface_changes
-from .dependency_graph import build_import_graph, get_blast_radius
+from .dependency_graph import build_import_graph, get_blast_radius, get_imported_symbols
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
 from .models import AIAnalysis, BlastRadiusEntry, ChangedFile, DependencyIssue, InterfaceChange, PrImpactConfig, RefsResult, SecuritySignal, SuppressedSignal
 from .security import check_dependency_integrity, detect_pattern_signals
@@ -160,6 +161,20 @@ class ImpactAnalyzer:
         except Exception as e:
             stderr.print(f"[yellow]Warning:[/yellow] Blast radius calculation failed: {e}")
             blast_radius = []
+
+        # Populate imported_symbols for distance-1 entries (direct dependents only)
+        abs_changed = {p: os.path.join(self.repo, p) for p in changed_paths}
+        for entry in blast_radius:
+            if entry.distance != 1:
+                continue
+            abs_entry = os.path.join(self.repo, entry.path)
+            syms: list[str] = []
+            for changed_path, abs_changed_path in abs_changed.items():
+                try:
+                    syms.extend(get_imported_symbols(abs_entry, abs_changed_path))
+                except Exception:
+                    pass
+            entry.imported_symbols = list(set(syms))
 
         # Step 4: classify changed files
         progress.update(task, description="Classifying changes...")

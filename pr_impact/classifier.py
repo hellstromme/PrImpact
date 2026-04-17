@@ -34,6 +34,7 @@ _DIFF_ADDED = re.compile(r"^\+(?!\+\+)(.*)$", re.MULTILINE)
 _DIFF_REMOVED = re.compile(r"^-(?!--)(.*)$", re.MULTILINE)
 # Matches "class " at start of signature or after a prefix keyword like "export "/"abstract "
 _KIND_CLASS = re.compile(r"(?:^|\s)class\s")
+_HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", re.MULTILINE)
 
 
 def _extract_python_defs(content: str) -> dict[str, str]:
@@ -142,6 +143,39 @@ def _names_touched_in_diff(diff: str) -> set[str]:
     return names
 
 
+def _diff_changed_after_lines(diff: str) -> set[int]:
+    """Return 'after' file line numbers for all added lines in a unified diff."""
+    lines: set[int] = set()
+    after_line = 0
+    for line in diff.splitlines():
+        hunk = _HUNK_HEADER.match(line)
+        if hunk:
+            after_line = int(hunk.group(1)) - 1
+        elif line.startswith("+") and not line.startswith("+++"):
+            after_line += 1
+            lines.add(after_line)
+        elif not line.startswith("-"):
+            after_line += 1
+    return lines
+
+
+def _body_changed_symbols(ast_syms: list[ASTSymbol], changed_lines: set[int]) -> set[str]:
+    """Return qualified names of symbols whose bodies contain at least one changed line.
+
+    Uses the next symbol's start line as a proxy for the current symbol's end line.
+    """
+    if not ast_syms or not changed_lines:
+        return set()
+    sorted_syms = sorted(ast_syms, key=lambda s: s.line)
+    result: set[str] = set()
+    for i, sym in enumerate(sorted_syms):
+        end_line = sorted_syms[i + 1].line - 1 if i + 1 < len(sorted_syms) else 10**9
+        key = f"{sym.container}.{sym.name}" if sym.container else sym.name
+        if any(sym.line <= ln <= end_line for ln in changed_lines):
+            result.add(key)
+    return result
+
+
 def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
     symbols: list[ChangedSymbol] = []
 
@@ -209,8 +243,15 @@ def classify_changed_file(file: ChangedFile) -> list[ChangedSymbol]:
             qualified = f"{s.container}.{s.name}" if s.container else s.name
             _ast_by_name_after[qualified] = s
 
+    # Detect symbols whose bodies (not just signatures) were touched by the diff.
+    # This catches pure body changes where the function name doesn't appear in diff lines.
+    _body_touched = _body_changed_symbols(
+        list(_ast_by_name_after.values()),
+        _diff_changed_after_lines(file.diff),
+    )
+
     for name in all_names:
-        if name not in touched:
+        if name not in touched and name not in _body_touched:
             continue
 
         sig_before = defs_before.get(name)

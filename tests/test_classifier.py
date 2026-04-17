@@ -3,7 +3,12 @@
 from unittest.mock import patch
 
 from pr_impact.ast_extractor import ASTSymbol
-from pr_impact.classifier import classify_changed_file, get_interface_changes
+from pr_impact.classifier import (
+    _body_changed_symbols,
+    _diff_changed_after_lines,
+    classify_changed_file,
+    get_interface_changes,
+)
 from pr_impact.models import ChangedSymbol
 from tests.helpers import make_file
 
@@ -98,11 +103,12 @@ def test_body_only_change_is_internal():
     """When only the body changes and the signature is identical, change is internal."""
     before = "def foo(x):\n    return x\n"
     after = "def foo(x):\n    return x * 2\n"
-    # Diff only touches body lines, not the def line
-    diff = "-    return x\n+    return x * 2\n"
+    # Diff only touches body lines, not the def line; hunk header gives us correct line numbers
+    diff = "@@ -1,2 +1,2 @@\n def foo(x):\n-    return x\n+    return x * 2\n"
     f = make_file(before=before, after=after, diff=diff)
     symbols = [s for s in classify_changed_file(f) if s.name == "foo"]
-    # foo is not in the diff tokens, so it's either absent or internal
+    # body-change detection must surface foo even without its name on a diff line
+    assert len(symbols) >= 1, "expected foo to be detected via body-change heuristic"
     for s in symbols:
         assert s.change_type == "internal"
 
@@ -801,12 +807,7 @@ def test_unknown_language_returns_empty_symbols():
 
 
 def test_ast_path_body_only_change_is_internal():
-    """AST path: when signatures are identical, change_type is 'internal'.
-
-    The diff must mention the function name so the classifier registers it as
-    touched.  We include the signature line (unchanged, so it appears on both
-    the - and + sides) alongside the differing body line.
-    """
+    """AST path: when signatures are identical, change_type is 'internal'."""
     sym = ASTSymbol(
         name="compute",
         kind="function",
@@ -869,3 +870,174 @@ def test_ast_path_private_function_is_internal():
     helper_syms = [s for s in symbols if s.name == "_helper"]
     assert len(helper_syms) == 1
     assert helper_syms[0].change_type == "internal"
+
+
+# ---------------------------------------------------------------------------
+# _diff_changed_after_lines
+# ---------------------------------------------------------------------------
+
+
+def test_diff_changed_after_lines_single_hunk():
+    diff = "@@ -1,3 +1,3 @@\n def foo(x):\n-    return x\n+    return x * 2\n"
+    result = _diff_changed_after_lines(diff)
+    # context line advances to 1, removed skips, added reaches 2
+    assert result == {2}
+
+
+def test_diff_changed_after_lines_multiple_hunks():
+    diff = (
+        "@@ -1,2 +1,2 @@\n def foo(x):\n-    return x\n+    return x * 2\n"
+        "@@ -10,2 +10,2 @@\n def bar(y):\n-    return y\n+    return y + 1\n"
+    )
+    result = _diff_changed_after_lines(diff)
+    assert 2 in result
+    assert 11 in result
+
+
+def test_diff_changed_after_lines_only_removed_lines_returns_empty():
+    diff = "@@ -1,2 +1,1 @@\n context\n-removed\n"
+    assert _diff_changed_after_lines(diff) == set()
+
+
+def test_diff_changed_after_lines_empty_diff():
+    assert _diff_changed_after_lines("") == set()
+
+
+def test_diff_changed_after_lines_no_hunk_header_does_not_crash():
+    diff = "-old line\n+new line\n"
+    result = _diff_changed_after_lines(diff)
+    assert isinstance(result, set)
+    assert 1 in result  # counts from 0 when no header present
+
+
+def test_diff_changed_after_lines_excludes_triple_plus_from_result():
+    # +++ file-header lines must not be added to the changed-line set
+    diff = "@@ -0,0 +1,2 @@\n+++sentinel\n+real_content\n"
+    result = _diff_changed_after_lines(diff)
+    assert 1 not in result   # +++ line not counted as a changed line
+    assert 2 in result        # real content line is counted
+
+
+def test_diff_changed_after_lines_pure_additions():
+    diff = "@@ -0,0 +1,3 @@\n+line_one\n+line_two\n+line_three\n"
+    result = _diff_changed_after_lines(diff)
+    assert result == {1, 2, 3}
+
+
+# ---------------------------------------------------------------------------
+# _body_changed_symbols
+# ---------------------------------------------------------------------------
+
+
+def test_body_changed_symbols_basic_detection():
+    syms = [
+        ASTSymbol(name="foo", kind="function", line=1),
+        ASTSymbol(name="bar", kind="function", line=10),
+    ]
+    result = _body_changed_symbols(syms, {5})
+    assert "foo" in result
+    assert "bar" not in result
+
+
+def test_body_changed_symbols_on_start_line():
+    syms = [ASTSymbol(name="foo", kind="function", line=3)]
+    assert "foo" in _body_changed_symbols(syms, {3})
+
+
+def test_body_changed_symbols_last_symbol_uses_large_sentinel():
+    syms = [ASTSymbol(name="only", kind="function", line=5)]
+    assert "only" in _body_changed_symbols(syms, {9_999_999})
+
+
+def test_body_changed_symbols_empty_ast_returns_empty():
+    assert _body_changed_symbols([], {1, 2, 3}) == set()
+
+
+def test_body_changed_symbols_empty_changed_lines_returns_empty():
+    syms = [ASTSymbol(name="foo", kind="function", line=1)]
+    assert _body_changed_symbols(syms, set()) == set()
+
+
+def test_body_changed_symbols_qualified_name_with_container():
+    syms = [ASTSymbol(name="method", kind="method", line=5, container="MyClass")]
+    result = _body_changed_symbols(syms, {7})
+    assert "MyClass.method" in result
+    assert "method" not in result
+
+
+def test_body_changed_symbols_unqualified_when_no_container():
+    syms = [ASTSymbol(name="standalone", kind="function", line=1, container="")]
+    assert "standalone" in _body_changed_symbols(syms, {2})
+
+
+def test_body_changed_symbols_sorts_unsorted_input():
+    # Pass symbols in reverse order to verify sorting happens
+    syms = [
+        ASTSymbol(name="second", kind="function", line=20),
+        ASTSymbol(name="first", kind="function", line=1),
+    ]
+    result = _body_changed_symbols(syms, {15})  # line 15: in first's body (1–19)
+    assert "first" in result
+    assert "second" not in result
+
+
+def test_body_changed_symbols_boundary_belongs_to_correct_symbol():
+    syms = [
+        ASTSymbol(name="foo", kind="function", line=1),
+        ASTSymbol(name="bar", kind="function", line=10),
+    ]
+    # Line 9 = last line of foo's body (bar.line - 1)
+    assert "foo" in _body_changed_symbols(syms, {9})
+    assert "bar" not in _body_changed_symbols(syms, {9})
+    # Line 10 = bar's own start line
+    assert "bar" in _body_changed_symbols(syms, {10})
+
+
+# ---------------------------------------------------------------------------
+# classify_changed_file — _body_touched OR logic integration
+# ---------------------------------------------------------------------------
+
+
+def test_classify_body_change_detected_when_name_absent_from_diff():
+    """Function body change with no @@ header falls back to touched-name heuristic."""
+    before = "def compute(x):\n    return x\n\ndef unrelated():\n    pass\n"
+    after = "def compute(x):\n    return x * 2\n\ndef unrelated():\n    pass\n"
+    diff = "@@ -1,2 +1,2 @@\n def compute(x):\n-    return x\n+    return x * 2\n"
+    f = make_file(before=before, after=after, diff=diff)
+    symbols = classify_changed_file(f)
+    names = [s.name for s in symbols if s.kind != "import"]
+    assert "compute" in names
+    assert "unrelated" not in names
+
+
+def test_classify_body_change_is_internal_not_interface_changed():
+    before = "def process(x):\n    return x\n"
+    after = "def process(x):\n    return x + 1\n"
+    diff = "@@ -1,2 +1,2 @@\n def process(x):\n-    return x\n+    return x + 1\n"
+    f = make_file(before=before, after=after, diff=diff)
+    symbols = [s for s in classify_changed_file(f) if s.name == "process"]
+    assert symbols
+    assert symbols[0].change_type == "internal"
+
+
+def test_classify_malformed_diff_no_hunk_header_still_detects_via_touched():
+    """Signature change detected via touched tokens even without @@ header."""
+    before = "def foo(x):\n    return x\n"
+    after = "def foo(x, y):\n    return x + y\n"
+    diff = "-def foo(x):\n+def foo(x, y):\n"  # no @@ header
+    f = make_file(before=before, after=after, diff=diff)
+    symbols = classify_changed_file(f)
+    foo_syms = [s for s in symbols if s.name == "foo"]
+    assert foo_syms, "signature change via touched tokens should still be detected"
+    assert foo_syms[0].change_type == "interface_changed"
+
+
+def test_classify_or_logic_no_duplicate_when_in_both_touched_and_body_touched():
+    """A symbol in both touched and body_touched must appear exactly once."""
+    before = "def foo(x):\n    y = foo(x)\n    return y\n"
+    after = "def foo(x):\n    y = foo(x) * 2\n    return y\n"
+    # foo references itself on the changed line → present in both sets
+    diff = "@@ -1,3 +1,3 @@\n def foo(x):\n-    y = foo(x)\n+    y = foo(x) * 2\n     return y\n"
+    f = make_file(before=before, after=after, diff=diff)
+    symbols = [s for s in classify_changed_file(f) if s.name == "foo"]
+    assert len(symbols) == 1
