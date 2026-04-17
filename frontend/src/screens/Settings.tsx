@@ -91,20 +91,29 @@ function ClearDatabaseModal({
   )
 }
 
+const REPO_KEY = 'primpact_repo'
+
 export default function Settings() {
-  // We need a repo path — try to derive from URL or use a placeholder
-  const repoParam = new URLSearchParams(window.location.search).get('repo') ?? ''
+  const [repo, setRepo] = useState<string>(() => {
+    const urlParam = new URLSearchParams(window.location.search).get('repo')
+    return urlParam ?? localStorage.getItem(REPO_KEY) ?? ''
+  })
   const queryClient = useQueryClient()
   const [showClearModal, setShowClearModal] = useState(false)
   const [clearPending, setClearPending] = useState(false)
   const [clearError, setClearError] = useState<string | null>(null)
   const [clearSuccess, setClearSuccess] = useState(false)
 
+  function handleRepoChange(r: string) {
+    setRepo(r)
+    localStorage.setItem(REPO_KEY, r)
+  }
+
   async function handleClearConfirm() {
     setClearPending(true)
     setClearError(null)
     try {
-      await api.clearHistory(repoParam)
+      await api.clearHistory(repo)
       queryClient.invalidateQueries({ queryKey: ['runs'] })
       setClearSuccess(true)
       setShowClearModal(false)
@@ -117,9 +126,9 @@ export default function Settings() {
   }
 
   const { data, error, isLoading } = useQuery<ConfigData>({
-    queryKey: ['config', repoParam],
-    queryFn: () => api.getConfig(repoParam),
-    enabled: Boolean(repoParam),
+    queryKey: ['config', repo],
+    queryFn: () => api.getConfig(repo),
+    enabled: Boolean(repo.trim()),
     retry: false,
   })
 
@@ -133,32 +142,44 @@ export default function Settings() {
         />
       )}
 
-      <h1 className="text-2xl font-headline font-bold text-on-surface mb-1">Settings</h1>
-      <p className="text-sm text-on-surface-variant mb-8">
-        Team configuration loaded from{' '}
-        <code className="font-mono text-xs bg-surface-container-high px-1 py-0.5 rounded">
-          .primpact.yml
-        </code>{' '}
-        in the repo root.
-      </p>
+      <div className="flex items-start justify-between gap-6 mb-6">
+        <div>
+          <h1 className="text-2xl font-headline font-bold text-on-surface mb-1">Settings</h1>
+          <p className="text-sm text-on-surface-variant">
+            Team configuration loaded from{' '}
+            <code className="font-mono text-xs bg-surface-container-high px-1 py-0.5 rounded">
+              .primpact.yml
+            </code>{' '}
+            in the repo root.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 bg-surface-container rounded px-3 py-2 shrink-0">
+          <span className="material-symbols-outlined text-[16px] text-on-surface-variant shrink-0">
+            folder
+          </span>
+          <input
+            type="text"
+            value={repo}
+            onChange={(e) => handleRepoChange(e.target.value)}
+            placeholder="/path/to/repo"
+            className="bg-transparent border-none outline-none font-mono text-xs text-on-surface placeholder:text-on-surface-variant/50 w-56"
+          />
+        </div>
+      </div>
 
       {isLoading && (
         <p className="text-sm text-on-surface-variant">Loading configuration...</p>
       )}
 
-      {!repoParam && !isLoading && (
+      {!repo.trim() && !isLoading && (
         <div className="mb-8 p-4 bg-surface-container rounded border border-outline-variant/20">
-          <p className="text-sm text-on-surface-variant mb-1">
-            No repo selected. Open a run to see its configuration, or pass{' '}
-            <code className="font-mono text-xs bg-surface-container-high px-1 py-0.5 rounded">
-              ?repo=/path/to/repo
-            </code>{' '}
-            in the URL.
+          <p className="text-sm text-on-surface-variant">
+            Enter a repository path above to load its configuration.
           </p>
         </div>
       )}
 
-      {(error || (data === undefined && repoParam && !isLoading)) && (
+      {(error || (data === undefined && repo.trim() && !isLoading)) && (
         <div className="mb-8">
           <div className="p-4 bg-surface-container rounded border border-outline-variant/20 mb-6">
             <p className="text-sm text-on-surface-variant">
@@ -328,7 +349,7 @@ export default function Settings() {
             </div>
             <button
               onClick={() => { setClearSuccess(false); setClearError(null); setShowClearModal(true) }}
-              disabled={!repoParam}
+              disabled={!repo.trim()}
               className="shrink-0 px-4 py-2 text-sm font-medium text-on-error bg-error rounded hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Clear History
