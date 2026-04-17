@@ -68,7 +68,7 @@ def create_app(
     app = FastAPI(
         title="PrImpact API",
         description="REST API for browsing and triggering PrImpact analyses",
-        version="1.0.0",
+        version="1.0.1",
         lifespan=lifespan,
     )
 

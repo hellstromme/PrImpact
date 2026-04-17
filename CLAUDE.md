@@ -9,7 +9,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-v0.4 — complete. All v0.4 items are done:
+v1.0.1 — current. Patch: wire `anomaly_thresholds` from `.primpact.yml` into the anomaly detection prompt (`ai_layer.py`). All five config fields are now active end-to-end.
+
+v1.0 — complete. All v1.0 items are done:
+- Web UI server (`primpact serve`) — React dashboard + 6-tab impact report ✓
+- Persistent history — full `ImpactReport` JSON in SQLite, `load_runs()` / `load_run()` ✓
+- Team configuration — `.primpact.yml` loader (`config_file.py`); all five fields wired:
+  - `blast_radius_depth` → per-path `depth_overrides` in `get_blast_radius()` ✓
+  - `suppressed_signals` → `_apply_suppressions()` post-filter in `analyzer.py` ✓
+  - `high_sensitivity_modules` → injected into AI diffs context ✓
+  - `fail_on_severity` → overrides CLI flag in `cli.py` ✓
+  - `anomaly_thresholds` → injected as hint into `PROMPT_ANOMALY_DETECTION` ✓ (v1.0.1)
+- Webhook server (`primpact server`) — GitHub/GitLab auto-analysis on PR events ✓
+- Settings UI — reads and displays `.primpact.yml` from the web dashboard ✓
+
+v0.4 items (complete):
 - AST-based import and symbol extraction via tree-sitter (`ast_extractor.py`) ✓
 - Symbol-level dependency tracking in `dependency_graph.py` (AST-first, regex fallback) ✓
 - Re-export / barrel file support in import graph ✓
@@ -28,7 +42,7 @@ v0.3 items (complete):
 - Dependency integrity checks (`--check-osv`, typosquat detection, OSV lookup) ✓
 - Agent verdict analysis (`--verdict`, `--verdict-json`) ✓
 
-Next: v1.0 — Platform (web UI, persistent history, team configuration).
+Next: v1.1 — interactive blast radius graph, Mute Signal / Assign Reviewer persistence, multi-user auth.
 
 ## Commands
 

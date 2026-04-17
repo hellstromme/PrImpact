@@ -1,6 +1,6 @@
 # PrImpact
 
-Analyse the impact of a code change. Given a PR number or two commit SHAs, PrImpact builds a blast radius graph, classifies changed symbols, and runs three AI calls to produce a Markdown report covering summary, decisions, assumptions, anomalies, and test gaps.
+Analyse the impact of a code change. Given a PR number or two commit SHAs, PrImpact builds a blast radius graph, classifies changed symbols, and runs up to five AI calls to produce a Markdown report covering summary, decisions, assumptions, anomalies, test gaps, security signals, and dependency issues. A web UI (`primpact serve`) and webhook server (`primpact server`) are also included for team use.
 
 ## Requirements
 
@@ -58,6 +58,8 @@ pr-impact analyse \
 | `--check-osv` | off | Query the OSV vulnerability database for new dependencies (requires network) |
 | `--verdict` | off | Run agent verdict analysis; exit 2 if actionable blockers are found |
 | `--verdict-json` | none | Write verdict JSON to this file (implies `--verdict`) |
+| `--history-db` | `.primpact/history.db` | Path to the SQLite history database |
+| `--no-history` | off | Skip reading and writing history for this run |
 
 ## Environment variables
 
@@ -112,6 +114,59 @@ See the template at [`ci/gitlab-ci-template.yml`](ci/gitlab-ci-template.yml). Co
 
 Required CI/CD variables: `ANTHROPIC_API_KEY`, `GITLAB_TOKEN` (a project/group access
 token with `api` scope).
+
+## Web UI
+
+Requires the `web` extras: `pip install -e ".[web]"`
+
+```bash
+# Start the local web UI (opens a browser at http://localhost:8080)
+primpact serve --port 8080 --open
+```
+
+The dashboard lets you trigger analyses by entering a repo path and PR number, browse past runs, and view the full impact report in a tabbed interface (Summary, Blast Radius, Anomalies, Security, Dependencies, Test Gaps). Run history is stored in `.primpact/history.db` inside each analysed repository.
+
+## Webhook server
+
+For team use, run the webhook server so GitHub or GitLab can trigger analysis automatically on every PR:
+
+```bash
+primpact server --port 9000 --host 0.0.0.0 --repos /var/primpact/repos
+```
+
+Configure a webhook in your GitHub repository pointing to `https://<your-host>/webhook/github` (secret stored in `PRIMPACT_WEBHOOK_SECRET`). For GitLab, point to `/webhook/gitlab` and set `PRIMPACT_GITLAB_TOKEN`. The server clones repos on first use, runs analysis in the background, and posts the report as a PR/MR comment.
+
+## Team configuration
+
+Place a `.primpact.yml` file in the root of any repository to tune analysis behaviour for that project:
+
+```yaml
+# Extra scrutiny for sensitive modules — surfaced in AI analysis context
+high_sensitivity_modules:
+  - src/auth/
+  - src/payments/
+
+# Suppress expected signals to reduce noise
+suppressed_signals:
+  - signal_type: shell_invoke
+    path_prefix: tools/
+    reason: "Build tools intentionally use subprocess"
+
+# Override BFS depth per module (global default: 3, hard cap: 3)
+blast_radius_depth:
+  src/utils/: 2
+  src/auth/: 3
+
+# Override the --fail-on-severity CI threshold for this repo
+fail_on_severity: high
+
+# Instruct the AI to raise the bar for certain anomaly categories
+anomaly_thresholds:
+  interface_change: medium
+  new_network_call: high
+```
+
+All fields are optional. Missing or malformed keys are skipped silently; a broken config never blocks analysis.
 
 ## Development
 
