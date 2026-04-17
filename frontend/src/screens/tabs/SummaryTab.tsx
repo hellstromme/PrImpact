@@ -21,14 +21,21 @@ function SignalCountBadge({
   return <SeverityChip severity={severity} label={`${count} ${severity}`} />
 }
 
-export default function SummaryTab({ report }: { report: ImpactReport }) {
-  const { ai_analysis: ai, blast_radius, interface_changes, dependency_issues } = report
+export default function SummaryTab({
+  report,
+  onNavigate,
+}: {
+  report: ImpactReport
+  onNavigate?: (tab: string) => void
+}) {
+  const { ai_analysis: ai, blast_radius, interface_changes, dependency_issues, verdict } = report
 
   // Signal counts by severity
   const allSignals = [...ai.security_signals, ...dependency_issues]
   const highCount = allSignals.filter((s) => s.severity === 'high').length
   const medCount = allSignals.filter((s) => s.severity === 'medium').length
   const lowCount = allSignals.filter((s) => s.severity === 'low').length
+  const anomalyCount = ai.anomalies.length
 
   return (
     <div className="p-8 max-w-5xl space-y-10">
@@ -37,6 +44,87 @@ export default function SummaryTab({ report }: { report: ImpactReport }) {
         <SectionHeading>Executive Summary</SectionHeading>
         <p className="text-on-surface leading-relaxed">{ai.summary || '—'}</p>
       </section>
+
+      {/* Agent Verdict */}
+      {verdict && (
+        <section>
+          <SectionHeading>Agent Verdict</SectionHeading>
+          <div
+            className={`rounded-lg border p-4 mb-4 ${
+              verdict.status === 'clean'
+                ? 'border-green-500/30 bg-green-500/5'
+                : 'border-red-500/30 bg-red-500/5'
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <span
+                className={`text-xs font-mono font-bold uppercase tracking-widest px-2 py-0.5 rounded ${
+                  verdict.status === 'clean'
+                    ? 'bg-green-500/20 text-green-400'
+                    : 'bg-red-500/20 text-red-400'
+                }`}
+              >
+                {verdict.status === 'clean' ? 'Clean' : 'Blockers found'}
+              </span>
+            </div>
+            {verdict.rationale && (
+              <p className="text-on-surface-variant text-sm leading-relaxed">{verdict.rationale}</p>
+            )}
+          </div>
+          {verdict.blockers.length > 0 && (
+            <div className="space-y-2">
+              {verdict.blockers.map((b, i) => {
+                const targetTab =
+                  b.category === 'anomaly' ? 'anomalies'
+                  : b.category === 'security_signal' ? 'security'
+                  : b.category === 'dependency_issue' ? 'dependencies'
+                  : b.category === 'test_gap' ? 'test-gaps'
+                  : null
+                const canNavigate = targetTab && onNavigate
+                return (
+                  <div
+                    key={i}
+                    onClick={canNavigate ? () => onNavigate!(targetTab!) : undefined}
+                    className={`rounded border border-red-500/20 bg-surface-container-low px-4 py-3 ${canNavigate ? 'cursor-pointer hover:border-red-500/40 hover:bg-surface-container transition-colors' : ''}`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
+                        {b.category.replace(/_/g, ' ')}
+                      </span>
+                      <span className="text-xs text-on-surface">{b.description}</span>
+                      {canNavigate && (
+                        <span className="ml-auto text-[10px] font-mono text-on-surface-variant shrink-0">
+                          View →
+                        </span>
+                      )}
+                    </div>
+                    {b.location && (
+                      <p className="font-mono text-xs text-on-surface-variant">{b.location}</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Anomaly count — links to Anomalies tab */}
+      {anomalyCount > 0 && (
+        <section>
+          <SectionHeading>Anomalies</SectionHeading>
+          <button
+            onClick={() => onNavigate?.('anomalies')}
+            className="flex items-center gap-3 rounded-lg border border-outline-variant/10 bg-surface-container-low px-5 py-3 hover:border-primary/30 hover:bg-surface-container transition-colors"
+          >
+            <span className="font-headline text-3xl font-bold text-primary">{anomalyCount}</span>
+            <span className="text-on-surface-variant text-sm">
+              {anomalyCount === 1 ? 'anomaly detected' : 'anomalies detected'}
+            </span>
+            <span className="ml-auto text-xs font-mono text-on-surface-variant">View all →</span>
+          </button>
+        </section>
+      )}
 
       {/* Signal pills row */}
       {(highCount + medCount + lowCount) > 0 && (

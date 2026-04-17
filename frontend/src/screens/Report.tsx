@@ -6,6 +6,7 @@ import { queryKeys } from '../lib/queryKeys'
 import { VerdictChip } from '../components/StatusChip'
 import TabBar, { type Tab } from '../components/TabBar'
 import SummaryTab from './tabs/SummaryTab'
+import AnomaliesTab from './tabs/AnomaliesTab'
 import BlastRadiusTab from './tabs/BlastRadiusTab'
 import SecurityTab from './tabs/SecurityTab'
 import DependenciesTab from './tabs/DependenciesTab'
@@ -14,6 +15,7 @@ import TestGapsTab from './tabs/TestGapsTab'
 const TABS: Tab[] = [
   { id: 'summary', label: 'Summary', icon: 'summarize' },
   { id: 'blast-radius', label: 'Blast Radius', icon: 'hub' },
+  { id: 'anomalies', label: 'Anomalies', icon: 'warning' },
   { id: 'security', label: 'Security', icon: 'security' },
   { id: 'dependencies', label: 'Dependencies', icon: 'account_tree' },
   { id: 'test-gaps', label: 'Test Gaps', icon: 'bug_report' },
@@ -99,8 +101,9 @@ export default function Report() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'summary' && <SummaryTab report={report} />}
+        {activeTab === 'summary' && <SummaryTab report={report} onNavigate={handleTabChange} />}
         {activeTab === 'blast-radius' && <BlastRadiusTab report={report} />}
+        {activeTab === 'anomalies' && <AnomaliesTab report={report} />}
         {activeTab === 'security' && <SecurityTab report={report} runId={runId} />}
         {activeTab === 'dependencies' && <DependenciesTab report={report} />}
         {activeTab === 'test-gaps' && <TestGapsTab report={report} />}
