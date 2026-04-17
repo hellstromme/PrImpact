@@ -92,12 +92,17 @@ export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
                         : '—'}
                     </td>
                     <td className="px-4 py-2.5">
-                      <SparkLine
-                        values={[entry.churn_score ?? 0]}
-                        max={maxChurn}
-                        width={48}
-                        height={16}
-                      />
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-on-surface-variant w-6 text-right">
+                          {entry.churn_score != null ? Math.round(entry.churn_score) : '—'}
+                        </span>
+                        <SparkLine
+                          values={[entry.churn_score ?? 0]}
+                          max={maxChurn}
+                          width={48}
+                          height={16}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -282,8 +282,11 @@ function RecentRunsList({ runs }: { runs: RunSummary[] }) {
             </div>
           </div>
 
-          {/* Sparkline */}
-          <div className="hidden lg:block ml-6 shrink-0">
+          {/* Blast radius bar */}
+          <div className="hidden lg:flex items-center gap-2 ml-6 shrink-0">
+            <span className="font-mono text-xs text-on-surface-variant w-8 text-right">
+              {run.blast_radius_count}
+            </span>
             <SparkLine values={[run.blast_radius_count]} max={maxBlastRadius} />
           </div>
 
