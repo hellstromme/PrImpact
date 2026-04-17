@@ -33,6 +33,8 @@ from .models import (
     SemanticVerdict,
     SourceLocation,
     TestGap,
+    Verdict,
+    VerdictBlocker,
 )
 
 
@@ -488,6 +490,23 @@ def _report_from_dict(data: dict) -> ImpactReport:
             HistoricalHotspot(file=x.get("file", ""), appearances=x.get("appearances", 0))
             for x in data.get("historical_hotspots", [])
         ],
+        verdict=(
+            Verdict(
+                status=v.get("status", "clean"),
+                agent_should_continue=v.get("agent_should_continue", False),
+                rationale=v.get("rationale", ""),
+                blockers=[
+                    VerdictBlocker(
+                        category=b.get("category", "anomaly"),
+                        description=b.get("description", ""),
+                        location=b.get("location", ""),
+                    )
+                    for b in v.get("blockers", [])
+                ],
+            )
+            if (v := data.get("verdict")) is not None
+            else None
+        ),
     )
 
 
