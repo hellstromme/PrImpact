@@ -491,6 +491,32 @@ def _report_from_dict(data: dict) -> ImpactReport:
     )
 
 
+def clear_history(db_path: str, repo_path: str) -> None:
+    """Delete all recorded runs and associated data for *repo_path*.
+
+    Silently ignored if the database does not exist. Raises on unexpected errors
+    so the API layer can return a meaningful HTTP error.
+    """
+    if not os.path.exists(db_path):
+        return
+    conn = _connect(db_path)
+    try:
+        run_ids = [
+            row[0]
+            for row in conn.execute(
+                "SELECT id FROM runs WHERE repo_path = ?", (repo_path,)
+            ).fetchall()
+        ]
+        if run_ids:
+            placeholders = ",".join("?" * len(run_ids))
+            for table in ("blast_entries", "anomalies", "security_signals"):
+                conn.execute(f"DELETE FROM {table} WHERE run_id IN ({placeholders})", run_ids)
+            conn.execute(f"DELETE FROM runs WHERE id IN ({placeholders})", run_ids)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def load_run(db_path: str, run_uuid: str) -> ImpactReport | None:
     """Rehydrate a single ImpactReport from the history database by UUID.
 

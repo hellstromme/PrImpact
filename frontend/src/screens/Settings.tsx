@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import type { PrImpactConfig } from '../lib/types'
 
@@ -51,9 +52,69 @@ interface ConfigData extends PrImpactConfig {
   path: string
 }
 
+function ClearDatabaseModal({
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  onConfirm: () => void
+  onCancel: () => void
+  isPending: boolean
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-surface rounded-lg border border-outline-variant/30 shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 className="text-base font-semibold text-on-surface mb-2">Clear Run History?</h3>
+        <p className="text-sm text-on-surface-variant mb-6">
+          This will permanently delete all recorded analysis runs for this repository. Historical
+          hotspots and anomaly patterns will be lost. <strong className="text-on-surface">This
+          cannot be undone.</strong>
+        </p>
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            disabled={isPending}
+            className="px-4 py-2 text-sm font-medium text-on-surface-variant bg-surface-container rounded hover:bg-surface-container-high transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="px-4 py-2 text-sm font-medium text-on-error bg-error rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {isPending ? 'Clearing…' : 'Clear History'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Settings() {
   // We need a repo path — try to derive from URL or use a placeholder
   const repoParam = new URLSearchParams(window.location.search).get('repo') ?? ''
+  const queryClient = useQueryClient()
+  const [showClearModal, setShowClearModal] = useState(false)
+  const [clearPending, setClearPending] = useState(false)
+  const [clearError, setClearError] = useState<string | null>(null)
+  const [clearSuccess, setClearSuccess] = useState(false)
+
+  async function handleClearConfirm() {
+    setClearPending(true)
+    setClearError(null)
+    try {
+      await api.clearHistory(repoParam)
+      queryClient.invalidateQueries({ queryKey: ['runs'] })
+      setClearSuccess(true)
+      setShowClearModal(false)
+    } catch (err) {
+      setClearError(err instanceof Error ? err.message : 'Unknown error')
+      setShowClearModal(false)
+    } finally {
+      setClearPending(false)
+    }
+  }
 
   const { data, error, isLoading } = useQuery<ConfigData>({
     queryKey: ['config', repoParam],
@@ -64,6 +125,14 @@ export default function Settings() {
 
   return (
     <div className="p-8 max-w-3xl">
+      {showClearModal && (
+        <ClearDatabaseModal
+          onConfirm={handleClearConfirm}
+          onCancel={() => setShowClearModal(false)}
+          isPending={clearPending}
+        />
+      )}
+
       <h1 className="text-2xl font-headline font-bold text-on-surface mb-1">Settings</h1>
       <p className="text-sm text-on-surface-variant mb-8">
         Team configuration loaded from{' '}
@@ -237,6 +306,36 @@ export default function Settings() {
           </Section>
         </>
       )}
+
+      <div className="mt-12 pt-8 border-t border-outline-variant/20">
+        <h2 className="text-sm font-semibold text-error uppercase tracking-widest mb-3 font-mono">
+          Danger Zone
+        </h2>
+        <div className="p-4 bg-surface-container rounded border border-error/20">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-on-surface mb-1">Clear Run History</p>
+              <p className="text-xs text-on-surface-variant">
+                Permanently delete all recorded analysis runs for this repository. Historical
+                hotspot and anomaly data will be lost.
+              </p>
+              {clearSuccess && (
+                <p className="text-xs text-primary mt-2">History cleared successfully.</p>
+              )}
+              {clearError && (
+                <p className="text-xs text-error mt-2">Error: {clearError}</p>
+              )}
+            </div>
+            <button
+              onClick={() => { setClearSuccess(false); setClearError(null); setShowClearModal(true) }}
+              disabled={!repoParam}
+              className="shrink-0 px-4 py-2 text-sm font-medium text-on-error bg-error rounded hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Clear History
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
