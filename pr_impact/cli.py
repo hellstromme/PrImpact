@@ -22,23 +22,25 @@ from .history import get_run_count, load_anomaly_patterns, load_hotspots, save_r
 from .models import HistoricalHotspot, ImpactReport, RefsResult
 from .reporter import render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
 
-stderr = Console(stderr=True)
+def _make_console(*, is_stderr: bool = False) -> Console:
+    """Create a Console that works on Windows cp1252/OEM terminals.
 
-
-def _make_stdout_console() -> Console:
-    """Create a stdout Console safe for Windows cp1252 terminals.
-
-    On Windows, Rich's LegacyWindowsTerm encodes text via cp1252, crashing on
-    any character outside that range (including AI-generated text and box-drawing
-    chars). Reconfiguring stdout to UTF-8 and disabling the legacy renderer fixes
-    this for Windows 10+ where the console supports ANSI/VT codes.
+    Rich's LegacyWindowsTerm encodes text using the Python stream's codec
+    (typically cp1252 on Windows), which crashes on characters outside that
+    range. Reconfiguring the stream to UTF-8 and bypassing the legacy renderer
+    (Windows 10+ supports ANSI/VT natively) fixes both crashes and garbled
+    substitution characters.
     """
-    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    stream = sys.stderr if is_stderr else sys.stdout
+    if sys.platform == "win32" and hasattr(stream, "reconfigure"):
         try:
-            sys.stdout.reconfigure(encoding="utf-8")
+            stream.reconfigure(encoding="utf-8")
         except Exception:
             pass
-    return Console(legacy_windows=False)
+    return Console(stderr=is_stderr, legacy_windows=False)
+
+
+stderr = _make_console(is_stderr=True)
 
 
 class _ProgressProtocol(Protocol):
@@ -391,7 +393,7 @@ def _run_verdict_if_requested(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=Console(stderr=True),
+        console=_make_console(is_stderr=True),
         transient=True,
     ) as progress:
         progress.add_task("Running verdict analysis (1 API call)...", total=None)
@@ -401,7 +403,7 @@ def _run_verdict_if_requested(
             stderr.print(f"[yellow]Warning:[/yellow] Verdict analysis failed: {e}")
             return None, False
 
-    render_verdict_terminal(verdict, _make_stdout_console())
+    render_verdict_terminal(verdict, _make_console())
 
     if verdict_output is not None:
         try:
@@ -527,7 +529,7 @@ def analyse(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=Console(stderr=True),
+        console=_make_console(is_stderr=True),
         transient=True,
     ) as progress:
         analyzer = ImpactAnalyzer(
@@ -556,7 +558,7 @@ def analyse(
         ai_analysis, dependency_issues, hotspots,
     )
     _write_outputs(report, output, json_output, sarif_output)
-    render_terminal(report, _make_stdout_console(), output, json_output, sarif_output)
+    render_terminal(report, _make_console(), output, json_output, sarif_output)
 
     # Collect both exit conditions before saving so verdict is persisted to history.
     # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),
