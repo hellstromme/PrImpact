@@ -25,6 +25,22 @@ from .reporter import render_json, render_markdown, render_sarif, render_termina
 stderr = Console(stderr=True)
 
 
+def _make_stdout_console() -> Console:
+    """Create a stdout Console safe for Windows cp1252 terminals.
+
+    On Windows, Rich's LegacyWindowsTerm encodes text via cp1252, crashing on
+    any character outside that range (including AI-generated text and box-drawing
+    chars). Reconfiguring stdout to UTF-8 and disabling the legacy renderer fixes
+    this for Windows 10+ where the console supports ANSI/VT codes.
+    """
+    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    return Console(legacy_windows=False)
+
+
 class _ProgressProtocol(Protocol):
     """Structural type for the Rich Progress object passed to _run_pipeline.
 
@@ -385,7 +401,7 @@ def _run_verdict_if_requested(
             stderr.print(f"[yellow]Warning:[/yellow] Verdict analysis failed: {e}")
             return None, False
 
-    render_verdict_terminal(verdict, Console())
+    render_verdict_terminal(verdict, _make_stdout_console())
 
     if verdict_output is not None:
         try:
@@ -540,7 +556,7 @@ def analyse(
         ai_analysis, dependency_issues, hotspots,
     )
     _write_outputs(report, output, json_output, sarif_output)
-    render_terminal(report, Console(), output, json_output, sarif_output)
+    render_terminal(report, _make_stdout_console(), output, json_output, sarif_output)
 
     # Collect both exit conditions before saving so verdict is persisted to history.
     # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),
