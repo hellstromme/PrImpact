@@ -38,7 +38,8 @@ def _unicode_ok(console: Console) -> bool:
     """Return True when the console encoding supports the non-ASCII chars used in output."""
     enc = getattr(console, "encoding", None) or "ascii"
     try:
-        "●◉○⚠◇→✓".encode(enc)
+        # Include ─ (U+2500) used by Rich's Rule to ensure box-drawing chars work too
+        "●◉○⚠◇→✓─".encode(enc)
         return True
     except (UnicodeEncodeError, LookupError):
         return False
@@ -47,6 +48,15 @@ def _unicode_ok(console: Console) -> bool:
 def _ch(char: str, ok: bool) -> str:
     """Return *char* if Unicode output is available, else its ASCII fallback."""
     return char if ok else _ASCII_FALLBACKS.get(char, char)
+
+
+def _rule(console: Console, title: str = "", style: str = "bright_blue") -> None:
+    """Print a horizontal rule, falling back to ASCII dashes on non-Unicode consoles."""
+    if _unicode_ok(console):
+        console.print(Rule(title, style=style) if title else Rule(style=style))
+    else:
+        text = f"--- {title} ---" if title else "-" * 60
+        console.print(text)
 
 
 def _sev(key: str) -> _SeverityStyle:
@@ -391,7 +401,7 @@ def _render_header_section(console: Console, report: ImpactReport, sha_range: st
 
 def _render_summary_section(console: Console, report: ImpactReport) -> None:
     summary = report.ai_analysis.summary
-    console.print(Rule("SUMMARY", style="bright_blue"))
+    _rule(console, "SUMMARY")
     console.print()
     console.print(f"  {summary}" if summary else "  [dim]No summary available.[/dim]")
     console.print()
@@ -401,7 +411,7 @@ def _render_blast_radius_section(console: Console, report: ImpactReport) -> None
     direct = len(report.changed_files)
     downstream = len(report.blast_radius)
     max_dist = max((e.distance for e in report.blast_radius), default=0)
-    console.print(Rule("BLAST RADIUS", style="bright_blue"))
+    _rule(console, "BLAST RADIUS")
     console.print(
         f"  [dim]{direct} direct  ·  {downstream} downstream  ·  max {max_dist} hop(s)[/dim]"
     )
@@ -434,7 +444,7 @@ def _render_blast_radius_section(console: Console, report: ImpactReport) -> None
 def _render_interface_changes_section(console: Console, report: ImpactReport) -> None:
     if not report.interface_changes:
         return
-    console.print(Rule("INTERFACE CHANGES", style="bright_blue"))
+    _rule(console, "INTERFACE CHANGES")
     console.print(
         f"  [dim]{len(report.interface_changes)} symbol(s) with changed signatures[/dim]"
     )
@@ -469,7 +479,7 @@ def _render_decisions_section(console: Console, report: ImpactReport) -> None:
     has_assumptions = bool(report.ai_analysis.assumptions)
     if not has_decisions and not has_assumptions:
         return
-    console.print(Rule("DECISIONS & ASSUMPTIONS", style="bright_blue"))
+    _rule(console, "DECISIONS & ASSUMPTIONS")
     console.print()
     if has_decisions:
         console.print("  [bold]Decisions[/bold]")
@@ -502,7 +512,7 @@ def _render_anomalies_section(console: Console, report: ImpactReport) -> None:
     high = sum(1 for a in report.ai_analysis.anomalies if a.severity == "high")
     medium = sum(1 for a in report.ai_analysis.anomalies if a.severity == "medium")
     low = sum(1 for a in report.ai_analysis.anomalies if a.severity == "low")
-    console.print(Rule("ANOMALIES", style="bright_blue"))
+    _rule(console, "ANOMALIES")
     console.print(
         f"  [bright_red]{high} high[/bright_red]  ·  "
         f"[yellow]{medium} medium[/yellow]  ·  "
@@ -526,7 +536,7 @@ def _render_semantic_section(console: Console, report: ImpactReport) -> None:
     if not risky_verdicts and not equiv_verdicts:
         return
     ok = _unicode_ok(console)
-    console.print(Rule("SEMANTIC ANALYSIS", style="bright_blue"))
+    _rule(console, "SEMANTIC ANALYSIS")
     console.print()
     if risky_verdicts:
         console.print(f"  [bold yellow]{_ch('⚠', ok)} Logic changes (small diff, significant impact)[/bold yellow]")
@@ -548,7 +558,7 @@ def _render_test_gaps_section(console: Console, report: ImpactReport) -> None:
     if not report.ai_analysis.test_gaps:
         return
     ok = _unicode_ok(console)
-    console.print(Rule("TEST GAPS", style="bright_blue"))
+    _rule(console, "TEST GAPS")
     console.print(f"  [dim]{len(report.ai_analysis.test_gaps)} behaviour(s) not covered[/dim]")
     console.print()
     _severity_colour = {"high": "red", "medium": "yellow", "low": "cyan"}
@@ -569,7 +579,7 @@ def _render_security_section(console: Console, report: ImpactReport) -> None:
     med_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "medium")
     low_s = sum(1 for s in report.ai_analysis.security_signals if s.severity == "low")
     ok = _unicode_ok(console)
-    console.print(Rule("SECURITY SIGNALS", style="bright_red"))
+    _rule(console, "SECURITY SIGNALS", style="bright_red")
     console.print(
         f"  [dim]{_ch('⚠', ok)} Not a security audit — signals for human review, not verdicts[/dim]"
     )
@@ -612,7 +622,7 @@ def _render_security_section(console: Console, report: ImpactReport) -> None:
 def _render_hotspots_section(console: Console, report: ImpactReport) -> None:
     if not report.historical_hotspots:
         return
-    console.print(Rule("HISTORICAL HOTSPOTS", style="bright_blue"))
+    _rule(console, "HISTORICAL HOTSPOTS")
     console.print(
         "  [dim]Files most frequently in blast radii across past analyses[/dim]"
     )
@@ -640,14 +650,14 @@ def _render_footer_section(
 ) -> None:
     if not output and not json_output and not sarif_output:
         return
-    console.print(Rule(style="bright_blue"))
+    _rule(console)
     if output:
         console.print(f"  [dim]Report written to[/dim]  [cyan]{output}[/cyan]")
     if json_output:
         console.print(f"  [dim]JSON written to[/dim]   [cyan]{json_output}[/cyan]")
     if sarif_output:
         console.print(f"  [dim]SARIF written to[/dim]  [cyan]{sarif_output}[/cyan]")
-    console.print(Rule(style="bright_blue"))
+    _rule(console)
 
 
 def render_terminal(
@@ -686,7 +696,7 @@ def render_verdict_terminal(verdict: Verdict, console: Console) -> None:
         rule_style = "green"
         status_text = Text(f"{_ch('✓', ok)} CLEAN — agent may stop", style="bold green")
 
-    console.print(Rule("AGENT VERDICT", style=rule_style))
+    _rule(console, "AGENT VERDICT", style=rule_style)
     console.print(f"  {status_text}")
     if verdict.rationale:
         console.print(f"  [dim]{verdict.rationale}[/dim]")
@@ -699,4 +709,4 @@ def render_verdict_terminal(verdict: Verdict, console: Console) -> None:
                 console.print(f"    [cyan dim]{b.location}[/cyan dim]")
         console.print()
 
-    console.print(Rule(style=rule_style))
+    _rule(console, style=rule_style)
