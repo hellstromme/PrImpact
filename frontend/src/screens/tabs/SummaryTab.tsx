@@ -22,7 +22,7 @@ function SignalCountBadge({
 }
 
 export default function SummaryTab({ report }: { report: ImpactReport }) {
-  const { ai_analysis: ai, blast_radius, interface_changes, dependency_issues } = report
+  const { ai_analysis: ai, blast_radius, interface_changes, dependency_issues, verdict } = report
 
   // Signal counts by severity
   const allSignals = [...ai.security_signals, ...dependency_issues]
@@ -37,6 +37,55 @@ export default function SummaryTab({ report }: { report: ImpactReport }) {
         <SectionHeading>Executive Summary</SectionHeading>
         <p className="text-on-surface leading-relaxed">{ai.summary || '—'}</p>
       </section>
+
+      {/* Agent Verdict */}
+      {verdict && (
+        <section>
+          <SectionHeading>Agent Verdict</SectionHeading>
+          <div
+            className={`rounded-lg border p-4 mb-4 ${
+              verdict.status === 'clean'
+                ? 'border-green-500/30 bg-green-500/5'
+                : 'border-red-500/30 bg-red-500/5'
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <span
+                className={`text-xs font-mono font-bold uppercase tracking-widest px-2 py-0.5 rounded ${
+                  verdict.status === 'clean'
+                    ? 'bg-green-500/20 text-green-400'
+                    : 'bg-red-500/20 text-red-400'
+                }`}
+              >
+                {verdict.status === 'clean' ? 'Clean' : 'Blockers found'}
+              </span>
+            </div>
+            {verdict.rationale && (
+              <p className="text-on-surface-variant text-sm leading-relaxed">{verdict.rationale}</p>
+            )}
+          </div>
+          {verdict.blockers.length > 0 && (
+            <div className="space-y-2">
+              {verdict.blockers.map((b, i) => (
+                <div
+                  key={i}
+                  className="rounded border border-red-500/20 bg-surface-container-low px-4 py-3"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
+                      {b.category.replace('_', ' ')}
+                    </span>
+                    <span className="text-xs text-on-surface">{b.description}</span>
+                  </div>
+                  {b.location && (
+                    <p className="font-mono text-xs text-on-surface-variant">{b.location}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Signal pills row */}
       {(highCount + medCount + lowCount) > 0 && (
