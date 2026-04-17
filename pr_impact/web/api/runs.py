@@ -14,7 +14,7 @@ import subprocess
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from ...github import _parse_github_remote, is_pr_merged
-from ...history import clear_history, load_run, load_run_summary, load_runs
+from ...history import clear_history, compute_signal_key, load_run, load_run_summary, load_runs
 from ...models import RunSummary
 
 router = APIRouter()
@@ -112,4 +112,14 @@ def get_report(run_id: str, request: Request) -> dict:
     report = load_run(_db_path(request), run_id)
     if report is None:
         raise HTTPException(status_code=404, detail={"error": "Run not found"})
-    return dataclasses.asdict(report)
+    data = dataclasses.asdict(report)
+    for sig in data.get("ai_analysis", {}).get("security_signals", []):
+        loc = sig.get("location", {})
+        sig["signal_key"] = compute_signal_key(
+            "signal", loc.get("file", ""), sig.get("signal_type", ""), sig.get("description", "")
+        )
+    for dep in data.get("dependency_issues", []):
+        dep["signal_key"] = compute_signal_key(
+            "dep", dep.get("package_name", ""), dep.get("issue_type", ""), dep.get("description", "")
+        )
+    return data

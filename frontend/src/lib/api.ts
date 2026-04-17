@@ -4,6 +4,8 @@ import type {
   ImpactReport,
   PrImpactConfig,
   RunSummary,
+  SignalAnnotation,
+  SignalAnnotationMap,
   SnippetResponse,
 } from './types'
 
@@ -51,4 +53,18 @@ export const api = {
     fetch(`/api/history?repo=${encodeURIComponent(repo)}`, { method: 'DELETE' }).then((r) =>
       _json<{ deleted: boolean }>(r)
     ),
+
+  getAnnotations: (runId: string): Promise<SignalAnnotationMap> =>
+    fetch(`/api/runs/${runId}/annotations`).then((r) => _json<SignalAnnotationMap>(r)),
+
+  saveAnnotation: (
+    runId: string,
+    signalKey: string,
+    body: { muted?: boolean; mute_reason?: string | null; assigned_to?: string | null },
+  ): Promise<SignalAnnotation> =>
+    fetch(`/api/runs/${runId}/annotations/${signalKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => _json<SignalAnnotation>(r)),
 }

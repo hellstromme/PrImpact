@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import type { ImpactReport, SecuritySignal, DependencyIssue, Severity } from '../../lib/types'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { ImpactReport, SecuritySignal, DependencyIssue, Severity, SignalAnnotation, SignalAnnotationMap } from '../../lib/types'
 import { SeverityChip } from '../../components/StatusChip'
 import CodeBlock from '../../components/CodeBlock'
 import { api } from '../../lib/api'
@@ -25,13 +25,19 @@ function getSeverity(item: SignalItem): Severity {
   return item.data.severity
 }
 
+function getSignalKey(item: SignalItem): string {
+  return item.data.signal_key ?? ''
+}
+
 function SignalListItem({
   item,
   selected,
+  annotation,
   onClick,
 }: {
   item: SignalItem
   selected: boolean
+  annotation?: SignalAnnotation
   onClick: () => void
 }) {
   const label = getLabel(item)
@@ -41,32 +47,146 @@ function SignalListItem({
       ? `${item.data.location.file}${item.data.location.line ? ':' + item.data.location.line : ''}`
       : item.data.issue_type
 
+  const muted = annotation?.muted ?? false
+
   return (
     <button
       onClick={onClick}
       className={[
         'w-full text-left px-4 py-3 border-b border-outline-variant/10 transition-colors',
         selected ? 'bg-surface-container-high' : 'hover:bg-surface-container',
+        muted ? 'opacity-50' : '',
       ].join(' ')}
     >
       <div className="flex items-start gap-3">
         <SeverityChip severity={severity} />
-        <div className="min-w-0">
-          <p className="text-sm text-on-surface truncate">{label}</p>
+        <div className="min-w-0 flex-1">
+          <p className={['text-sm text-on-surface truncate', muted ? 'line-through' : ''].join(' ')}>
+            {label}
+          </p>
           <p className="text-xs font-mono text-on-surface-variant truncate mt-0.5">{sub}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {muted && (
+            <span className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant">
+              muted
+            </span>
+          )}
+          {annotation?.assigned_to && (
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary truncate max-w-[80px]">
+              {annotation.assigned_to}
+            </span>
+          )}
         </div>
       </div>
     </button>
   )
 }
 
+function MuteForm({
+  current,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  current?: SignalAnnotation
+  onConfirm: (reason: string) => void
+  onCancel: () => void
+  loading: boolean
+}) {
+  const [reason, setReason] = useState(current?.mute_reason ?? '')
+  return (
+    <div className="space-y-2">
+      <input
+        autoFocus
+        type="text"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason (optional)"
+        className="w-full bg-surface-container-low text-xs font-mono px-3 py-2 rounded outline-none focus:ring-1 focus:ring-primary text-on-surface placeholder:text-on-surface-variant/50"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onConfirm(reason)
+          if (e.key === 'Escape') onCancel()
+        }}
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={() => onConfirm(reason)}
+          disabled={loading}
+          className="text-xs font-mono px-3 py-1.5 rounded bg-primary text-on-primary hover:bg-primary/90 disabled:opacity-50"
+        >
+          {loading ? 'Saving…' : 'Mute'}
+        </button>
+        <button
+          onClick={onCancel}
+          className="text-xs font-mono px-3 py-1.5 rounded border border-outline-variant/20 text-on-surface-variant hover:text-on-surface"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AssignForm({
+  current,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  current?: SignalAnnotation
+  onConfirm: (name: string) => void
+  onCancel: () => void
+  loading: boolean
+}) {
+  const [name, setName] = useState(current?.assigned_to ?? '')
+  return (
+    <div className="space-y-2">
+      <input
+        autoFocus
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Reviewer name or @handle"
+        className="w-full bg-surface-container-low text-xs font-mono px-3 py-2 rounded outline-none focus:ring-1 focus:ring-primary text-on-surface placeholder:text-on-surface-variant/50"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onConfirm(name)
+          if (e.key === 'Escape') onCancel()
+        }}
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={() => onConfirm(name)}
+          disabled={loading || !name.trim()}
+          className="text-xs font-mono px-3 py-1.5 rounded bg-primary text-on-primary hover:bg-primary/90 disabled:opacity-50"
+        >
+          {loading ? 'Saving…' : 'Assign'}
+        </button>
+        <button
+          onClick={onCancel}
+          className="text-xs font-mono px-3 py-1.5 rounded border border-outline-variant/20 text-on-surface-variant hover:text-on-surface"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function SignalDetail({
   item,
   runId,
+  annotation,
+  onAnnotate,
 }: {
   item: SignalItem
   runId: string
+  annotation?: SignalAnnotation
+  onAnnotate: (signalKey: string, body: { muted?: boolean; mute_reason?: string | null; assigned_to?: string | null }) => void
 }) {
+  const [activeForm, setActiveForm] = useState<'mute' | 'assign' | null>(null)
+  const [saving, setSaving] = useState(false)
+
   const file =
     item.kind === 'signal' ? item.data.location.file : undefined
   const line =
@@ -77,6 +197,48 @@ function SignalDetail({
     queryFn: () => api.getSnippet(runId, file!, line!),
     enabled: file !== undefined && line !== undefined,
   })
+
+  const signalKey = getSignalKey(item)
+  const muted = annotation?.muted ?? false
+  const assignedTo = annotation?.assigned_to ?? null
+
+  async function handleMuteConfirm(reason: string) {
+    setSaving(true)
+    try {
+      await onAnnotate(signalKey, { muted: true, mute_reason: reason || null })
+      setActiveForm(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleUnmute() {
+    setSaving(true)
+    try {
+      await onAnnotate(signalKey, { muted: false, mute_reason: null })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleAssignConfirm(name: string) {
+    setSaving(true)
+    try {
+      await onAnnotate(signalKey, { assigned_to: name.trim() || null })
+      setActiveForm(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleClearAssignee() {
+    setSaving(true)
+    try {
+      await onAnnotate(signalKey, { assigned_to: null })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (item.kind === 'dep') {
     const dep = item.data
@@ -89,6 +251,48 @@ function SignalDetail({
         <p className="text-on-surface text-sm">{dep.description}</p>
         {dep.license && (
           <p className="text-xs font-mono text-on-surface-variant">License: {dep.license}</p>
+        )}
+        {signalKey && (
+          <div className="pt-2 space-y-3">
+            {activeForm === 'assign' ? (
+              <AssignForm
+                current={annotation}
+                onConfirm={handleAssignConfirm}
+                onCancel={() => setActiveForm(null)}
+                loading={saving}
+              />
+            ) : (
+              <div className="flex gap-2 flex-wrap">
+                {assignedTo ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-on-surface-variant">
+                      Assigned to <span className="text-primary">{assignedTo}</span>
+                    </span>
+                    <button
+                      onClick={() => setActiveForm('assign')}
+                      className="text-xs font-mono text-on-surface-variant hover:text-on-surface underline"
+                    >
+                      Change
+                    </button>
+                    <button
+                      onClick={handleClearAssignee}
+                      disabled={saving}
+                      className="text-xs font-mono text-on-surface-variant hover:text-on-surface underline disabled:opacity-50"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setActiveForm('assign')}
+                    className="text-xs font-mono px-3 py-1.5 rounded border border-outline-variant/20 text-on-surface-variant hover:text-on-surface hover:border-outline-variant/50"
+                  >
+                    Assign Reviewer
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     )
@@ -103,8 +307,15 @@ function SignalDetail({
           <span className="font-mono text-[10px] text-on-surface-variant uppercase tracking-widest">
             {sig.signal_type}
           </span>
+          {muted && (
+            <span className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant">
+              muted
+            </span>
+          )}
         </div>
-        <p className="text-on-surface text-sm">{sig.description}</p>
+        <p className={['text-on-surface text-sm', muted ? 'line-through opacity-60' : ''].join(' ')}>
+          {sig.description}
+        </p>
       </div>
 
       {sig.location.file && (
@@ -145,22 +356,81 @@ function SignalDetail({
         </div>
       )}
 
-      <div className="flex gap-2 pt-2">
-        <button
-          disabled
-          title="Coming in a future release"
-          className="text-xs font-mono px-3 py-1.5 rounded border border-outline-variant/20 text-on-surface-variant cursor-not-allowed opacity-50"
-        >
-          Mute Signal
-        </button>
-        <button
-          disabled
-          title="Coming in a future release"
-          className="text-xs font-mono px-3 py-1.5 rounded border border-outline-variant/20 text-on-surface-variant cursor-not-allowed opacity-50"
-        >
-          Assign Reviewer
-        </button>
-      </div>
+      {annotation?.mute_reason && (
+        <div>
+          <p className="text-[10px] font-mono uppercase tracking-widest text-on-surface-variant mb-1">
+            Mute Reason
+          </p>
+          <p className="text-sm text-on-surface-variant">{annotation.mute_reason}</p>
+        </div>
+      )}
+
+      {signalKey && (
+        <div className="pt-2 space-y-3">
+          {activeForm === 'mute' ? (
+            <MuteForm
+              current={annotation}
+              onConfirm={handleMuteConfirm}
+              onCancel={() => setActiveForm(null)}
+              loading={saving}
+            />
+          ) : activeForm === 'assign' ? (
+            <AssignForm
+              current={annotation}
+              onConfirm={handleAssignConfirm}
+              onCancel={() => setActiveForm(null)}
+              loading={saving}
+            />
+          ) : (
+            <div className="flex gap-2 flex-wrap items-center">
+              {muted ? (
+                <button
+                  onClick={handleUnmute}
+                  disabled={saving}
+                  className="text-xs font-mono px-3 py-1.5 rounded border border-outline-variant/20 text-on-surface-variant hover:text-on-surface hover:border-outline-variant/50 disabled:opacity-50"
+                >
+                  {saving ? 'Saving…' : 'Unmute Signal'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setActiveForm('mute')}
+                  className="text-xs font-mono px-3 py-1.5 rounded border border-outline-variant/20 text-on-surface-variant hover:text-on-surface hover:border-outline-variant/50"
+                >
+                  Mute Signal
+                </button>
+              )}
+
+              {assignedTo ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-on-surface-variant">
+                    Assigned to <span className="text-primary">{assignedTo}</span>
+                  </span>
+                  <button
+                    onClick={() => setActiveForm('assign')}
+                    className="text-xs font-mono text-on-surface-variant hover:text-on-surface underline"
+                  >
+                    Change
+                  </button>
+                  <button
+                    onClick={handleClearAssignee}
+                    disabled={saving}
+                    className="text-xs font-mono text-on-surface-variant hover:text-on-surface underline disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setActiveForm('assign')}
+                  className="text-xs font-mono px-3 py-1.5 rounded border border-outline-variant/20 text-on-surface-variant hover:text-on-surface hover:border-outline-variant/50"
+                >
+                  Assign Reviewer
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -176,6 +446,23 @@ export default function SecurityTab({
   const [typeFilter, setTypeFilter] = useState<'all' | 'security' | 'dependency'>('all')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<SignalItem | null>(null)
+  const queryClient = useQueryClient()
+
+  const { data: annotations = {} } = useQuery<SignalAnnotationMap>({
+    queryKey: ['annotations', runId],
+    queryFn: () => api.getAnnotations(runId),
+    staleTime: 30_000,
+  })
+
+  const annotateMutation = useMutation({
+    mutationFn: ({ signalKey, body }: {
+      signalKey: string
+      body: { muted?: boolean; mute_reason?: string | null; assigned_to?: string | null }
+    }) => api.saveAnnotation(runId, signalKey, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['annotations', runId] })
+    },
+  })
 
   const items = allSignals(report)
 
@@ -256,6 +543,7 @@ export default function SecurityTab({
                 key={i}
                 item={item}
                 selected={selected === item}
+                annotation={annotations[getSignalKey(item)]}
                 onClick={() => setSelected(item)}
               />
             ))
@@ -266,7 +554,12 @@ export default function SecurityTab({
       {/* Detail panel */}
       <div className="flex-1 overflow-y-auto">
         {selected ? (
-          <SignalDetail item={selected} runId={runId} />
+          <SignalDetail
+            item={selected}
+            runId={runId}
+            annotation={annotations[getSignalKey(selected)]}
+            onAnnotate={(signalKey, body) => annotateMutation.mutateAsync({ signalKey, body })}
+          />
         ) : (
           <div className="flex items-center justify-center h-full text-on-surface-variant">
             <div className="text-center">

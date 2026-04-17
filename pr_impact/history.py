@@ -10,6 +10,7 @@ repo at .primpact/history.db (or the path supplied via --history-db).
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import os
 import sqlite3
@@ -43,6 +44,18 @@ from .models import (
 
 # --- Schema ---
 
+def compute_signal_key(kind: str, identifier: str, subtype: str, description: str = "") -> str:
+    """Return a 16-char hex key that stably identifies a signal across runs.
+
+    kind        — "signal" or "dep"
+    identifier  — file path (signal) or package name (dep)
+    subtype     — signal_type or issue_type
+    description — signal description (optional, included for uniqueness)
+    """
+    raw = f"{kind}|{identifier}|{subtype}|{description}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
 _CREATE_TABLES = """\
 CREATE TABLE IF NOT EXISTS runs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,6 +86,17 @@ CREATE TABLE IF NOT EXISTS security_signals (
     file        TEXT    NOT NULL,
     signal_type TEXT    NOT NULL,
     severity    TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS signal_annotations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_path   TEXT    NOT NULL,
+    signal_key  TEXT    NOT NULL,
+    muted       INTEGER NOT NULL DEFAULT 0,
+    mute_reason TEXT,
+    assigned_to TEXT,
+    updated_at  TEXT    NOT NULL,
+    UNIQUE(repo_path, signal_key)
 );
 """
 
@@ -562,6 +586,92 @@ def clear_history(db_path: str, repo_path: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def save_signal_annotation(
+    db_path: str,
+    repo_path: str,
+    signal_key: str,
+    *,
+    muted: bool | None = None,
+    mute_reason: str | None = None,
+    assigned_to: str | None = None,
+) -> dict:
+    """Upsert a mute/assign annotation for a signal, scoped to repo_path.
+
+    Only the provided fields are updated; omitted fields keep their current value.
+    Returns the resulting annotation dict. Raises on unexpected errors.
+    """
+    conn = _connect(db_path)
+    try:
+        ts = datetime.now(timezone.utc).isoformat()
+        existing = conn.execute(
+            "SELECT muted, mute_reason, assigned_to FROM signal_annotations WHERE repo_path = ? AND signal_key = ?",
+            (repo_path, signal_key),
+        ).fetchone()
+
+        if existing is None:
+            new_muted = int(muted) if muted is not None else 0
+            new_reason = mute_reason
+            new_assigned = assigned_to
+            conn.execute(
+                "INSERT INTO signal_annotations (repo_path, signal_key, muted, mute_reason, assigned_to, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (repo_path, signal_key, new_muted, new_reason, new_assigned, ts),
+            )
+        else:
+            cur_muted, cur_reason, cur_assigned = existing
+            new_muted = int(muted) if muted is not None else cur_muted
+            new_reason = mute_reason if mute_reason is not None else cur_reason
+            new_assigned = assigned_to if assigned_to is not None else cur_assigned
+            conn.execute(
+                "UPDATE signal_annotations SET muted = ?, mute_reason = ?, assigned_to = ?, updated_at = ? "
+                "WHERE repo_path = ? AND signal_key = ?",
+                (new_muted, new_reason, new_assigned, ts, repo_path, signal_key),
+            )
+        conn.commit()
+        return {
+            "signal_key": signal_key,
+            "muted": bool(new_muted),
+            "mute_reason": new_reason,
+            "assigned_to": new_assigned,
+            "updated_at": ts,
+        }
+    finally:
+        conn.close()
+
+
+def load_signal_annotations(db_path: str, repo_path: str, signal_keys: list[str]) -> dict[str, dict]:
+    """Return annotations for the given signal keys, keyed by signal_key.
+
+    Missing keys are omitted from the result. Returns {} on any error.
+    """
+    if not os.path.exists(db_path) or not signal_keys:
+        return {}
+    conn = None
+    try:
+        conn = _connect(db_path)
+        placeholders = ",".join("?" * len(signal_keys))
+        rows = conn.execute(
+            f"SELECT signal_key, muted, mute_reason, assigned_to, updated_at "
+            f"FROM signal_annotations WHERE repo_path = ? AND signal_key IN ({placeholders})",
+            [repo_path, *signal_keys],
+        ).fetchall()
+        return {
+            row[0]: {
+                "signal_key": row[0],
+                "muted": bool(row[1]),
+                "mute_reason": row[2],
+                "assigned_to": row[3],
+                "updated_at": row[4],
+            }
+            for row in rows
+        }
+    except Exception:
+        return {}
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def load_run(db_path: str, run_uuid: str) -> ImpactReport | None:
