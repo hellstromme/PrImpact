@@ -758,12 +758,12 @@ def test_run_pipeline_exits_0_when_no_changed_files():
     assert exc_info.value.code == 0
 
 
-def test_run_pipeline_returns_six_tuple():
+def test_run_pipeline_returns_seven_tuple():
     refs = RefsResult(base="abc", head="def")
     patches = _pipeline_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
-    changed, _blast, _, ai, _, dep = result
+    changed, _blast, _blast_graph, _, ai, _, dep = result
     assert changed[0].path == "foo.py"
     assert _blast == []
     assert ai.summary == "ok"
@@ -795,7 +795,7 @@ def test_run_pipeline_import_graph_failure_continues():
     patches = _pipeline_patches()
     patches[1] = patch("pr_impact.analyzer.build_import_graph", side_effect=RuntimeError("oops"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        changed, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        changed, _, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -805,7 +805,7 @@ def test_run_pipeline_blast_radius_failure_continues():
     patches = _pipeline_patches()
     patches[2] = patch("pr_impact.analyzer.get_blast_radius", side_effect=RuntimeError("oops"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, blast, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, blast, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert blast == []
 
 
@@ -815,7 +815,7 @@ def test_run_pipeline_ai_failure_returns_empty_analysis():
     patches = _pipeline_patches()
     patches[5] = patch("pr_impact.analyzer.run_ai_analysis", side_effect=ValueError("no key"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, _, _, ai, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, _, _, _, ai, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert ai.summary == ""
 
 
@@ -832,7 +832,7 @@ def test_run_pipeline_classifier_failure_continues():
         patches[5],
         patch("pr_impact.analyzer.classify_changed_file", side_effect=RuntimeError("parse error")),
     ):
-        changed, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        changed, _, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert changed  # pipeline still completed
 
 
@@ -849,7 +849,7 @@ def test_run_pipeline_interface_change_failure_continues():
         patches[5],
         patch("pr_impact.analyzer.get_interface_changes", side_effect=RuntimeError("oops")),
     ):
-        _, _, interface, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, _, _, interface, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert interface == []
 
 
@@ -866,7 +866,7 @@ def test_run_pipeline_ensure_commits_warning_on_failure():
         patches[5],
         patch("pr_impact.analyzer.ensure_commits_present", side_effect=RuntimeError("fetch failed")),
     ):
-        changed, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        changed, _, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert changed  # pipeline completed despite the warning
 
 
@@ -878,7 +878,7 @@ def test_run_pipeline_churn_failure_sets_none_and_continues():
     patches[2] = patch("pr_impact.analyzer.get_blast_radius", return_value=[blast_entry])
     patches[3] = patch("pr_impact.analyzer.get_git_churn", side_effect=RuntimeError("git error"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, blast, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, _blast, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert blast_entry.churn_score is None
 
 
@@ -888,7 +888,7 @@ def test_run_pipeline_metadata_failure_returns_empty_dict():
     patches = _pipeline_patches()
     patches[4] = patch("pr_impact.analyzer.get_pr_metadata", side_effect=RuntimeError("no history"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, _, _, _, meta, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, _, _, _, _, meta, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert meta == {}
 
 
@@ -1308,7 +1308,7 @@ def test_run_pipeline_detect_signals_failure_continues():
         patch("pr_impact.analyzer.detect_pattern_signals", side_effect=RuntimeError("scan error")),
         patches[7],
     ):
-        _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     # pipeline completed; dep is from check_dependency_integrity mock (returns [])
     assert dep == []
 
@@ -1347,7 +1347,7 @@ def test_run_pipeline_check_integrity_failure_continues():
         patches[6],
         patch("pr_impact.analyzer.check_dependency_integrity", side_effect=RuntimeError("dep error")),
     ):
-        _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert dep == []
 
 
@@ -1410,7 +1410,7 @@ def test_run_pipeline_dependency_issues_returned_as_sixth_element():
     patches = _pipeline_patches()
     patches[7] = patch("pr_impact.analyzer.check_dependency_integrity", return_value=[dep_issue])
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, _, _, _, _, _, dep = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert dep == [dep_issue]
 
 
@@ -1746,7 +1746,7 @@ class TestBuildReport:
         refs = RefsResult(base="abc", head="def")
         hotspots = [{"file": "src/foo.py", "appearances": 5}]
         report = _build_report(
-            "title", refs, [], [], [], AIAnalysis(), [], hotspots
+            "title", refs, [], [], None, [], AIAnalysis(), [], hotspots
         )
         assert isinstance(report, ImpactReport)
         assert len(report.historical_hotspots) == 1
@@ -1755,12 +1755,12 @@ class TestBuildReport:
 
     def test_handles_empty_hotspots(self):
         refs = RefsResult(base="abc", head="def")
-        report = _build_report("title", refs, [], [], [], AIAnalysis(), [], None)
+        report = _build_report("title", refs, [], [], None, [], AIAnalysis(), [], None)
         assert report.historical_hotspots == []
 
     def test_sets_base_and_head_sha(self):
         refs = RefsResult(base="aaa", head="bbb")
-        report = _build_report("title", refs, [], [], [], AIAnalysis(), [], None)
+        report = _build_report("title", refs, [], [], None, [], AIAnalysis(), [], None)
         assert report.base_sha == "aaa"
         assert report.head_sha == "bbb"
 
@@ -1769,7 +1769,7 @@ class TestBuildReport:
         f = make_file("src/foo.py")
         blast = [BlastRadiusEntry(path="src/bar.py", distance=1, imported_symbols=[], churn_score=None)]
         ai = AIAnalysis(summary="ok")
-        report = _build_report("title", refs, [f], blast, [], ai, [], None)
+        report = _build_report("title", refs, [f], blast, None, [], ai, [], None)
         assert len(report.changed_files) == 1
         assert len(report.blast_radius) == 1
         assert report.ai_analysis.summary == "ok"

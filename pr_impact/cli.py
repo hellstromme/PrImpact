@@ -19,7 +19,7 @@ from .config import CONFIG_PATH, env_placeholder, load_config, read_toml_config
 from .config_file import load_config_file
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .history import get_run_count, load_anomaly_patterns, load_hotspots, save_run
-from .models import HistoricalHotspot, ImpactReport, RefsResult
+from .models import BlastGraph, HistoricalHotspot, ImpactReport, RefsResult
 from .reporter import render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
 
 def _make_console(*, is_stderr: bool = False) -> Console:
@@ -340,6 +340,7 @@ def _build_report(
     refs: RefsResult,
     changed_files: list,
     blast_radius: list,
+    blast_graph: BlastGraph | None,
     interface_changes: list,
     ai_analysis,
     dependency_issues: list,
@@ -359,6 +360,7 @@ def _build_report(
             HistoricalHotspot(file=h["file"], appearances=h["appearances"])
             for h in (hotspots or [])
         ],
+        blast_graph=blast_graph,
     )
 
 
@@ -541,7 +543,7 @@ def analyse(
             pr_config=pr_config,
         )
         try:
-            changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues = (
+            changed_files, blast_radius, blast_graph, interface_changes, ai_analysis, metadata, dependency_issues = (
                 analyzer.run(progress)
             )
         except AnalyzerExit as exc:
@@ -554,7 +556,7 @@ def analyse(
 
     report = _build_report(
         _build_pr_title(refs, metadata),
-        refs, changed_files, blast_radius, interface_changes,
+        refs, changed_files, blast_radius, blast_graph, interface_changes,
         ai_analysis, dependency_issues, hotspots,
     )
     _write_outputs(report, output, json_output, sarif_output)

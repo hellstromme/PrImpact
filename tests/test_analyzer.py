@@ -139,7 +139,7 @@ def test_impact_analyzer_run_with_anomaly_history_invalid_entries_does_not_crash
     patches = _full_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = ImpactAnalyzer(".", MagicMock(), refs, anomaly_history=bad_history).run(MagicMock())
-    assert len(result) == 6
+    assert len(result) == 7
 
 
 def test_impact_analyzer_run_with_hotspots_invalid_entries_does_not_crash():
@@ -149,44 +149,44 @@ def test_impact_analyzer_run_with_hotspots_invalid_entries_does_not_crash():
     patches = _full_patches()
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = ImpactAnalyzer(".", MagicMock(), refs, hotspots=bad_hotspots).run(MagicMock())
-    assert len(result) == 6
+    assert len(result) == 7
 
 
 # ---------------------------------------------------------------------------
-# ImpactAnalyzer.run() — consistent 6-tuple when steps fail
+# ImpactAnalyzer.run() — consistent 7-tuple when steps fail
 # ---------------------------------------------------------------------------
 
 
-def test_impact_analyzer_run_returns_six_tuple_when_import_graph_fails():
+def test_impact_analyzer_run_returns_seven_tuple_when_import_graph_fails():
     refs = RefsResult(base="abc", head="def")
     patches = _full_patches()
     patches[1] = patch("pr_impact.analyzer.build_import_graph", side_effect=RuntimeError("boom"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = ImpactAnalyzer(".", MagicMock(), refs).run(MagicMock())
-    assert len(result) == 6
-    changed, blast, interface, ai, metadata, deps = result
+    assert len(result) == 7
+    changed, *_ = result
     assert changed  # pipeline completed
 
 
-def test_impact_analyzer_run_returns_six_tuple_when_blast_radius_fails():
+def test_impact_analyzer_run_returns_seven_tuple_when_blast_radius_fails():
     refs = RefsResult(base="abc", head="def")
     patches = _full_patches()
     patches[2] = patch("pr_impact.analyzer.get_blast_radius", side_effect=RuntimeError("boom"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = ImpactAnalyzer(".", MagicMock(), refs).run(MagicMock())
-    assert len(result) == 6
-    _, blast, _, _, _, _ = result
+    assert len(result) == 7
+    _, blast, _, _, _, _, _ = result
     assert blast == []
 
 
-def test_impact_analyzer_run_returns_six_tuple_when_ai_fails():
+def test_impact_analyzer_run_returns_seven_tuple_when_ai_fails():
     refs = RefsResult(base="abc", head="def")
     patches = _full_patches()
     patches[5] = patch("pr_impact.analyzer.run_ai_analysis", side_effect=ValueError("no key"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = ImpactAnalyzer(".", MagicMock(), refs).run(MagicMock())
-    assert len(result) == 6
-    _, _, _, ai, _, _ = result
+    assert len(result) == 7
+    _, _, _, _, ai, _, _ = result
     assert ai.summary == ""
 
 
