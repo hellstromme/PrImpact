@@ -73,7 +73,9 @@ async def _run_subprocess(run_id: str, cmd: list[str]) -> None:
             stderr=asyncio.subprocess.PIPE,
         )
         _, stderr_bytes = await proc.communicate()
-        if proc.returncode == 0:
+        if proc.returncode in (0, 1, 2):
+            # 0 = clean, 1 = severity threshold exceeded, 2 = verdict blockers —
+            # all are valid completed analyses, not failures.
             _job_status[run_id] = {"status": "complete", "error": None}
         else:
             stderr_text = stderr_bytes.decode(errors="replace").strip() if stderr_bytes else ""
