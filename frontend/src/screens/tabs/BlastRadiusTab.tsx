@@ -7,6 +7,7 @@ export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
   const { blast_radius, interface_changes } = report
 
   const maxPropagation = blast_radius.reduce((m, e) => Math.max(m, e.distance), 0)
+  const maxChurn = blast_radius.reduce((m, e) => Math.max(m, e.churn_score ?? 0), 1)
 
   return (
     <div className="p-8 max-w-5xl space-y-8">
@@ -91,11 +92,17 @@ export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
                         : '—'}
                     </td>
                     <td className="px-4 py-2.5">
-                      <SparkLine
-                        values={[entry.churn_score ?? 0]}
-                        width={48}
-                        height={16}
-                      />
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-on-surface-variant w-6 text-right">
+                          {entry.churn_score != null ? Math.round(entry.churn_score) : '—'}
+                        </span>
+                        <SparkLine
+                          values={[entry.churn_score ?? 0]}
+                          max={maxChurn}
+                          width={48}
+                          height={16}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
