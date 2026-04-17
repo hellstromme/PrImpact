@@ -1,17 +1,19 @@
 /** Micro bar-chart with amber→red gradient, used in blast radius / run list rows. */
 export default function SparkLine({
   values,
+  max: maxProp,
   width = 64,
   height = 20,
 }: {
   values: (number | null)[]
+  max?: number
   width?: number
   height?: number
 }) {
   const valid = values.filter((v): v is number => v !== null && v >= 0)
   if (valid.length === 0) return <span className="text-on-surface-variant text-xs font-mono">—</span>
 
-  const max = Math.max(...valid, 1)
+  const max = maxProp != null ? Math.max(maxProp, 1) : Math.max(...valid, 1)
   const barW = Math.floor(width / valid.length) - 1
 
   return (

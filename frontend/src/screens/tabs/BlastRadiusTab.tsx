@@ -7,6 +7,7 @@ export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
   const { blast_radius, interface_changes } = report
 
   const maxPropagation = blast_radius.reduce((m, e) => Math.max(m, e.distance), 0)
+  const maxChurn = blast_radius.reduce((m, e) => Math.max(m, e.churn_score ?? 0), 1)
 
   return (
     <div className="p-8 max-w-5xl space-y-8">
@@ -93,6 +94,7 @@ export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
                     <td className="px-4 py-2.5">
                       <SparkLine
                         values={[entry.churn_score ?? 0]}
+                        max={maxChurn}
                         width={48}
                         height={16}
                       />

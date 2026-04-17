@@ -231,6 +231,7 @@ function StatsRow({ runs }: { runs: RunSummary[] }) {
 
 function RecentRunsList({ runs }: { runs: RunSummary[] }) {
   const navigate = useNavigate()
+  const maxBlastRadius = runs.reduce((m, r) => Math.max(m, r.blast_radius_count), 1)
 
   if (runs.length === 0) {
     return (
@@ -283,7 +284,7 @@ function RecentRunsList({ runs }: { runs: RunSummary[] }) {
 
           {/* Sparkline */}
           <div className="hidden lg:block ml-6 shrink-0">
-            <SparkLine values={[run.blast_radius_count]} />
+            <SparkLine values={[run.blast_radius_count]} max={maxBlastRadius} />
           </div>
 
           <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors ml-4 shrink-0">
