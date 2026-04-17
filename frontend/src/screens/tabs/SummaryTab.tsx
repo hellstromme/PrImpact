@@ -1,6 +1,7 @@
 import type { ImpactReport } from '../../lib/types'
 import { SeverityChip, DistanceChip } from '../../components/StatusChip'
 import { shortPath } from '../../lib/formatters'
+import SparkLine from '../../components/SparkLine'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -150,41 +151,57 @@ export default function SummaryTab({
               <span className="text-on-surface-variant text-sm ml-2">files impacted</span>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-outline-variant/10">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-surface-container-low border-b border-outline-variant/10">
-                  <th className="text-left px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">
-                    File
-                  </th>
-                  <th className="text-left px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">
-                    Distance
-                  </th>
-                  <th className="text-left px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">
-                    Symbols
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {blast_radius.slice(0, 5).map((entry) => (
-                  <tr
-                    key={entry.path}
-                    className="border-b border-outline-variant/10 hover:bg-surface-container-high/50"
-                  >
-                    <td className="px-4 py-2 font-mono text-xs text-on-surface">
-                      {shortPath(entry.path)}
-                    </td>
-                    <td className="px-4 py-2">
-                      <DistanceChip distance={entry.distance} />
-                    </td>
-                    <td className="px-4 py-2 text-xs text-on-surface-variant">
-                      {entry.imported_symbols.length}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {(() => {
+            const maxChurn = blast_radius.reduce((m, e) => Math.max(m, e.churn_score ?? 0), 1)
+            return (
+              <div className="overflow-x-auto rounded-lg border border-outline-variant/10">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-surface-container-low border-b border-outline-variant/10">
+                      <th className="text-left px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">
+                        File
+                      </th>
+                      <th className="text-left px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">
+                        Distance
+                      </th>
+                      <th className="text-left px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">
+                        Symbols
+                      </th>
+                      <th className="text-left px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">
+                        Churn
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {blast_radius.slice(0, 5).map((entry) => (
+                      <tr
+                        key={entry.path}
+                        className="border-b border-outline-variant/10 hover:bg-surface-container-high/50"
+                      >
+                        <td className="px-4 py-2 font-mono text-xs text-on-surface">
+                          {shortPath(entry.path)}
+                        </td>
+                        <td className="px-4 py-2">
+                          <DistanceChip distance={entry.distance} />
+                        </td>
+                        <td className="px-4 py-2 text-xs text-on-surface-variant">
+                          {entry.imported_symbols.length}
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs text-on-surface-variant w-6 text-right">
+                              {entry.churn_score != null ? Math.round(entry.churn_score) : '—'}
+                            </span>
+                            <SparkLine values={[entry.churn_score ?? 0]} max={maxChurn} width={48} height={14} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          })()}
           {blast_radius.length > 5 && (
             <p className="text-xs text-on-surface-variant mt-2 font-mono">
               +{blast_radius.length - 5} more files — see Blast Radius tab
