@@ -1,13 +1,32 @@
+import { useState } from 'react'
 import type { ImpactReport } from '../../lib/types'
 import { DistanceChip } from '../../components/StatusChip'
 import SparkLine from '../../components/SparkLine'
+import BlastRadiusGraph from '../../components/BlastRadiusGraph'
 import { shortPath } from '../../lib/formatters'
 
+const VIEW_KEY = 'primpact.blastRadiusView'
+
 export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
-  const { blast_radius, interface_changes } = report
+  const { blast_radius, interface_changes, blast_graph } = report
+
+  const [view, setView] = useState<'table' | 'graph'>(() => {
+    try {
+      return (localStorage.getItem(VIEW_KEY) as 'table' | 'graph') ?? 'table'
+    } catch {
+      return 'table'
+    }
+  })
+
+  const switchView = (v: 'table' | 'graph') => {
+    setView(v)
+    try { localStorage.setItem(VIEW_KEY, v) } catch { /* ignore */ }
+  }
 
   const maxPropagation = blast_radius.reduce((m, e) => Math.max(m, e.distance), 0)
   const maxChurn = blast_radius.reduce((m, e) => Math.max(m, e.churn_score ?? 0), 1)
+
+  const hasGraph = blast_graph != null && blast_graph.nodes.length > 0
 
   return (
     <div className="p-8 max-w-5xl space-y-8">
@@ -47,15 +66,37 @@ export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
         </div>
       )}
 
-      {/* File Impact Profile table */}
+      {/* File Impact Profile section with view toggle */}
       <section>
-        <h2 className="font-headline text-lg font-semibold mb-4 border-b border-outline-variant/10 pb-2">
-          File Impact Profile
-        </h2>
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-outline-variant/10">
+          <h2 className="font-headline text-lg font-semibold">
+            File Impact Profile
+          </h2>
+          {hasGraph && (
+            <div className="flex items-center gap-0.5 bg-surface-container-high rounded-sm p-0.5">
+              {(['table', 'graph'] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => switchView(v)}
+                  className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest rounded-[2px] transition-colors ${
+                    view === v
+                      ? 'bg-surface-container-highest text-on-surface'
+                      : 'text-on-surface-variant hover:text-on-surface'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {blast_radius.length === 0 ? (
           <p className="text-on-surface-variant text-sm font-mono">
             No files in blast radius.
           </p>
+        ) : view === 'graph' && blast_graph != null ? (
+          <BlastRadiusGraph graph={blast_graph} />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-outline-variant/10">
             <table className="w-full text-sm">

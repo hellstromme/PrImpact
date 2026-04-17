@@ -135,6 +135,26 @@ export interface Verdict {
   blockers: VerdictBlocker[]
 }
 
+export interface GraphNode {
+  id: string
+  path: string
+  type: 'changed' | 'affected'
+  distance: number
+  language: string | null
+  churn_score: number | null
+}
+
+export interface GraphEdge {
+  source: string
+  target: string
+  symbols: string[]
+}
+
+export interface BlastGraph {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
 export interface ImpactReport {
   pr_title: string
   base_sha: string
@@ -147,6 +167,7 @@ export interface ImpactReport {
   historical_hotspots: HistoricalHotspot[]
   // verdict may be present when --verdict was used at analysis time
   verdict?: Verdict
+  blast_graph?: BlastGraph | null
 }
 
 // API request/response types

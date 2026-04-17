@@ -22,7 +22,7 @@ from .language_resolvers import (
     load_tsconfig_aliases,
     read_file,
 )
-from .models import BlastRadiusEntry, resolve_language
+from .models import BlastGraph, BlastRadiusEntry, GraphEdge, GraphNode, resolve_language
 
 # Matches C# `namespace Foo.Bar` declarations — used only to build the
 # namespace→files map in build_import_graph; not a resolver concern.
@@ -249,3 +249,51 @@ def get_imported_symbols(file_path: str, imported_from: str) -> list[str]:
         symbols.append(m.group(1).rsplit("/", 1)[-1])
 
     return list(set(symbols))
+
+
+def build_blast_graph(
+    reverse_graph: dict[str, list[str]],
+    changed_paths: list[str],
+    blast_radius: list[BlastRadiusEntry],
+) -> BlastGraph:
+    """Build a graph representation of the blast radius for interactive visualization.
+
+    Edges are reconstructed from the reverse graph: for each node pair (A, B)
+    where both are in the node set and B is in reverse_graph[A], an edge A→B is
+    created (impact propagates from A to B because B imports A).
+    """
+    all_paths: set[str] = set(changed_paths) | {e.path for e in blast_radius}
+
+    # Build nodes
+    br_by_path = {e.path: e for e in blast_radius}
+    nodes: list[GraphNode] = []
+    for path in changed_paths:
+        nodes.append(GraphNode(
+            id=path, path=path, type="changed", distance=0,
+            language=resolve_language(path), churn_score=None,
+        ))
+    for entry in blast_radius:
+        nodes.append(GraphNode(
+            id=entry.path, path=entry.path, type="affected", distance=entry.distance,
+            language=resolve_language(entry.path), churn_score=entry.churn_score,
+        ))
+
+    # Build edges: reverse_graph[A] = [B, ...] means B imports A → edge A→B
+    symbol_map = {e.path: e.imported_symbols for e in blast_radius}
+    edges: list[GraphEdge] = []
+    seen: set[tuple[str, str]] = set()
+    for source_path in all_paths:
+        for target_path in reverse_graph.get(source_path, []):
+            if target_path not in all_paths:
+                continue
+            key = (source_path, target_path)
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append(GraphEdge(
+                source=source_path,
+                target=target_path,
+                symbols=symbol_map.get(target_path, []),
+            ))
+
+    return BlastGraph(nodes=nodes, edges=edges)

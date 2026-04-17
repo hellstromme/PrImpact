@@ -13,9 +13,9 @@ from rich.console import Console
 
 from .ai_layer import run_ai_analysis
 from .classifier import classify_changed_file, get_interface_changes
-from .dependency_graph import build_import_graph, get_blast_radius, get_imported_symbols
+from .dependency_graph import build_blast_graph, build_import_graph, get_blast_radius, get_imported_symbols
 from .git_analysis import ensure_commits_present, get_changed_files, get_git_churn, get_pr_metadata
-from .models import AIAnalysis, BlastRadiusEntry, ChangedFile, DependencyIssue, InterfaceChange, PrImpactConfig, RefsResult, SecuritySignal, SuppressedSignal
+from .models import AIAnalysis, BlastGraph, BlastRadiusEntry, ChangedFile, DependencyIssue, InterfaceChange, PrImpactConfig, RefsResult, SecuritySignal, SuppressedSignal
 from .security import check_dependency_integrity, detect_pattern_signals
 
 import git
@@ -94,11 +94,11 @@ class ImpactAnalyzer:
 
     def run(
         self, progress: object
-    ) -> tuple[list[ChangedFile], list[BlastRadiusEntry], list[InterfaceChange], AIAnalysis, dict, list[DependencyIssue]]:
+    ) -> tuple[list[ChangedFile], list[BlastRadiusEntry], BlastGraph, list[InterfaceChange], AIAnalysis, dict, list[DependencyIssue]]:
         """Execute all pipeline steps with an injected progress object.
 
-        Returns (changed_files, blast_radius, interface_changes, ai_analysis,
-        metadata, dependency_issues).
+        Returns (changed_files, blast_radius, blast_graph, interface_changes,
+        ai_analysis, metadata, dependency_issues).
         Exits with code 1 on fatal git errors, code 0 when no supported files
         changed.
 
@@ -200,6 +200,13 @@ class ImpactAnalyzer:
                 stderr.print(f"[yellow]Warning:[/yellow] Churn score failed for {entry.path}: {e}")
                 entry.churn_score = None
 
+        # Build blast graph for interactive visualization (best-effort)
+        try:
+            blast_graph = build_blast_graph(reverse_graph, changed_paths, blast_radius)
+        except Exception as e:
+            stderr.print(f"[yellow]Warning:[/yellow] Blast graph construction failed: {e}")
+            blast_graph = BlastGraph(nodes=[], edges=[])
+
         # Security: pattern signal detection (deterministic, fast, no API)
         progress.update(task, description="Scanning for security signals...")
         try:
@@ -242,4 +249,4 @@ class ImpactAnalyzer:
 
         progress.remove_task(task)
 
-        return changed_files, blast_radius, interface_changes, ai_analysis, metadata, dependency_issues
+        return changed_files, blast_radius, blast_graph, interface_changes, ai_analysis, metadata, dependency_issues

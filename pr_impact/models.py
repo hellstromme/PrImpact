@@ -172,6 +172,29 @@ class Verdict:
 
 
 @dataclass
+class GraphNode:
+    id: str               # file path (unique key)
+    path: str
+    type: str             # "changed" | "affected"
+    distance: int         # 0 for changed files
+    language: str | None
+    churn_score: float | None = None
+
+
+@dataclass
+class GraphEdge:
+    source: str           # origin-side file (impact flows out from here)
+    target: str           # dependent file (imports source, farther from origin)
+    symbols: list[str] = field(default_factory=list)
+
+
+@dataclass
+class BlastGraph:
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
+@dataclass
 class HistoricalHotspot:
     """A file that frequently appears in blast radii across past analyses."""
 
@@ -210,6 +233,7 @@ class ImpactReport:
     # v0.4: historical hotspots from prior runs (populated when --history-db is active)
     historical_hotspots: list[HistoricalHotspot] = field(default_factory=list)
     verdict: Verdict | None = None
+    blast_graph: BlastGraph | None = None
 
 
 @dataclass
