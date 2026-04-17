@@ -281,7 +281,7 @@ def load_runs(
 
             # Derive verdict from stored data
             verdict: str | None = None
-            verdict_data = ai.get("verdict")
+            verdict_data = data.get("verdict")
             if verdict_data and isinstance(verdict_data, dict):
                 verdict = verdict_data.get("status")
 
@@ -330,7 +330,7 @@ def load_run_summary(db_path: str, run_uuid: str) -> RunSummary | None:
             return None
         ai = data.get("ai_analysis", {})
         verdict: str | None = None
-        verdict_data = ai.get("verdict")
+        verdict_data = data.get("verdict")
         if verdict_data and isinstance(verdict_data, dict):
             verdict = verdict_data.get("status")
         return RunSummary(

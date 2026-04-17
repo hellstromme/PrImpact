@@ -209,6 +209,7 @@ class ImpactReport:
     dependency_issues: list[DependencyIssue] = field(default_factory=list)
     # v0.4: historical hotspots from prior runs (populated when --history-db is active)
     historical_hotspots: list[HistoricalHotspot] = field(default_factory=list)
+    verdict: Verdict | None = None
 
 
 @dataclass

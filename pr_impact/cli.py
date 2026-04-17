@@ -542,21 +542,22 @@ def analyse(
     _write_outputs(report, output, json_output, sarif_output)
     render_terminal(report, Console(), output, json_output, sarif_output)
 
-    # Save run to history (fire-and-forget; never affects exit code)
-    if not no_history:
-        stored_uuid = save_run(db_path, report, repo, run_uuid=run_id)
-        stderr.print(f"[dim]Run ID: {stored_uuid}[/dim]")
-
-    # Collect both exit conditions before exiting so neither silently suppresses the other.
+    # Collect both exit conditions before saving so verdict is persisted to history.
     # exit 2 (verdict blockers) takes precedence over exit 1 (--fail-on-severity),
     # because exit 2 carries a concrete remediation list for an agent loop.
     effective_fail_severity = fail_on_severity
     if effective_fail_severity == "none" and pr_config and pr_config.fail_on_severity:
         effective_fail_severity = pr_config.fail_on_severity
     severity_exit = _check_severity_threshold(effective_fail_severity, report.ai_analysis.anomalies)
-    _, verdict_continue = _run_verdict_if_requested(
+    verdict, verdict_continue = _run_verdict_if_requested(
         run_verdict, verdict_output, report.ai_analysis, report.dependency_issues
     )
+    report.verdict = verdict
+
+    # Save run to history (fire-and-forget; never affects exit code)
+    if not no_history:
+        stored_uuid = save_run(db_path, report, repo, run_uuid=run_id)
+        stderr.print(f"[dim]Run ID: {stored_uuid}[/dim]")
 
     if verdict_continue:
         sys.exit(2)
