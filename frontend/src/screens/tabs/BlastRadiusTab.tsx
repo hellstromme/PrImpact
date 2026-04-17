@@ -12,7 +12,8 @@ export default function BlastRadiusTab({ report }: { report: ImpactReport }) {
 
   const [view, setView] = useState<'table' | 'graph'>(() => {
     try {
-      return (localStorage.getItem(VIEW_KEY) as 'table' | 'graph') ?? 'table'
+      const stored = localStorage.getItem(VIEW_KEY)
+      return stored === 'table' || stored === 'graph' ? stored : 'table'
     } catch {
       return 'table'
     }

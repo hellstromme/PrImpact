@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
   ReactFlow,
   Background,
@@ -23,7 +23,7 @@ const NODE_H = 56
 
 // ─── Dagre layout ────────────────────────────────────────────────────────────
 
-function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
+function applyDagreLayout(nodes: Node[], edges: Edge[]): Node[] {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
   g.setGraph({ rankdir: 'LR', ranksep: 90, nodesep: 48, marginx: 32, marginy: 32 })
@@ -154,14 +154,7 @@ function Legend() {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function BlastRadiusGraph({ graph }: { graph: BlastGraph }) {
-  if (graph.nodes.length === 0) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 240, fontFamily: 'monospace', fontSize: 13, color: '#becab9' }}>
-        No dependency graph data available.
-      </div>
-    )
-  }
-
+  // All hooks must be called unconditionally before any early return (Rules of Hooks).
   const containerH = Math.min(Math.max(graph.nodes.length * 80, 320), 600)
 
   const symMap = useMemo(() => {
@@ -207,11 +200,25 @@ export default function BlastRadiusGraph({ graph }: { graph: BlastGraph }) {
     [graph],
   )
 
-  const [nodes, , onNodesChange] = useNodesState(layoutNodes(rawNodes, rawEdges))
-  const [edges, , onEdgesChange] = useEdgesState(rawEdges)
+  const [nodes, setNodes, onNodesChange] = useNodesState(applyDagreLayout(rawNodes, rawEdges))
+  const [edges, setEdges, onEdgesChange] = useEdgesState(rawEdges)
+
+  // Sync React Flow state when the graph prop changes (e.g. navigating between runs).
+  useEffect(() => {
+    setNodes(applyDagreLayout(rawNodes, rawEdges))
+    setEdges(rawEdges)
+  }, [rawNodes, rawEdges, setNodes, setEdges])
 
   const onInit: OnInit = (instance) => {
     instance.fitView({ padding: 0.12, duration: 300 })
+  }
+
+  if (graph.nodes.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 240, fontFamily: 'monospace', fontSize: 13, color: '#becab9' }}>
+        No dependency graph data available.
+      </div>
+    )
   }
 
   return (

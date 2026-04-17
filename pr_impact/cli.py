@@ -19,7 +19,7 @@ from .config import CONFIG_PATH, env_placeholder, load_config, read_toml_config
 from .config_file import load_config_file
 from .github import detect_github_remote, fetch_open_prs, fetch_pr
 from .history import get_run_count, load_anomaly_patterns, load_hotspots, save_run
-from .models import HistoricalHotspot, ImpactReport, RefsResult
+from .models import BlastGraph, HistoricalHotspot, ImpactReport, RefsResult
 from .reporter import render_json, render_markdown, render_sarif, render_terminal, render_verdict_terminal
 
 def _make_console(*, is_stderr: bool = False) -> Console:
@@ -340,7 +340,7 @@ def _build_report(
     refs: RefsResult,
     changed_files: list,
     blast_radius: list,
-    blast_graph,
+    blast_graph: BlastGraph | None,
     interface_changes: list,
     ai_analysis,
     dependency_issues: list,

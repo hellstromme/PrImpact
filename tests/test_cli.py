@@ -878,7 +878,7 @@ def test_run_pipeline_churn_failure_sets_none_and_continues():
     patches[2] = patch("pr_impact.analyzer.get_blast_radius", return_value=[blast_entry])
     patches[3] = patch("pr_impact.analyzer.get_git_churn", side_effect=RuntimeError("git error"))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
-        _, blast, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
+        _, _blast, _, _, _, _, _ = ImpactAnalyzer(".", MagicMock(), refs, max_depth=3).run(MagicMock())
     assert blast_entry.churn_score is None
 
 

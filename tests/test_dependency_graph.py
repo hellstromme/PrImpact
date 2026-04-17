@@ -7,10 +7,12 @@ from unittest.mock import patch
 from pr_impact.ast_extractor import ASTImport
 from pr_impact.dependency_graph import (
     _list_repo_files,
+    build_blast_graph,
     build_import_graph,
     get_blast_radius,
     get_imported_symbols,
 )
+from pr_impact.models import BlastRadiusEntry
 from pr_impact.language_resolvers import (
     _probe_js_extensions,
     ImportResolutionConfig,
@@ -1288,3 +1290,81 @@ def test_get_imported_symbols_ast_specifier_with_dot_extension_no_match(tmp_path
         result = get_imported_symbols(str(tmp_file), "src/utils.ts")
     # spec_stem = "js" != from_stem = "utils", so no match
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# build_blast_graph
+# ---------------------------------------------------------------------------
+
+def _entry(path: str, distance: int, symbols: list[str] | None = None, churn: float | None = None) -> BlastRadiusEntry:
+    return BlastRadiusEntry(
+        path=path,
+        distance=distance,
+        imported_symbols=symbols or [],
+        churn_score=churn,
+    )
+
+
+def test_build_blast_graph_basic_edges():
+    """Changed file A is imported by B → edge A→B appears in the graph."""
+    reverse_graph = {"a.py": ["b.py"]}
+    changed = ["a.py"]
+    blast = [_entry("b.py", 1, ["foo"])]
+    g = build_blast_graph(reverse_graph, changed, blast)
+    assert len(g.nodes) == 2
+    assert len(g.edges) == 1
+    edge = g.edges[0]
+    assert edge.source == "a.py"
+    assert edge.target == "b.py"
+    assert edge.symbols == ["foo"]
+
+
+def test_build_blast_graph_node_types():
+    """Changed nodes have type='changed', blast-radius nodes have type='affected'."""
+    reverse_graph = {"a.py": ["b.py"]}
+    g = build_blast_graph(reverse_graph, ["a.py"], [_entry("b.py", 1)])
+    by_id = {n.id: n for n in g.nodes}
+    assert by_id["a.py"].type == "changed"
+    assert by_id["a.py"].distance == 0
+    assert by_id["b.py"].type == "affected"
+    assert by_id["b.py"].distance == 1
+
+
+def test_build_blast_graph_no_duplicate_nodes_when_path_in_both():
+    """If a path appears in both changed_paths and blast_radius it must not be duplicated."""
+    reverse_graph: dict[str, list[str]] = {}
+    changed = ["a.py"]
+    blast = [_entry("a.py", 0)]  # accidentally also in blast radius
+    g = build_blast_graph(reverse_graph, changed, blast)
+    ids = [n.id for n in g.nodes]
+    assert ids.count("a.py") == 1
+    assert g.nodes[0].type == "changed"
+
+
+def test_build_blast_graph_ignores_external_targets():
+    """Targets not in the node set (outside blast radius) are not added as edges."""
+    reverse_graph = {"a.py": ["external.py", "b.py"]}
+    changed = ["a.py"]
+    blast = [_entry("b.py", 1)]
+    g = build_blast_graph(reverse_graph, changed, blast)
+    assert all(e.target != "external.py" for e in g.edges)
+    assert len(g.edges) == 1
+
+
+def test_build_blast_graph_no_duplicate_edges():
+    """Duplicate edges between the same (source, target) pair are deduplicated."""
+    # Both a.py and b.py appear as sources that target c.py via the reverse graph;
+    # but also simulate the same pair appearing twice.
+    reverse_graph = {"a.py": ["b.py", "b.py"]}
+    changed = ["a.py"]
+    blast = [_entry("b.py", 1)]
+    g = build_blast_graph(reverse_graph, changed, blast)
+    pairs = [(e.source, e.target) for e in g.edges]
+    assert len(pairs) == len(set(pairs))
+
+
+def test_build_blast_graph_empty_inputs():
+    """Empty inputs produce an empty graph without errors."""
+    g = build_blast_graph({}, [], [])
+    assert g.nodes == []
+    assert g.edges == []

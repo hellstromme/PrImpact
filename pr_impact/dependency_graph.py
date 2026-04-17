@@ -264,8 +264,9 @@ def build_blast_graph(
     """
     all_paths: set[str] = set(changed_paths) | {e.path for e in blast_radius}
 
-    # Build nodes
-    br_by_path = {e.path: e for e in blast_radius}
+    # Build nodes — changed_paths take precedence; skip blast_radius entries that
+    # also appear in changed_paths to avoid duplicates.
+    changed_set: set[str] = set(changed_paths)
     nodes: list[GraphNode] = []
     for path in changed_paths:
         nodes.append(GraphNode(
@@ -273,12 +274,15 @@ def build_blast_graph(
             language=resolve_language(path), churn_score=None,
         ))
     for entry in blast_radius:
+        if entry.path in changed_set:
+            continue
         nodes.append(GraphNode(
             id=entry.path, path=entry.path, type="affected", distance=entry.distance,
             language=resolve_language(entry.path), churn_score=entry.churn_score,
         ))
 
-    # Build edges: reverse_graph[A] = [B, ...] means B imports A → edge A→B
+    # Build edges: reverse_graph[A] = [B, ...] means B imports A → edge A→B.
+    # symbol_map only covers distance-1 entries (direct importers have full symbol info).
     symbol_map = {e.path: e.imported_symbols for e in blast_radius}
     edges: list[GraphEdge] = []
     seen: set[tuple[str, str]] = set()

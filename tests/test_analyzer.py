@@ -164,7 +164,7 @@ def test_impact_analyzer_run_returns_seven_tuple_when_import_graph_fails():
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
         result = ImpactAnalyzer(".", MagicMock(), refs).run(MagicMock())
     assert len(result) == 7
-    changed, blast, blast_graph, interface, ai, metadata, deps = result
+    changed, *_ = result
     assert changed  # pipeline completed
 
 
