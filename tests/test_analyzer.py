@@ -240,3 +240,107 @@ def test_security_signal_location_symbol_field_populated_and_accessible():
 def test_source_location_symbol_defaults_to_none():
     loc = SourceLocation(file="src/foo.py", line=1)
     assert loc.symbol is None
+
+
+# ---------------------------------------------------------------------------
+# ImpactAnalyzer.run() — imported_symbols population for blast radius entries
+# ---------------------------------------------------------------------------
+
+
+from pr_impact.models import BlastRadiusEntry
+
+
+def _patches_with_blast(blast_entries, changed_files=None):
+    """Full patch set with configurable blast radius and changed files."""
+    from tests.helpers import make_file as _make_file
+    files = changed_files if changed_files is not None else [_make_file("foo.py")]
+    return [
+        patch("pr_impact.analyzer.get_changed_files", return_value=files),
+        patch("pr_impact.analyzer.build_import_graph", return_value={}),
+        patch("pr_impact.analyzer.get_blast_radius", return_value=blast_entries),
+        patch("pr_impact.analyzer.get_git_churn", return_value=0.0),
+        patch("pr_impact.analyzer.get_pr_metadata", return_value={}),
+        patch("pr_impact.analyzer.run_ai_analysis", return_value=AIAnalysis(summary="ok")),
+        patch("pr_impact.analyzer.detect_pattern_signals", return_value=[]),
+        patch("pr_impact.analyzer.check_dependency_integrity", return_value=[]),
+    ]
+
+
+def _run_with(patches, extra_patches=(), repo="."):
+    import contextlib
+    refs = RefsResult(base="abc", head="def")
+    all_patches = patches + list(extra_patches)
+    with contextlib.ExitStack() as stack:
+        for p in all_patches:
+            stack.enter_context(p)
+        return ImpactAnalyzer(repo, MagicMock(), refs).run(MagicMock())
+
+
+def test_distance1_imported_symbols_populated():
+    entry = BlastRadiusEntry(path="consumer.py", distance=1, imported_symbols=[], churn_score=None)
+    ps = _patches_with_blast([entry])
+    _, blast, *_ = _run_with(
+        ps,
+        [patch("pr_impact.analyzer.get_imported_symbols", return_value=["login", "logout"])],
+    )
+    assert set(blast[0].imported_symbols) == {"login", "logout"}
+
+
+def test_distance2_imported_symbols_not_populated():
+    entry = BlastRadiusEntry(path="indirect.py", distance=2, imported_symbols=[], churn_score=None)
+    ps = _patches_with_blast([entry])
+    _, blast, *_ = _run_with(
+        ps,
+        [patch("pr_impact.analyzer.get_imported_symbols", return_value=["something"])],
+    )
+    assert blast[0].imported_symbols == []
+
+
+def test_distance1_imported_symbols_exception_silenced():
+    entry = BlastRadiusEntry(path="consumer.py", distance=1, imported_symbols=[], churn_score=None)
+    ps = _patches_with_blast([entry])
+    _, blast, *_ = _run_with(
+        ps,
+        [patch("pr_impact.analyzer.get_imported_symbols", side_effect=OSError("disk error"))],
+    )
+    assert blast[0].imported_symbols == []
+
+
+def test_distance1_imported_symbols_deduplicated():
+    """Symbols returned for multiple changed files are merged and deduplicated."""
+    from tests.helpers import make_file as _mf
+    entry = BlastRadiusEntry(path="consumer.py", distance=1, imported_symbols=[], churn_score=None)
+    changed = [_mf("a.py"), _mf("b.py")]
+    ps = _patches_with_blast([entry], changed_files=changed)
+    # get_imported_symbols returns "login" for both calls → should appear once
+    _, blast, *_ = _run_with(
+        ps,
+        [patch("pr_impact.analyzer.get_imported_symbols", return_value=["login"])],
+    )
+    assert blast[0].imported_symbols == ["login"]
+
+
+def test_distance1_absolute_paths_passed_to_get_imported_symbols():
+    from tests.helpers import make_file as _mf
+    entry = BlastRadiusEntry(path="src/consumer.py", distance=1, imported_symbols=[], churn_score=None)
+    ps = _patches_with_blast([entry], changed_files=[_mf("src/auth.py")])
+    with patch("pr_impact.analyzer.get_imported_symbols", return_value=[]) as mock_gis:
+        _run_with(ps, [], repo="/repo/root")
+    mock_gis.assert_called_once_with(
+        "/repo/root/src/consumer.py",
+        "/repo/root/src/auth.py",
+    )
+
+
+def test_distance1_and_distance2_mixed_only_d1_processed():
+    """Only distance-1 entries trigger get_imported_symbols; distance-2 entries are skipped."""
+    from tests.helpers import make_file as _mf
+    d1 = BlastRadiusEntry(path="direct.py", distance=1, imported_symbols=[], churn_score=None)
+    d2 = BlastRadiusEntry(path="indirect.py", distance=2, imported_symbols=[], churn_score=None)
+    ps = _patches_with_blast([d1, d2])
+    with patch("pr_impact.analyzer.get_imported_symbols", return_value=["sym"]) as mock_gis:
+        _, blast, *_ = _run_with(ps, [], repo=".")
+    # Called once for d1, never for d2
+    assert mock_gis.call_count == 1
+    assert set(blast[0].imported_symbols) == {"sym"}
+    assert blast[1].imported_symbols == []
