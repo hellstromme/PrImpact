@@ -46,4 +46,9 @@ export const api = {
     fetch(`/api/config?repo=${encodeURIComponent(repo)}`).then((r) =>
       _json<PrImpactConfig & { path: string }>(r)
     ),
+
+  clearHistory: (repo: string): Promise<{ deleted: boolean }> =>
+    fetch(`/api/history?repo=${encodeURIComponent(repo)}`, { method: 'DELETE' }).then((r) =>
+      _json<{ deleted: boolean }>(r)
+    ),
 }
