@@ -57,6 +57,23 @@ def compute_signal_key(kind: str, identifier: str, subtype: str, description: st
 
 
 _CREATE_TABLES = """\
+CREATE TABLE IF NOT EXISTS users (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    github_id   INTEGER NOT NULL UNIQUE,
+    login       TEXT    NOT NULL,
+    name        TEXT,
+    avatar_url  TEXT,
+    created_at  TEXT    NOT NULL,
+    last_seen   TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token       TEXT    PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    created_at  TEXT    NOT NULL,
+    expires_at  TEXT    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     repo_path   TEXT    NOT NULL,
@@ -104,6 +121,10 @@ CREATE TABLE IF NOT EXISTS signal_annotations (
 _MIGRATIONS = [
     "ALTER TABLE runs ADD COLUMN uuid TEXT",
     "ALTER TABLE runs ADD COLUMN report_json TEXT",
+    # v1.1 — multi-user auth attribution
+    "ALTER TABLE runs ADD COLUMN triggered_by_login TEXT",
+    "ALTER TABLE signal_annotations ADD COLUMN muted_by TEXT",
+    "ALTER TABLE signal_annotations ADD COLUMN assigned_by TEXT",
 ]
 
 
@@ -130,6 +151,7 @@ def save_run(
     report: ImpactReport,
     repo_path: str,
     run_uuid: str | None = None,
+    triggered_by_login: str | None = None,
 ) -> str:
     """Persist a completed analysis run to the history database.
 
@@ -153,9 +175,9 @@ def save_run(
         report_json = json.dumps(dataclasses.asdict(report), default=str)
 
         cur = conn.execute(
-            "INSERT INTO runs (repo_path, base_sha, head_sha, timestamp, pr_number, pr_title, uuid, report_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (repo_path, report.base_sha, report.head_sha, ts, pr_number, report.pr_title, run_uuid, report_json),
+            "INSERT INTO runs (repo_path, base_sha, head_sha, timestamp, pr_number, pr_title, uuid, report_json, triggered_by_login) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (repo_path, report.base_sha, report.head_sha, ts, pr_number, report.pr_title, run_uuid, report_json, triggered_by_login),
         )
         run_id = cur.lastrowid
 
@@ -266,6 +288,122 @@ def get_run_count(db_path: str, repo_path: str) -> int:
             conn.close()
 
 
+def upsert_user(
+    db_path: str,
+    github_id: int,
+    login: str,
+    name: str | None,
+    avatar_url: str | None,
+) -> int:
+    """Insert or update a GitHub user record; return the internal user id."""
+    conn = _connect(db_path)
+    try:
+        ts = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """INSERT INTO users (github_id, login, name, avatar_url, created_at, last_seen)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(github_id) DO UPDATE SET
+                 login=excluded.login,
+                 name=excluded.name,
+                 avatar_url=excluded.avatar_url,
+                 last_seen=excluded.last_seen""",
+            (github_id, login, name, avatar_url, ts, ts),
+        )
+        conn.commit()
+        row = conn.execute("SELECT id FROM users WHERE github_id = ?", (github_id,)).fetchone()
+        return row[0]
+    finally:
+        conn.close()
+
+
+def create_session(db_path: str, user_id: int, token: str, expires_at: str) -> None:
+    """Persist a new session token."""
+    conn = _connect(db_path)
+    try:
+        ts = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token, user_id, ts, expires_at),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_session(db_path: str, token: str) -> int | None:
+    """Return user_id for a valid non-expired session, or None."""
+    if not os.path.exists(db_path):
+        return None
+    conn = None
+    try:
+        conn = _connect(db_path)
+        now = datetime.now(timezone.utc).isoformat()
+        row = conn.execute(
+            "SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?",
+            (token, now),
+        ).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def delete_session(db_path: str, token: str) -> None:
+    """Remove a session token (logout)."""
+    if not os.path.exists(db_path):
+        return
+    conn = None
+    try:
+        conn = _connect(db_path)
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def get_user(db_path: str, user_id: int) -> dict | None:
+    """Return user record as a dict, or None if not found."""
+    if not os.path.exists(db_path):
+        return None
+    conn = None
+    try:
+        conn = _connect(db_path)
+        row = conn.execute(
+            "SELECT id, github_id, login, name, avatar_url FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {"id": row[0], "github_id": row[1], "login": row[2], "name": row[3], "avatar_url": row[4]}
+    except Exception:
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def purge_expired_sessions(db_path: str) -> None:
+    """Delete sessions that have passed their expires_at timestamp."""
+    if not os.path.exists(db_path):
+        return
+    conn = None
+    try:
+        conn = _connect(db_path)
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def load_runs(
     db_path: str,
     repo_path: str,
@@ -285,7 +423,7 @@ def load_runs(
         rows = conn.execute(
             """
             SELECT uuid, repo_path, pr_number, pr_title, base_sha, head_sha,
-                   timestamp, report_json
+                   timestamp, report_json, triggered_by_login
             FROM runs
             WHERE repo_path = ? AND uuid IS NOT NULL AND report_json IS NOT NULL
             ORDER BY timestamp DESC
@@ -296,7 +434,7 @@ def load_runs(
 
         summaries = []
         for row in rows:
-            run_uuid, rp, pr_num, pr_title, base_sha, head_sha, ts, report_json_str = row
+            run_uuid, rp, pr_num, pr_title, base_sha, head_sha, ts, report_json_str, triggered_by = row
             try:
                 data = json.loads(report_json_str)
             except (json.JSONDecodeError, TypeError):
@@ -326,6 +464,7 @@ def load_runs(
                 blast_radius_count=len(blast_radius),
                 anomaly_count=len(anomalies),
                 signal_count=len(security_signals) + len(dep_issues),
+                triggered_by_login=triggered_by,
             ))
         return summaries
     except Exception:
@@ -344,13 +483,13 @@ def load_run_summary(db_path: str, run_uuid: str) -> RunSummary | None:
         conn = _connect(db_path)
         row = conn.execute(
             """SELECT uuid, repo_path, pr_number, pr_title, base_sha, head_sha,
-                      timestamp, report_json
+                      timestamp, report_json, triggered_by_login
                FROM runs WHERE uuid = ?""",
             (run_uuid,),
         ).fetchone()
         if row is None:
             return None
-        run_id_val, repo_path, pr_num, pr_title, base_sha, head_sha, ts, report_json_str = row
+        run_id_val, repo_path, pr_num, pr_title, base_sha, head_sha, ts, report_json_str, triggered_by = row
         if report_json_str is None:
             return None
         try:
@@ -374,6 +513,7 @@ def load_run_summary(db_path: str, run_uuid: str) -> RunSummary | None:
             blast_radius_count=len(data.get("blast_radius", [])),
             anomaly_count=len(ai.get("anomalies", [])),
             signal_count=len(ai.get("security_signals", [])) + len(data.get("dependency_issues", [])),
+            triggered_by_login=triggered_by,
         )
     except Exception:
         return None
@@ -596,6 +736,8 @@ def save_signal_annotation(
     muted: bool | None = None,
     mute_reason: str | None = None,
     assigned_to: str | None = None,
+    muted_by: str | None = None,
+    assigned_by: str | None = None,
 ) -> dict:
     """Upsert a mute/assign annotation for a signal, scoped to repo_path.
 
@@ -606,7 +748,8 @@ def save_signal_annotation(
     try:
         ts = datetime.now(timezone.utc).isoformat()
         existing = conn.execute(
-            "SELECT muted, mute_reason, assigned_to FROM signal_annotations WHERE repo_path = ? AND signal_key = ?",
+            "SELECT muted, mute_reason, assigned_to, muted_by, assigned_by "
+            "FROM signal_annotations WHERE repo_path = ? AND signal_key = ?",
             (repo_path, signal_key),
         ).fetchone()
 
@@ -615,19 +758,23 @@ def save_signal_annotation(
             new_reason = None if mute_reason == "" else mute_reason
             new_assigned = None if assigned_to == "" else assigned_to
             conn.execute(
-                "INSERT INTO signal_annotations (repo_path, signal_key, muted, mute_reason, assigned_to, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (repo_path, signal_key, new_muted, new_reason, new_assigned, ts),
+                "INSERT INTO signal_annotations "
+                "(repo_path, signal_key, muted, mute_reason, assigned_to, updated_at, muted_by, assigned_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (repo_path, signal_key, new_muted, new_reason, new_assigned, ts, muted_by, assigned_by),
             )
         else:
-            cur_muted, cur_reason, cur_assigned = existing
+            cur_muted, cur_reason, cur_assigned, cur_muted_by, cur_assigned_by = existing
             new_muted = int(muted) if muted is not None else cur_muted
             new_reason = (None if mute_reason == "" else mute_reason) if mute_reason is not None else cur_reason
             new_assigned = (None if assigned_to == "" else assigned_to) if assigned_to is not None else cur_assigned
+            new_muted_by = muted_by if muted_by is not None else cur_muted_by
+            new_assigned_by = assigned_by if assigned_by is not None else cur_assigned_by
             conn.execute(
-                "UPDATE signal_annotations SET muted = ?, mute_reason = ?, assigned_to = ?, updated_at = ? "
+                "UPDATE signal_annotations "
+                "SET muted = ?, mute_reason = ?, assigned_to = ?, updated_at = ?, muted_by = ?, assigned_by = ? "
                 "WHERE repo_path = ? AND signal_key = ?",
-                (new_muted, new_reason, new_assigned, ts, repo_path, signal_key),
+                (new_muted, new_reason, new_assigned, ts, new_muted_by, new_assigned_by, repo_path, signal_key),
             )
         conn.commit()
         return {
@@ -635,6 +782,8 @@ def save_signal_annotation(
             "muted": bool(new_muted),
             "mute_reason": new_reason,
             "assigned_to": new_assigned,
+            "muted_by": muted_by if existing is None else new_muted_by,
+            "assigned_by": assigned_by if existing is None else new_assigned_by,
             "updated_at": ts,
         }
     finally:
@@ -653,7 +802,7 @@ def load_signal_annotations(db_path: str, repo_path: str, signal_keys: list[str]
         conn = _connect(db_path)
         placeholders = ",".join("?" * len(signal_keys))
         rows = conn.execute(
-            f"SELECT signal_key, muted, mute_reason, assigned_to, updated_at "
+            f"SELECT signal_key, muted, mute_reason, assigned_to, updated_at, muted_by, assigned_by "
             f"FROM signal_annotations WHERE repo_path = ? AND signal_key IN ({placeholders})",
             [repo_path, *signal_keys],
         ).fetchall()
@@ -664,6 +813,8 @@ def load_signal_annotations(db_path: str, repo_path: str, signal_keys: list[str]
                 "mute_reason": row[2],
                 "assigned_to": row[3],
                 "updated_at": row[4],
+                "muted_by": row[5],
+                "assigned_by": row[6],
             }
             for row in rows
         }

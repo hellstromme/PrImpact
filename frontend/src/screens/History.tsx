@@ -5,8 +5,9 @@ import { api } from '../lib/api'
 import { relativeTime, shortPath } from '../lib/formatters'
 import { VerdictChip } from '../components/StatusChip'
 import type { RunSummary } from '../lib/types'
+import { useAuth } from '../lib/AuthContext'
 
-const REPO_KEY = 'primpact_repo'
+const repoKey = (login?: string | null) => (login ? `primpact_repo_${login}` : 'primpact_repo')
 type Filter = 'all' | 'clean' | 'has_blockers'
 
 function groupByDate(runs: RunSummary[]): { label: string; runs: RunSummary[] }[] {
@@ -104,12 +105,14 @@ function RunRow({ run, onClick }: { run: RunSummary; onClick: () => void }) {
 
 export default function History() {
   const navigate = useNavigate()
-  const [repo, setRepo] = useState<string>(() => localStorage.getItem(REPO_KEY) ?? '')
+  const { user } = useAuth()
+  const key = repoKey(user?.login)
+  const [repo, setRepo] = useState<string>(() => localStorage.getItem(key) ?? '')
   const [filter, setFilter] = useState<Filter>('all')
 
   function handleRepoChange(r: string) {
     setRepo(r)
-    localStorage.setItem(REPO_KEY, r)
+    localStorage.setItem(key, r)
   }
 
   const { data: runs = [], isLoading } = useQuery({

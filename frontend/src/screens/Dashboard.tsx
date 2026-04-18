@@ -7,8 +7,9 @@ import { relativeTime, shortPath } from '../lib/formatters'
 import { VerdictChip } from '../components/StatusChip'
 import SparkLine from '../components/SparkLine'
 import type { RunSummary } from '../lib/types'
+import { useAuth } from '../lib/AuthContext'
 
-const REPO_KEY = 'primpact_repo'
+const repoKey = (login?: string | null) => (login ? `primpact_repo_${login}` : 'primpact_repo')
 
 // ---------------------------------------------------------------------------
 // HeroForm
@@ -304,7 +305,9 @@ function RecentRunsList({ runs }: { runs: RunSummary[] }) {
 // ---------------------------------------------------------------------------
 
 export default function Dashboard() {
-  const [repo, setRepo] = useState<string>(() => localStorage.getItem(REPO_KEY) ?? '')
+  const { user } = useAuth()
+  const key = repoKey(user?.login)
+  const [repo, setRepo] = useState<string>(() => localStorage.getItem(key) ?? '')
   const [debouncedRepo, setDebouncedRepo] = useState(repo)
 
   useEffect(() => {
@@ -314,7 +317,7 @@ export default function Dashboard() {
 
   function handleRepoChange(r: string) {
     setRepo(r)
-    localStorage.setItem(REPO_KEY, r)
+    localStorage.setItem(key, r)
   }
 
   const { data: runs = [], isLoading } = useQuery({

@@ -2,6 +2,18 @@
 
 export type Severity = 'high' | 'medium' | 'low'
 
+export interface AuthUser {
+  id: number
+  login: string
+  name: string | null
+  avatar_url: string | null
+}
+
+export interface AuthStatus {
+  auth_enabled: boolean
+  user: AuthUser | null
+}
+
 export interface RunSummary {
   id: string
   repo_path: string
@@ -15,6 +27,7 @@ export interface RunSummary {
   anomaly_count: number
   signal_count: number
   merged: boolean           // true when head_sha is an ancestor of the main branch
+  triggered_by_login: string | null
 }
 
 export interface SourceLocation {
@@ -108,6 +121,8 @@ export interface SignalAnnotation {
   mute_reason: string | null
   assigned_to: string | null
   updated_at: string
+  muted_by: string | null
+  assigned_by: string | null
 }
 
 export type SignalAnnotationMap = Record<string, SignalAnnotation>

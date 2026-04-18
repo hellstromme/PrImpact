@@ -218,6 +218,7 @@ class RunSummary:
     anomaly_count: int
     signal_count: int
     merged: bool = False     # True when head_sha is an ancestor of the main branch
+    triggered_by_login: str | None = None  # GitHub login of the user who triggered the run
 
 
 @dataclass

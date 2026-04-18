@@ -50,6 +50,9 @@ async def trigger_analyse(body: AnalyseRequest, request: Request) -> dict:
         raise HTTPException(status_code=422, detail={"error": "Provide pr_number or both base_sha and head_sha"})
     if db_path:
         cmd += ["--history-db", db_path]
+    user = getattr(request.state, "user", None)
+    if user:
+        cmd += ["--triggered-by", user["login"]]
 
     asyncio.create_task(_run_subprocess(run_id, cmd))
     return {"run_id": run_id, "status": "pending"}

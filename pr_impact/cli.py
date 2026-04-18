@@ -480,6 +480,13 @@ def main() -> None:
     default=None,
     help="Explicit UUID for this run (auto-generated if omitted); used to deep-link from the web UI",
 )
+@click.option(
+    "--triggered-by",
+    "triggered_by",
+    default=None,
+    hidden=True,
+    help="GitHub login of the user who triggered this run (set by the web server)",
+)
 def analyse(
     repo: str,
     pr_number: int | None,
@@ -496,6 +503,7 @@ def analyse(
     history_db: str | None,
     no_history: bool,
     run_id: str | None,
+    triggered_by: str | None,
 ) -> None:
     """Analyse the impact of a code change between two commit SHAs or a GitHub PR."""
     if _stdin_is_interactive():
@@ -576,7 +584,7 @@ def analyse(
 
     # Save run to history (fire-and-forget; never affects exit code)
     if not no_history:
-        stored_uuid = save_run(db_path, report, repo, run_uuid=run_id)
+        stored_uuid = save_run(db_path, report, repo, run_uuid=run_id, triggered_by_login=triggered_by)
         stderr.print(f"[dim]Run ID: {stored_uuid}[/dim]")
 
     if verdict_continue:
@@ -595,7 +603,16 @@ def analyse(
     default=None,
     help="Path to the history SQLite database (default: .primpact/history.db)",
 )
-def serve(port: int, host: str, open_browser: bool, history_db: str | None) -> None:
+@click.option(
+    "--auth",
+    is_flag=True,
+    default=False,
+    help=(
+        "Enable GitHub OAuth authentication. "
+        "Requires GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and SESSION_SECRET env vars."
+    ),
+)
+def serve(port: int, host: str, open_browser: bool, history_db: str | None, auth: bool) -> None:
     """Start the PrImpact web UI server."""
     try:
         import uvicorn
@@ -606,7 +623,7 @@ def serve(port: int, host: str, open_browser: bool, history_db: str | None) -> N
         )
 
     db_path = history_db or os.environ.get("PRIMPACT_DB_PATH", ".primpact/history.db")
-    app = create_app(db_path=db_path)
+    app = create_app(db_path=db_path, auth=auth)
 
     url = f"http://{host}:{port}"
     stderr.print(f"[bold green]PrImpact[/bold green] serving at [link={url}]{url}[/link]")
@@ -642,15 +659,25 @@ def server(port: int, host: str, repos_dir: str, history_db: str | None) -> None
     Receives GitHub and GitLab webhook events, runs analysis automatically,
     and posts the Markdown report as a PR / MR comment.
 
-    Required environment variables:
+    Authentication is always enabled for the team server. Required environment
+    variables:
 
     \b
       ANTHROPIC_API_KEY      — Claude API key (required for analysis)
+      GITHUB_CLIENT_ID       — GitHub OAuth App client ID
+      GITHUB_CLIENT_SECRET   — GitHub OAuth App client secret
+      SESSION_SECRET         — Random hex string for signing session cookies
       WEBHOOK_SECRET         — GitHub webhook HMAC-SHA256 secret
       GITLAB_WEBHOOK_TOKEN   — GitLab webhook token
       GITHUB_TOKEN           — GitHub PAT for posting PR comments
       GITLAB_TOKEN           — GitLab PAT for posting MR notes
       GITLAB_URL             — GitLab base URL (default: https://gitlab.com)
+
+    Optional access control:
+
+    \b
+      PRIMPACT_ALLOWED_ORG   — Restrict to members of this GitHub org
+      PRIMPACT_ALLOWED_USERS — Comma-separated GitHub logins allowlist
     """
     try:
         import uvicorn

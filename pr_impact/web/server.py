@@ -52,6 +52,7 @@ def create_app(
     db_path: str | None = None,
     lifespan=None,
     extra_routers: list | None = None,
+    auth: bool = False,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -63,6 +64,9 @@ def create_app(
         extra_routers: Additional APIRouter instances to include before the SPA
                        catch-all route. create_server_app() passes the webhook
                        router here so it is registered before /{full_path:path}.
+        auth:          Enable GitHub OAuth authentication. When True, requires
+                       GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and SESSION_SECRET
+                       environment variables.
     """
     resolved_db = db_path or os.environ.get("PRIMPACT_DB_PATH", _DEFAULT_DB)
 
@@ -75,15 +79,32 @@ def create_app(
 
     # Store db_path on app state so route handlers can read it via request.app.state
     app.state.db_path = resolved_db
+    app.state.auth_enabled = auth
 
     # Allowed origins are read from the CORS_ORIGINS env var (comma-separated).
     # Defaults to localhost Vite dev server origins for local development.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["*"],
+        allow_credentials=True,
     )
+
+    if auth:
+        from .auth import AuthMiddleware, check_auth_env
+        from .api.auth_routes import router as auth_router
+        from ..history import purge_expired_sessions
+
+        check_auth_env()
+        app.state.session_secret = os.environ["SESSION_SECRET"]
+        app.add_middleware(AuthMiddleware)
+        app.include_router(auth_router)
+        purge_expired_sessions(resolved_db)
+    else:
+        # Always register /auth/status so the frontend can detect no-auth mode
+        from .api.auth_routes import router as auth_router
+        app.include_router(auth_router)
 
     app.include_router(runs_router, prefix="/api")
     app.include_router(analyse_router, prefix="/api")
@@ -147,7 +168,7 @@ def create_server_app(
 
     # Pass webhook_router via extra_routers so it is registered before the
     # SPA catch-all route (/{full_path:path}) in create_app().
-    app = create_app(db_path=db_path, lifespan=_lifespan, extra_routers=[webhook_router])
+    app = create_app(db_path=db_path, lifespan=_lifespan, extra_routers=[webhook_router], auth=True)
     app.state.repos_dir = resolved_repos
     return app
 

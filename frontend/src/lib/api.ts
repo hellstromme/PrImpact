@@ -1,6 +1,7 @@
 import type {
   AnalyseRequest,
   AnalysisStatusResponse,
+  AuthUser,
   ImpactReport,
   PrImpactConfig,
   RunSummary,
@@ -9,7 +10,11 @@ import type {
   SnippetResponse,
 } from './types'
 
-async function _json<T>(res: Response): Promise<T> {
+async function _json<T>(res: Response, allowUnauth = false): Promise<T> {
+  if (res.status === 401 && !allowUnauth) {
+    window.location.href = '/login'
+    return undefined as never
+  }
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`HTTP ${res.status}: ${body}`)
@@ -67,4 +72,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then((r) => _json<SignalAnnotation>(r)),
+
+  getMe: (): Promise<AuthUser> =>
+    fetch('/auth/me').then((r) => _json<AuthUser>(r, true)),
+
+  logout: (): Promise<void> =>
+    fetch('/auth/logout', { method: 'POST' }).then((r) => _json<void>(r, true)),
 }

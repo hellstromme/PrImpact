@@ -1,4 +1,6 @@
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { useAuth } from '../lib/AuthContext'
+import { api } from '../lib/api'
 
 interface NavItem {
   label: string
@@ -56,6 +58,14 @@ function SideNavLink({
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const { user, authEnabled } = useAuth()
+  const navigate = useNavigate()
+
+  async function handleLogout() {
+    await api.logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <div className="flex h-full">
       {/* Sidebar */}
@@ -91,6 +101,33 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             />
           ))}
         </div>
+
+        {/* User profile (only shown when auth is enabled) */}
+        {authEnabled && user && (
+          <div className="px-4 py-3 border-t border-outline-variant/10 flex items-center gap-2">
+            {user.avatar_url ? (
+              <img
+                src={user.avatar_url}
+                alt={user.login}
+                className="h-6 w-6 rounded-full shrink-0"
+              />
+            ) : (
+              <span className="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">
+                account_circle
+              </span>
+            )}
+            <span className="text-[0.6875rem] font-mono text-on-surface-variant truncate flex-1">
+              {user.login}
+            </span>
+            <button
+              onClick={handleLogout}
+              title="Sign out"
+              className="text-on-surface-variant hover:text-on-surface transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px] leading-none">logout</span>
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Main content */}

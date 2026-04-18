@@ -79,6 +79,9 @@ def save_annotation(run_id: str, signal_key: str, body: AnnotationBody, request:
     if signal_key not in known_keys:
         raise HTTPException(status_code=404, detail={"error": "Signal not found in run"})
 
+    user = getattr(request.state, "user", None)
+    user_login: str | None = user["login"] if user else None
+
     return save_signal_annotation(
         db_path,
         repo_path,
@@ -86,4 +89,6 @@ def save_annotation(run_id: str, signal_key: str, body: AnnotationBody, request:
         muted=body.muted,
         mute_reason=body.mute_reason,
         assigned_to=body.assigned_to,
+        muted_by=user_login if body.muted else None,
+        assigned_by=user_login if body.assigned_to else None,
     )
