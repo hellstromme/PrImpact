@@ -1,16 +1,17 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { queryKeys } from '../lib/queryKeys'
 import { VerdictChip } from '../components/StatusChip'
 import TabBar, { type Tab } from '../components/TabBar'
-import SummaryTab from './tabs/SummaryTab'
-import AnomaliesTab from './tabs/AnomaliesTab'
-import BlastRadiusTab from './tabs/BlastRadiusTab'
-import SecurityTab from './tabs/SecurityTab'
-import DependenciesTab from './tabs/DependenciesTab'
-import TestGapsTab from './tabs/TestGapsTab'
+
+const SummaryTab = lazy(() => import('./tabs/SummaryTab'))
+const AnomaliesTab = lazy(() => import('./tabs/AnomaliesTab'))
+const BlastRadiusTab = lazy(() => import('./tabs/BlastRadiusTab'))
+const SecurityTab = lazy(() => import('./tabs/SecurityTab'))
+const DependenciesTab = lazy(() => import('./tabs/DependenciesTab'))
+const TestGapsTab = lazy(() => import('./tabs/TestGapsTab'))
 
 const TABS: Tab[] = [
   { id: 'summary', label: 'Summary', icon: 'summarize' },
@@ -101,12 +102,18 @@ export default function Report() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'summary' && <SummaryTab report={report} onNavigate={handleTabChange} />}
-        {activeTab === 'blast-radius' && <BlastRadiusTab report={report} />}
-        {activeTab === 'anomalies' && <AnomaliesTab report={report} />}
-        {activeTab === 'security' && <SecurityTab report={report} runId={runId} />}
-        {activeTab === 'dependencies' && <DependenciesTab report={report} />}
-        {activeTab === 'test-gaps' && <TestGapsTab report={report} />}
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-32 text-on-surface-variant">
+            <span className="material-symbols-outlined animate-spin text-[32px] text-primary">progress_activity</span>
+          </div>
+        }>
+          {activeTab === 'summary' && <SummaryTab report={report} onNavigate={handleTabChange} />}
+          {activeTab === 'blast-radius' && <BlastRadiusTab report={report} />}
+          {activeTab === 'anomalies' && <AnomaliesTab report={report} />}
+          {activeTab === 'security' && <SecurityTab report={report} runId={runId} />}
+          {activeTab === 'dependencies' && <DependenciesTab report={report} />}
+          {activeTab === 'test-gaps' && <TestGapsTab report={report} />}
+        </Suspense>
       </div>
     </div>
   )
