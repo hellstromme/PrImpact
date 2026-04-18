@@ -1,10 +1,36 @@
-import { useState, lazy, Suspense } from 'react'
+import { Component, useState, lazy, Suspense, type ReactNode } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { queryKeys } from '../lib/queryKeys'
 import { VerdictChip } from '../components/StatusChip'
 import TabBar, { type Tab } from '../components/TabBar'
+
+export class TabErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 text-center text-tertiary" data-testid="tab-error-fallback">
+          <span className="material-symbols-outlined text-[48px] block mb-3">error</span>
+          <p className="font-mono text-sm">Failed to load this tab. Please refresh the page.</p>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 const SummaryTab = lazy(() => import('./tabs/SummaryTab'))
 const AnomaliesTab = lazy(() => import('./tabs/AnomaliesTab'))
@@ -102,18 +128,20 @@ export default function Report() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
-        <Suspense fallback={
-          <div className="flex items-center justify-center h-32 text-on-surface-variant">
-            <span className="material-symbols-outlined animate-spin text-[32px] text-primary">progress_activity</span>
-          </div>
-        }>
-          {activeTab === 'summary' && <SummaryTab report={report} onNavigate={handleTabChange} />}
-          {activeTab === 'blast-radius' && <BlastRadiusTab report={report} />}
-          {activeTab === 'anomalies' && <AnomaliesTab report={report} />}
-          {activeTab === 'security' && <SecurityTab report={report} runId={runId} />}
-          {activeTab === 'dependencies' && <DependenciesTab report={report} />}
-          {activeTab === 'test-gaps' && <TestGapsTab report={report} />}
-        </Suspense>
+        <TabErrorBoundary key={activeTab}>
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-32 text-on-surface-variant" data-testid="tab-suspense-fallback">
+              <span className="material-symbols-outlined animate-spin text-[32px] text-primary">progress_activity</span>
+            </div>
+          }>
+            {activeTab === 'summary' && <SummaryTab report={report} onNavigate={handleTabChange} />}
+            {activeTab === 'blast-radius' && <BlastRadiusTab report={report} />}
+            {activeTab === 'anomalies' && <AnomaliesTab report={report} />}
+            {activeTab === 'security' && <SecurityTab report={report} runId={runId} />}
+            {activeTab === 'dependencies' && <DependenciesTab report={report} />}
+            {activeTab === 'test-gaps' && <TestGapsTab report={report} />}
+          </Suspense>
+        </TabErrorBoundary>
       </div>
     </div>
   )

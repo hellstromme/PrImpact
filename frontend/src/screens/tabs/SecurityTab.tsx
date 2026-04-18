@@ -207,6 +207,8 @@ function SignalDetail({
     try {
       await onAnnotate(signalKey, { muted: true, mute_reason: reason || null })
       setActiveForm(null)
+    } catch {
+      // mutation error — state reset in finally
     } finally {
       setSaving(false)
     }
@@ -216,6 +218,8 @@ function SignalDetail({
     setSaving(true)
     try {
       await onAnnotate(signalKey, { muted: false, mute_reason: null })
+    } catch {
+      // mutation error — state reset in finally
     } finally {
       setSaving(false)
     }
@@ -226,6 +230,8 @@ function SignalDetail({
     try {
       await onAnnotate(signalKey, { assigned_to: name.trim() || null })
       setActiveForm(null)
+    } catch {
+      // mutation error — state reset in finally
     } finally {
       setSaving(false)
     }
@@ -235,6 +241,8 @@ function SignalDetail({
     setSaving(true)
     try {
       await onAnnotate(signalKey, { assigned_to: '' })
+    } catch {
+      // mutation error — state reset in finally
     } finally {
       setSaving(false)
     }

@@ -411,3 +411,91 @@ class TestReportFromDictBlastGraph:
         assert restored.distance == 2
         assert restored.language == "typescript"
         assert restored.churn_score == 12.0
+
+
+# ---------------------------------------------------------------------------
+# signal_annotations — schema, compute_signal_key, persistence, upsert
+# ---------------------------------------------------------------------------
+
+
+class TestSignalAnnotations:
+    from pr_impact.history import (
+        compute_signal_key as _csk,
+        load_signal_annotations as _load,
+        save_signal_annotation as _save,
+    )
+
+    def test_schema_creates_signal_annotations_table(self, db_path, repo_path):
+        save_run(db_path, _minimal_report(), repo_path=repo_path)
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='signal_annotations'"
+            ).fetchone()
+        assert row is not None
+
+    def test_compute_signal_key_is_deterministic(self):
+        from pr_impact.history import compute_signal_key
+        k1 = compute_signal_key("signal", "src/auth.py", "shell_invoke", "New shell invoke")
+        k2 = compute_signal_key("signal", "src/auth.py", "shell_invoke", "New shell invoke")
+        assert k1 == k2
+
+    def test_compute_signal_key_is_16_hex_chars(self):
+        from pr_impact.history import compute_signal_key
+        k = compute_signal_key("dep", "evil-pkg", "typosquat", "desc")
+        assert len(k) == 16
+        assert all(c in "0123456789abcdef" for c in k)
+
+    def test_compute_signal_key_differs_for_different_identifiers(self):
+        from pr_impact.history import compute_signal_key
+        k1 = compute_signal_key("signal", "src/a.py", "type_x", "desc")
+        k2 = compute_signal_key("signal", "src/b.py", "type_x", "desc")
+        assert k1 != k2
+
+    def test_save_annotation_persists_all_fields(self, db_path, repo_path):
+        from pr_impact.history import save_signal_annotation
+        result = save_signal_annotation(
+            db_path, repo_path, "testkey12345678",
+            muted=True, mute_reason="false positive", assigned_to="alice",
+        )
+        assert result["muted"] is True
+        assert result["mute_reason"] == "false positive"
+        assert result["assigned_to"] == "alice"
+        assert result["updated_at"] is not None
+        assert result["signal_key"] == "testkey12345678"
+
+    def test_save_annotation_upsert_updates_existing(self, db_path, repo_path):
+        from pr_impact.history import save_signal_annotation
+        save_signal_annotation(db_path, repo_path, "testkey12345678", muted=True)
+        result = save_signal_annotation(
+            db_path, repo_path, "testkey12345678", muted=False, assigned_to="bob"
+        )
+        assert result["muted"] is False
+        assert result["assigned_to"] == "bob"
+
+    def test_save_annotation_empty_string_clears_assigned_to(self, db_path, repo_path):
+        from pr_impact.history import save_signal_annotation
+        save_signal_annotation(db_path, repo_path, "testkey12345678", assigned_to="carol")
+        result = save_signal_annotation(
+            db_path, repo_path, "testkey12345678", assigned_to=""
+        )
+        assert result["assigned_to"] is None
+
+    def test_load_annotations_returns_saved_entries(self, db_path, repo_path):
+        from pr_impact.history import save_signal_annotation, load_signal_annotations
+        save_signal_annotation(
+            db_path, repo_path, "key0000000000001", muted=True, mute_reason="fp"
+        )
+        data = load_signal_annotations(db_path, repo_path, ["key0000000000001"])
+        assert "key0000000000001" in data
+        assert data["key0000000000001"]["muted"] is True
+
+    def test_load_annotations_omits_missing_keys(self, db_path, repo_path):
+        from pr_impact.history import load_signal_annotations
+        # No annotations saved; result should be empty
+        data = load_signal_annotations(db_path, repo_path, ["nonexistent_key_x"])
+        assert data == {}
+
+    def test_load_annotations_returns_empty_for_empty_key_list(self, db_path, repo_path):
+        from pr_impact.history import load_signal_annotations
+        data = load_signal_annotations(db_path, repo_path, [])
+        assert data == {}
