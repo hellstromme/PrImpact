@@ -23,3 +23,6 @@ secrets.yml
 
 # PrImpact runtime data — history DB and analysis artifacts
 .primpact/
+
+# Node
+node_modules/
