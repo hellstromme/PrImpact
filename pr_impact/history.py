@@ -612,8 +612,8 @@ def save_signal_annotation(
 
         if existing is None:
             new_muted = int(muted) if muted is not None else 0
-            new_reason = mute_reason
-            new_assigned = assigned_to
+            new_reason = None if mute_reason == "" else mute_reason
+            new_assigned = None if assigned_to == "" else assigned_to
             conn.execute(
                 "INSERT INTO signal_annotations (repo_path, signal_key, muted, mute_reason, assigned_to, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -622,8 +622,8 @@ def save_signal_annotation(
         else:
             cur_muted, cur_reason, cur_assigned = existing
             new_muted = int(muted) if muted is not None else cur_muted
-            new_reason = mute_reason if mute_reason is not None else cur_reason
-            new_assigned = assigned_to if assigned_to is not None else cur_assigned
+            new_reason = (None if mute_reason == "" else mute_reason) if mute_reason is not None else cur_reason
+            new_assigned = (None if assigned_to == "" else assigned_to) if assigned_to is not None else cur_assigned
             conn.execute(
                 "UPDATE signal_annotations SET muted = ?, mute_reason = ?, assigned_to = ?, updated_at = ? "
                 "WHERE repo_path = ? AND signal_key = ?",

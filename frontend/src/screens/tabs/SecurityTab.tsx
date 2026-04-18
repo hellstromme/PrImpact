@@ -234,7 +234,7 @@ function SignalDetail({
   async function handleClearAssignee() {
     setSaving(true)
     try {
-      await onAnnotate(signalKey, { assigned_to: null })
+      await onAnnotate(signalKey, { assigned_to: '' })
     } finally {
       setSaving(false)
     }
