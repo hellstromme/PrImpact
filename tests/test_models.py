@@ -208,3 +208,66 @@ class TestChangedFile:
         assert cf.changed_symbols == []
         assert cf.path == "src/main.py"
         assert cf.language == "python"
+
+
+class TestImpactReportBlastGraph:
+    """Tests for ImpactReport serialization and blast_graph field."""
+
+    def test_blast_graph_field_survives_asdict_roundtrip(self):
+        """dataclasses.asdict preserves all blast_graph node and edge fields."""
+        import dataclasses
+        from pr_impact.models import AIAnalysis, BlastGraph, GraphEdge, GraphNode
+
+        graph = BlastGraph(
+            nodes=[
+                GraphNode(id="a.py", path="a.py", type="changed",
+                          distance=0, language="python", churn_score=None),
+                GraphNode(id="b.py", path="b.py", type="affected",
+                          distance=1, language="python", churn_score=2.5),
+            ],
+            edges=[GraphEdge(source="a.py", target="b.py", symbols=["myFn"])],
+        )
+        report = ImpactReport(
+            pr_title="test",
+            base_sha="aaa",
+            head_sha="bbb",
+            changed_files=[],
+            blast_radius=[],
+            interface_changes=[],
+            ai_analysis=AIAnalysis(),
+            dependency_issues=[],
+            blast_graph=graph,
+        )
+        d = dataclasses.asdict(report)
+        bg = d["blast_graph"]
+        assert bg is not None
+        assert len(bg["nodes"]) == 2
+        assert bg["nodes"][0]["id"] == "a.py"
+        assert bg["nodes"][0]["type"] == "changed"
+        assert bg["nodes"][1]["churn_score"] == 2.5
+        assert bg["edges"][0]["symbols"] == ["myFn"]
+
+    def test_blast_graph_is_none_by_default(self):
+        """ImpactReport.blast_graph defaults to None when not supplied."""
+        from pr_impact.models import AIAnalysis
+        report = ImpactReport(
+            pr_title="",
+            base_sha="a",
+            head_sha="b",
+            changed_files=[],
+            blast_radius=[],
+            interface_changes=[],
+            ai_analysis=AIAnalysis(),
+            dependency_issues=[],
+        )
+        assert report.blast_graph is None
+
+    def test_graphnode_type_accepts_changed_and_affected(self):
+        """GraphNode can be constructed with both valid type values."""
+        from pr_impact.models import GraphNode
+        changed = GraphNode(id="a.py", path="a.py", type="changed",
+                            distance=0, language=None, churn_score=None)
+        affected = GraphNode(id="b.py", path="b.py", type="affected",
+                             distance=1, language=None, churn_score=None)
+        assert changed.type == "changed"
+        assert affected.type == "affected"

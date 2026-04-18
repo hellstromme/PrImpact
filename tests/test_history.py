@@ -337,3 +337,77 @@ class TestFaultTolerance:
         result = save_run("\x00bad", _minimal_report(), repo_path="/r")
         assert isinstance(result, str)
         assert len(result) == 36
+
+
+# ---------------------------------------------------------------------------
+# _report_from_dict — blast_graph field
+# ---------------------------------------------------------------------------
+
+
+class TestReportFromDictBlastGraph:
+    """Tests for blast_graph parsing in _report_from_dict (exercised via load_run)."""
+
+    def test_roundtrip_with_nodes_and_edges(self, db_path, repo_path):
+        """A blast_graph stored via save_run is faithfully restored by load_run."""
+        from pr_impact.models import BlastGraph, GraphEdge, GraphNode
+        from pr_impact.history import load_run
+
+        graph = BlastGraph(
+            nodes=[
+                GraphNode(id="src/a.py", path="src/a.py", type="changed",
+                          distance=0, language="python", churn_score=None),
+                GraphNode(id="src/b.py", path="src/b.py", type="affected",
+                          distance=1, language="python", churn_score=3.5),
+            ],
+            edges=[GraphEdge(source="src/a.py", target="src/b.py", symbols=["foo", "bar"])],
+        )
+        report = _minimal_report(blast_graph=graph)
+        save_run(db_path, report, repo_path)
+        loaded = load_run(db_path, list(
+            __import__("sqlite3").connect(db_path)
+            .execute("SELECT uuid FROM runs ORDER BY id DESC LIMIT 1")
+            .fetchone()
+        )[0])
+        assert loaded is not None
+        assert loaded.blast_graph is not None
+        assert len(loaded.blast_graph.nodes) == 2
+        by_id = {n.id: n for n in loaded.blast_graph.nodes}
+        assert by_id["src/a.py"].type == "changed"
+        assert by_id["src/b.py"].churn_score == 3.5
+        assert loaded.blast_graph.edges[0].symbols == ["foo", "bar"]
+
+    def test_missing_blast_graph_deserialises_as_none(self, db_path, repo_path):
+        """Reports saved without blast_graph deserialise with blast_graph=None."""
+        from pr_impact.history import load_run
+
+        report = _minimal_report()  # blast_graph defaults to None
+        save_run(db_path, report, repo_path)
+        loaded = load_run(db_path, list(
+            __import__("sqlite3").connect(db_path)
+            .execute("SELECT uuid FROM runs ORDER BY id DESC LIMIT 1")
+            .fetchone()
+        )[0])
+        assert loaded is not None
+        assert loaded.blast_graph is None
+
+    def test_blast_graph_node_fields_fully_preserved(self, db_path, repo_path):
+        """All GraphNode fields (id, path, type, distance, language, churn_score) survive a round-trip."""
+        from pr_impact.models import BlastGraph, GraphNode
+        from pr_impact.history import load_run
+
+        n = GraphNode(id="deep/module.ts", path="deep/module.ts", type="affected",
+                      distance=2, language="typescript", churn_score=12.0)
+        report = _minimal_report(blast_graph=BlastGraph(nodes=[n], edges=[]))
+        save_run(db_path, report, repo_path)
+        run_uuid = list(
+            __import__("sqlite3").connect(db_path)
+            .execute("SELECT uuid FROM runs ORDER BY id DESC LIMIT 1")
+            .fetchone()
+        )[0]
+        loaded = load_run(db_path, run_uuid)
+        restored = loaded.blast_graph.nodes[0]
+        assert restored.id == "deep/module.ts"
+        assert restored.type == "affected"
+        assert restored.distance == 2
+        assert restored.language == "typescript"
+        assert restored.churn_score == 12.0
