@@ -1368,3 +1368,30 @@ def test_build_blast_graph_empty_inputs():
     g = build_blast_graph({}, [], [])
     assert g.nodes == []
     assert g.edges == []
+
+
+def test_build_blast_graph_churn_score_propagated_to_affected_node():
+    """churn_score from the BlastRadiusEntry is stored on the GraphNode."""
+    g = build_blast_graph({"a.py": ["b.py"]}, ["a.py"], [_entry("b.py", 1, churn=7.5)])
+    by_id = {n.id: n for n in g.nodes}
+    assert by_id["b.py"].churn_score == 7.5
+
+
+def test_build_blast_graph_changed_node_has_none_churn_score():
+    """Changed nodes are constructed without a churn score (always None)."""
+    g = build_blast_graph({}, ["a.py"], [])
+    assert g.nodes[0].churn_score is None
+
+
+def test_build_blast_graph_edge_symbols_come_from_target_blast_entry():
+    """Edge symbols are taken from the blast_radius entry of the target node."""
+    blast = [_entry("b.py", 1, symbols=["alpha", "beta"])]
+    g = build_blast_graph({"a.py": ["b.py"]}, ["a.py"], blast)
+    assert g.edges[0].symbols == ["alpha", "beta"]
+
+
+def test_build_blast_graph_edge_symbols_empty_when_target_has_no_entry_symbols():
+    """An edge whose target has no imported_symbols produces an empty symbols list."""
+    blast = [_entry("b.py", 1, symbols=[])]
+    g = build_blast_graph({"a.py": ["b.py"]}, ["a.py"], blast)
+    assert g.edges[0].symbols == []

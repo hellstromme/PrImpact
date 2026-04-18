@@ -1774,6 +1774,23 @@ class TestBuildReport:
         assert len(report.blast_radius) == 1
         assert report.ai_analysis.summary == "ok"
 
+    def test_propagates_blast_graph_when_provided(self):
+        from pr_impact.models import BlastGraph, GraphNode
+        refs = RefsResult(base="abc", head="def")
+        graph = BlastGraph(
+            nodes=[GraphNode(id="a.py", path="a.py", type="changed",
+                             distance=0, language=None, churn_score=None)],
+            edges=[],
+        )
+        report = _build_report("title", refs, [], [], graph, [], AIAnalysis(), [], None)
+        assert report.blast_graph is graph
+        assert len(report.blast_graph.nodes) == 1
+
+    def test_blast_graph_none_propagated_to_report(self):
+        refs = RefsResult(base="abc", head="def")
+        report = _build_report("title", refs, [], [], None, [], AIAnalysis(), [], None)
+        assert report.blast_graph is None
+
 
 class TestResolveExplicitPr:
     def test_fetch_pr_runtime_error_exits_1(self):

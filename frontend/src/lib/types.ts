@@ -90,6 +90,7 @@ export interface SecuritySignal {
   severity: Severity
   why_unusual: string
   suggested_action: string
+  signal_key: string
 }
 
 export interface DependencyIssue {
@@ -98,7 +99,18 @@ export interface DependencyIssue {
   description: string
   severity: Severity
   license: string | null
+  signal_key: string
 }
+
+export interface SignalAnnotation {
+  signal_key: string
+  muted: boolean
+  mute_reason: string | null
+  assigned_to: string | null
+  updated_at: string
+}
+
+export type SignalAnnotationMap = Record<string, SignalAnnotation>
 
 export interface SemanticVerdict {
   file: string
