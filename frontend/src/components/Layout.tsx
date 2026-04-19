@@ -58,11 +58,12 @@ function SideNavLink({
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const { user, authEnabled } = useAuth()
+  const { user, authEnabled, setUser } = useAuth()
   const navigate = useNavigate()
 
   async function handleLogout() {
     await api.logout()
+    setUser(null)
     navigate('/login', { replace: true })
   }
 

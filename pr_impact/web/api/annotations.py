@@ -89,6 +89,6 @@ def save_annotation(run_id: str, signal_key: str, body: AnnotationBody, request:
         muted=body.muted,
         mute_reason=body.mute_reason,
         assigned_to=body.assigned_to,
-        muted_by=user_login if body.muted else None,
-        assigned_by=user_login if body.assigned_to else None,
+        muted_by=user_login if body.muted else ("" if body.muted is not None else None),
+        assigned_by=user_login if body.assigned_to else ("" if body.assigned_to is not None else None),
     )

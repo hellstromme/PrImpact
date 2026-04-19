@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-    token       TEXT    PRIMARY KEY,
+    token_hash  TEXT    PRIMARY KEY,
     user_id     INTEGER NOT NULL REFERENCES users(id),
     created_at  TEXT    NOT NULL,
     expires_at  TEXT    NOT NULL
@@ -125,6 +125,9 @@ _MIGRATIONS = [
     "ALTER TABLE runs ADD COLUMN triggered_by_login TEXT",
     "ALTER TABLE signal_annotations ADD COLUMN muted_by TEXT",
     "ALTER TABLE signal_annotations ADD COLUMN assigned_by TEXT",
+    # v1.1 security — store SHA-256(token) instead of raw itsdangerous token
+    "DELETE FROM sessions",  # invalidate any plain-text tokens before column rename
+    "ALTER TABLE sessions RENAME COLUMN token TO token_hash",
 ]
 
 
@@ -316,14 +319,19 @@ def upsert_user(
         conn.close()
 
 
+def _hash_token(token: str) -> str:
+    """Return the SHA-256 hex digest of *token* for at-rest storage."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def create_session(db_path: str, user_id: int, token: str, expires_at: str) -> None:
-    """Persist a new session token."""
+    """Persist a new session token (stored as SHA-256 hash)."""
     conn = _connect(db_path)
     try:
         ts = datetime.now(timezone.utc).isoformat()
         conn.execute(
-            "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            (token, user_id, ts, expires_at),
+            "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (_hash_token(token), user_id, ts, expires_at),
         )
         conn.commit()
     finally:
@@ -339,8 +347,8 @@ def get_session(db_path: str, token: str) -> int | None:
         conn = _connect(db_path)
         now = datetime.now(timezone.utc).isoformat()
         row = conn.execute(
-            "SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?",
-            (token, now),
+            "SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?",
+            (_hash_token(token), now),
         ).fetchone()
         return row[0] if row else None
     except Exception:
@@ -357,7 +365,7 @@ def delete_session(db_path: str, token: str) -> None:
     conn = None
     try:
         conn = _connect(db_path)
-        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_hash_token(token),))
         conn.commit()
     except Exception:
         pass
@@ -768,8 +776,8 @@ def save_signal_annotation(
             new_muted = int(muted) if muted is not None else cur_muted
             new_reason = (None if mute_reason == "" else mute_reason) if mute_reason is not None else cur_reason
             new_assigned = (None if assigned_to == "" else assigned_to) if assigned_to is not None else cur_assigned
-            new_muted_by = muted_by if muted_by is not None else cur_muted_by
-            new_assigned_by = assigned_by if assigned_by is not None else cur_assigned_by
+            new_muted_by = (None if muted_by == "" else muted_by) if muted_by is not None else cur_muted_by
+            new_assigned_by = (None if assigned_by == "" else assigned_by) if assigned_by is not None else cur_assigned_by
             conn.execute(
                 "UPDATE signal_annotations "
                 "SET muted = ?, mute_reason = ?, assigned_to = ?, updated_at = ?, muted_by = ?, assigned_by = ? "

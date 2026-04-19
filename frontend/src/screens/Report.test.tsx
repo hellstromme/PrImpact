@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, type JSX } from 'react'
 import { render, screen } from '@testing-library/react'
 import { TabErrorBoundary } from './Report'
 

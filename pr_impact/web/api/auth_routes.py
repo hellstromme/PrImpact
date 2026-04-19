@@ -9,6 +9,7 @@ GET  /auth/status     — Always available; returns auth_enabled flag + current 
 
 from __future__ import annotations
 
+import html
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,7 @@ from ..auth import (
     COOKIE_NAME,
     OAUTH_STATE_COOKIE,
     SESSION_TTL_DAYS,
+    _resolve_user,
     check_access,
     clear_session_cookie,
     make_session_token,
@@ -52,6 +54,7 @@ async def login(request: Request) -> RedirectResponse:
         httponly=True,
         samesite="lax",
         max_age=600,
+        secure=os.environ.get("PRIMPACT_SECURE_COOKIES", "").lower() == "true",
     )
     return response
 
@@ -139,14 +142,21 @@ async def status(request: Request) -> dict:
 
     Always reachable regardless of auth mode. The frontend AuthProvider
     fetches this on startup to decide whether to show the login gate.
+    AuthMiddleware skips this route, so session resolution is done inline.
     """
     auth_enabled: bool = getattr(request.app.state, "auth_enabled", False)
     user = getattr(request.state, "user", None)
+    if user is None and auth_enabled:
+        token = request.cookies.get(COOKIE_NAME)
+        db_path = getattr(request.app.state, "db_path", None)
+        secret = getattr(request.app.state, "session_secret", None)
+        if token and db_path and secret:
+            user = _resolve_user(token, secret, db_path)
     return {"auth_enabled": auth_enabled, "user": user}
 
 
 def _forbidden_page(login: str) -> str:
-    safe_login = login.replace("<", "&lt;").replace(">", "&gt;")
+    safe_login = html.escape(login)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>

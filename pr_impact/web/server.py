@@ -83,6 +83,9 @@ def create_app(
 
     # Allowed origins are read from the CORS_ORIGINS env var (comma-separated).
     # Defaults to localhost Vite dev server origins for local development.
+    # NOTE: allow_origins must never be ["*"] when allow_credentials=True —
+    # Starlette raises at startup if you attempt this combination. Only list
+    # known frontend origins (the default localhost values are safe).
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -102,9 +105,13 @@ def create_app(
         app.include_router(auth_router)
         purge_expired_sessions(resolved_db)
     else:
-        # Always register /auth/status so the frontend can detect no-auth mode
-        from .api.auth_routes import router as auth_router
-        app.include_router(auth_router)
+        # Register only /auth/status in no-auth mode so the frontend can detect
+        # the deployment type. The full auth_router is NOT included here —
+        # registering it would expose /auth/login and /auth/callback which crash
+        # without GITHUB_CLIENT_ID / SESSION_SECRET in the environment.
+        @app.get("/auth/status")
+        async def auth_status_no_auth() -> dict:
+            return {"auth_enabled": False, "user": None}
 
     app.include_router(runs_router, prefix="/api")
     app.include_router(analyse_router, prefix="/api")

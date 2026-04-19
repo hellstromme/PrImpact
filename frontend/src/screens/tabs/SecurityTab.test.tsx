@@ -62,6 +62,8 @@ function makeAnnotation(overrides?: Partial<SignalAnnotation>): SignalAnnotation
     mute_reason: null,
     assigned_to: null,
     updated_at: '2024-01-01T00:00:00Z',
+    muted_by: null,
+    assigned_by: null,
     ...overrides,
   }
 }
